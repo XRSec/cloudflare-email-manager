@@ -1,386 +1,225 @@
-# 🚀 简洁临时邮箱系统
+# Cloudflare 临时邮箱管理系统 (CEM)
 
-基于 Cloudflare Workers 构建的现代化临时邮箱服务，支持邮件接收、附件存储、智能转发等功能。
+一个基于 Cloudflare Workers 的现代化临时邮箱管理系统，支持邮件接收、存储、转发、附件管理等功能。
 
-## ✨ 主要特性
+## ✨ 功能特性
 
-### 📧 邮件处理
-
-- 🔥 **高性能邮件接收** - 基于 Cloudflare Email Routing
-- 📎 **附件支持** - 最大支持50MB附件，存储在R2
-- 🗄️ **数据持久化** - 使用D1数据库存储邮件数据
-- 🧹 **自动清理** - 可配置的自动清理策略
+### 🚀 核心功能
+- **邮件接收**: 通过 Cloudflare Email Routing 自动接收邮件
+- **邮件存储**: 使用 Cloudflare D1 数据库存储邮件内容
+- **附件支持**: 支持最大 50MB 的邮件附件，存储在 Cloudflare R2 中
+- **自动清理**: 可配置的邮件自动清理机制
+- **邮件解析**: 完整的 MIME 邮件解析，支持 HTML 和纯文本
 
 ### 👥 用户管理
+- **用户注册**: 支持用户自由注册（可配置开关）
+- **随机前缀**: 自动生成随机邮件前缀，确保唯一性
+- **权限控制**: 管理员和普通用户权限分离
+- **账户设置**: 支持修改密码、配置 webhook 等
 
-- 🔐 **安全认证** - JWT Token + 密码认证
-- 🎲 **随机前缀** - 自动生成邮箱前缀，保护隐私
-- 👨‍💼 **角色管理** - 支持普通用户和管理员角色
-- ⚙️ **个人设置** - 支持修改密码、Webhook等
+### 🔄 邮件转发
+- **Webhook 支持**: 支持钉钉、飞书等平台
+- **转发规则**: 管理员可配置复杂的邮件转发规则
+- **过滤条件**: 支持按发件人、关键字、收件人等条件过滤
+- **签名验证**: 支持 webhook 签名验证
 
-### 🔗 智能转发
-
-- 🤖 **Webhook支持** - 钉钉、飞书、自定义Webhook
-- 📋 **规则配置** - 灵活的转发规则设置
-- 🔍 **条件过滤** - 发件人、关键词、收件人过滤
-- 🔐 **签名验证** - 支持Webhook签名验证
-
-### 🛡️ 安全特性
-
-- 🚫 **防SQL注入** - 完善的输入验证和清理
-- 🚦 **限流保护** - 基于IP的请求频率限制
-- 🔒 **登录保护** - 失败尝试次数限制
-- 📝 **安全日志** - 详细的安全事件记录
-
-### 💻 管理功能
-
-- 👥 **用户管理** - 创建、删除、查看用户
-- 📊 **统计信息** - 邮件、用户、附件统计
-- ⚙️ **系统设置** - 注册开关、清理配置等
-- 📄 **转发日志** - 详细的转发记录
+### 🎨 用户界面
+- **现代化 UI**: 基于 Vue 3 + Naive UI 的响应式界面
+- **中文支持**: 完整的中文本地化
+- **邮件管理**: 支持搜索、过滤、分页等
+- **附件下载**: 一键下载邮件附件
 
 ## 🏗️ 技术架构
 
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   前端界面      │    │  Cloudflare      │    │    外部服务     │
-│   (静态文件)    │◄──►│    Workers       │◄──►│   (钉钉/飞书)   │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                              │
-                              ▼
-            ┌─────────────────────────────────────────┐
-            │              数据层                      │
-            ├─────────────┬─────────────┬─────────────┤
-            │     D1      │     R2      │     KV      │
-            │   数据库    │  附件存储   │   缓存层    │
-            └─────────────┴─────────────┴─────────────┘
-```
-
-- **前端**: 纯HTML/CSS/JavaScript，集成在Workers中
-- **后端**: Cloudflare Workers + Hono框架
-- **数据库**: Cloudflare D1 (SQLite)
-- **存储**: Cloudflare R2 (附件存储)
-- **缓存**: Cloudflare KV (限流、会话等)
-
-## 🗂️ 关键文件说明：
-
-1. 核心代码
-   - src/index.ts - 主Worker入口 
-   - new_worker.ts - 邮件处理核心逻辑
-   - api_endpoints.ts - 完整API实现
-   - webhook_system.ts - Webhook转发系统
-   - security_features.ts - 安全防护模块
-
-2. 前端界面
-   - static/index.html - 简洁的用户界面
-   - static/admin.js - 管理员功能扩展
-
-3. 配置和部署
-   - new_db_schema.sql - 重新设计的数据库结构
-   - wrangler.toml - Cloudflare Workers配置
-   - deploy.sh - 一键部署脚本
-   - README.md - 详细使用文档
+- **后端**: Cloudflare Workers + D1 数据库 + R2 存储 + KV 存储
+- **前端**: Vue 3 + Naive UI + Vite
+- **部署**: Wrangler CLI
+- **邮件处理**: 自定义 MIME 解析器
 
 ## 🚀 快速开始
 
-### 1. 一键部署：
+### 1. 环境要求
 
-```bash
-chmod +x deploy.sh
-./deploy.sh
-```
+- Node.js 16+
+- Wrangler CLI
+- Cloudflare 账户
 
-### 2. 手动部署：
+### 2. 安装依赖
 
 ```bash
 npm install
-
-# 登录
-wrangler login
-
-# 创建 D1 数据库
-wrangler d1 create cem-db
-
-# 创建 R2 存储桶
-wrangler r2 bucket create cem-attachments
-
-# 创建 KV 命名空间
-wrangler kv:namespace create "cem-kv"
 ```
 
 ### 3. 配置环境
 
-编辑 `wrangler.toml` 文件，填入上一步创建的资源ID：
-
-```toml
-# 更新数据库ID
-database_id = "your-d1-database-id"
-
-# 更新KV命名空间ID
-id = "your-kv-namespace-id"
-
-# 更新域名配置
-DOMAIN = "your-domain.com"
-JWT_SECRET = "your-strong-jwt-secret"
-```
-
-### 4. 初始化数据库
+复制配置文件模板：
 
 ```bash
-# 创建数据库表
-wrangler d1 execute cem-db --file=./new_db_schema.sql
-
-# 初始化用户
-ADMIN_PREFIX="你的用户名"
-ADMIN_PASSWORD="你的密码"
-ADMIN_PASSWORD_HASH=$(echo -n "${ADMIN_PASSWORD:-123456}" | sha256sum | cut -d' ' -f1)
-wrangler d1 execute cem-db --command="INSERT OR IGNORE INTO users (email_prefix, email_password, user_type) VALUES ('${ADMIN_PREFIX:-admin}', '$ADMIN_PASSWORD_HASH', 'admin')" --env=$ENVIRONMENT
+cp wrangler.example.toml wrangler.toml
 ```
 
-### 5. 配置邮件路由
+编辑 `wrangler.toml` 文件，配置你的域名和其他设置。
 
-在 Cloudflare 控制台中：
+### 4. 部署
 
-1. 进入您的域名管理
-2. 启用 Email Routing
-3. 创建路由规则：`*@your-domain.com` → `Send to Worker` → `cem-system`
-
-### 6. 部署应用
+运行部署脚本：
 
 ```bash
-# 开发模式
-npm run dev
-
-# 生产部署
-npm run deploy
+node deploy.js
 ```
 
-## 📖 使用指南
+或者使用 shell 脚本：
 
-### 普通用户
+```bash
+./deploy.sh
+```
 
-#### 1. 注册账户
+部署脚本会自动：
+- 创建 D1 数据库
+- 创建 R2 存储桶
+- 创建 KV 命名空间
+- 配置环境变量
+- 初始化管理员账户
 
-- 访问您的域名
-- 点击"注册"标签
-- 设置密码（至少6位）
-- 系统自动分配邮箱前缀
+### 5. 配置 Cloudflare Email Routing
 
-#### 2. 查看邮件
+在 Cloudflare 控制台中配置 Email Routing，将邮件路由到你的 Worker。
 
-- 使用分配的邮箱前缀和密码登录
-- 在"邮件列表"中查看收到的邮件
-- 支持按发件人、关键词、时间过滤
-- 点击邮件查看详情和下载附件
+## 📁 项目结构
 
-#### 3. 个人设置
-
-- 在"个人设置"中配置Webhook地址
-- 设置Webhook签名密钥（可选）
-- 修改登录密码
-
-### 管理员
-
-#### 1. 用户管理
-
-- 查看所有用户列表
-- 创建新用户（可指定前缀和角色）
-- 删除用户及其所有数据
-- 向用户发送登录信息
-
-#### 2. 转发规则
-
-- 创建邮件转发规则
-- 支持多种过滤条件
-- 配置钉钉、飞书或自定义Webhook
-- 启用/禁用规则
-
-#### 3. 系统管理
-
-- 配置是否允许用户注册
-- 设置邮件保留天数
-- 查看系统统计信息
-- 手动触发清理任务
+```
+├── frontend/                 # 前端代码
+│   ├── src/
+│   │   ├── views/           # 页面组件
+│   │   ├── components/      # 通用组件
+│   │   ├── api/             # API 接口
+│   │   └── store/           # 状态管理
+├── worker/                   # Worker 相关文件
+├── new_worker.ts            # 主要的 Worker 代码
+├── new_db_schema.sql        # 数据库架构
+├── deploy.js                # 部署脚本
+├── wrangler.example.toml    # 配置文件模板
+└── README.md                # 项目说明
+```
 
 ## 🔧 配置说明
 
 ### 环境变量
 
-| 变量名                       | 说明      | 默认值        | 必需 |
-|---------------------------|---------|------------|----|
-| `DOMAIN`                  | 邮件域名    | -          | ✅  |
-| `JWT_SECRET`              | JWT签名密钥 | -          | ✅  |
-| `ALLOW_REGISTRATION`      | 是否允许注册  | `true`     | ❌  |
-| `CLEANUP_DAYS`            | 邮件保留天数  | `7`        | ❌  |
-| `MAX_ATTACHMENT_SIZE`     | 最大附件大小  | `52428800` | ❌  |
-| `MAX_REQUESTS_PER_MINUTE` | 每分钟请求限制 | `60`       | ❌  |
-| `MAX_LOGIN_ATTEMPTS`      | 登录尝试限制  | `5`        | ❌  |
+- `DOMAIN`: 你的邮件域名
+- `JWT_SECRET`: JWT 签名密钥
+- `ALLOW_REGISTRATION`: 是否允许用户注册
+- `CLEANUP_DAYS`: 邮件自动清理天数
+- `MAX_ATTACHMENT_SIZE`: 最大附件大小（字节）
 
-### Webhook配置
+### 数据库表结构
 
-#### 钉钉机器人
+- `users`: 用户信息表
+- `emails`: 邮件内容表
+- `attachments`: 附件信息表
+- `forward_rules`: 转发规则表
+- `system_settings`: 系统设置表
+- `forward_logs`: 转发日志表
 
-```json
-{
-  "webhook_type": "dingtalk",
-  "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN",
-  "webhook_secret": "YOUR_SECRET"
-}
-```
+## 📖 API 文档
 
-#### 飞书机器人
+### 用户相关
 
-```json
-{
-  "webhook_type": "feishu",
-  "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_HOOK_ID",
-  "webhook_secret": "YOUR_SECRET"
-}
-```
+- `POST /api/register` - 用户注册
+- `POST /api/login` - 用户登录
+- `GET /api/user/settings` - 获取用户设置
+- `PUT /api/user/settings` - 更新用户设置
 
-#### 自定义Webhook
+### 邮件相关
 
-```json
-{
-  "webhook_type": "custom",
-  "webhook_url": "https://your-api.com/webhook",
-  "webhook_secret": "YOUR_SECRET"
-}
-```
+- `GET /api/mails` - 获取邮件列表
+- `GET /api/mails/:id` - 获取邮件详情
+- `DELETE /api/mails/:id` - 删除邮件
+- `GET /api/attachments/:id/download` - 下载附件
 
-## 🛠️ 开发指南
+### 管理员功能
 
-### 项目结构
+- `GET /api/admin/users` - 获取用户列表
+- `POST /api/admin/users` - 创建用户
+- `DELETE /api/admin/users/:id` - 删除用户
+- `GET /api/admin/forward-rules` - 获取转发规则
+- `POST /api/admin/forward-rules` - 创建转发规则
+- `GET /api/admin/settings` - 获取系统设置
+- `PUT /api/admin/settings` - 更新系统设置
 
-```
-src/
-├── index.ts              # 主入口文件
-├── api-routes.ts         # API路由定义
-├── email-processor.ts    # 邮件处理器
-├── webhook.ts           # Webhook系统
-├── cleanup.ts           # 清理系统
-├── security.ts          # 安全模块
-└── static-handler.ts    # 静态文件处理
+## 🎯 使用场景
 
-static/
-├── index.html           # 主页面
-├── admin.js            # 管理员功能
-└── styles.css          # 样式文件
+- **临时邮箱**: 注册网站时使用临时邮箱
+- **邮件转发**: 将重要邮件自动转发到其他平台
+- **邮件归档**: 长期保存和搜索邮件内容
+- **附件管理**: 安全存储和下载邮件附件
+- **团队协作**: 管理员可以管理多个用户账户
 
-db/
-└── schema.sql          # 数据库结构
-```
+## 🔒 安全特性
+
+- JWT 身份验证
+- 密码哈希存储
+- 权限控制
+- Webhook 签名验证
+- SQL 注入防护
+
+## 🚧 开发说明
 
 ### 本地开发
 
 ```bash
-# 启动开发服务器
+# 启动前端开发服务器
+cd frontend
 npm run dev
 
-# 代码格式化
-npm run format
-
-# 代码检查
-npm run lint
-
-# 运行测试
-npm test
+# 启动 Worker 开发服务器
+wrangler dev
 ```
 
-### 数据库操作
+### 代码规范
 
-```bash
-# 执行SQL文件
-wrangler d1 execute cem-db --file=./path/to/file.sql
+- 使用 TypeScript
+- 添加中文注释
+- 遵循 ESLint 规则
+- 使用 Prettier 格式化
 
-# 备份数据库
-npm run db:backup
+## 📝 更新日志
 
-# 查看数据库信息
-wrangler d1 info cem-db
-```
-
-## 🔐 安全最佳实践
-
-1. **强密码**: 使用至少32位的强随机JWT密钥
-2. **HTTPS**: 确保所有通信使用HTTPS
-3. **限流**: 根据实际需求调整限流参数
-4. **监控**: 定期检查安全日志
-5. **更新**: 及时更新依赖包和Worker运行时
-
-## 📊 监控和日志
-
-### Cloudflare 控制台
-
-- Workers 执行次数和错误率
-- D1 数据库查询统计
-- R2 存储使用情况
-
-### 应用日志
-
-- 邮件处理日志
-- 安全事件日志
-- Webhook发送日志
-- 清理任务日志
-
-## 🐛 故障排除
-
-### 常见问题
-
-#### 1. 邮件收不到
-
-- 检查 Email Routing 配置
-- 确认 Worker 部署成功
-- 查看 Worker 日志
-
-#### 2. 附件下载失败
-
-- 检查 R2 存储桶权限
-- 确认附件文件存在
-- 查看文件大小限制
-
-#### 3. Webhook 不工作
-
-- 验证 Webhook URL 可访问
-- 检查签名配置
-- 查看转发日志
-
-### 调试模式
-
-```bash
-# 启用详细日志
-wrangler dev --local
-
-# 查看实时日志
-wrangler tail
-```
+### v1.0.0
+- 初始版本发布
+- 支持基本的邮件接收和存储
+- 用户注册和登录功能
+- 管理员控制台
+- 邮件转发规则配置
 
 ## 🤝 贡献指南
 
-1. Fork 本仓库
-2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 创建 Pull Request
+欢迎提交 Issue 和 Pull Request！
 
 ## 📄 许可证
 
-本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
+MIT License
 
-## 🙏 致谢
+## 🆘 常见问题
 
-- [Cloudflare Workers](https://workers.cloudflare.com/) - 强大的边缘计算平台
-- [Hono](https://hono.dev/) - 轻量级Web框架
-- [vwh/temp-mail](https://github.com/vwh/temp-mail) - UI设计参考
+### Q: 如何配置邮件域名？
+A: 在 Cloudflare 控制台中配置 Email Routing，将邮件路由到你的 Worker。
 
-## 📞 支持
+### Q: 如何备份数据？
+A: 使用 `wrangler d1 export` 命令导出数据库，使用 `wrangler r2 object list` 查看存储的文件。
 
-如果您遇到问题或有建议：
+### Q: 如何自定义邮件清理策略？
+A: 在管理员控制台的系统设置中修改 `cleanup_days` 参数。
 
-- 📧 邮件: your-email@example.com
-- 🐛 Issues: [GitHub Issues](https://github.com/XRSec/cloudflare-email-manager/issues)
-- 💬 讨论: [GitHub Discussions](https://github.com/XRSec/cloudflare-email-manager/discussions)
+### Q: 支持哪些 webhook 平台？
+A: 目前支持钉钉、飞书和自定义 webhook，可以轻松扩展支持其他平台。
+
+## 📞 联系方式
+
+如有问题，请通过以下方式联系：
+- 提交 GitHub Issue
+- 发送邮件到项目维护者
 
 ---
 
-⭐ 如果这个项目对您有帮助，请给它一个星标！
+**注意**: 这是一个开源项目，请在生产环境中谨慎使用，并确保遵守相关法律法规。
