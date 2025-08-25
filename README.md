@@ -1,187 +1,343 @@
-<!-- markdownlint-disable-file MD033 MD045 -->
-# 🚀 Cloudflare 临时邮箱 - 免费搭建临时邮件服务
+# 🚀 简洁临时邮箱系统
 
-<p align="center">
-  <a href="https://temp-mail-docs.awsl.uk" target="_blank">
-    <img alt="docs" src="https://img.shields.io/badge/docs-grey?logo=vitepress">
-  </a>
-  <a href="https://github.com/dreamhunter2333/cloudflare_temp_email/releases/latest" target="_blank">
-    <img src="https://img.shields.io/github/v/release/dreamhunter2333/cloudflare_temp_email">
-  </a>
-  <a href="https://github.com/dreamhunter2333/cloudflare_temp_email/blob/main/LICENSE" target="_blank">
-    <img alt="MIT License" src="https://img.shields.io/github/license/dreamhunter2333/cloudflare_temp_email">
-  </a>
-  <a href="https://github.com/dreamhunter2333/cloudflare_temp_email/graphs/contributors" target="_blank">
-   <img alt="GitHub contributors" src="https://img.shields.io/github/contributors/dreamhunter2333/cloudflare_temp_email">
-  </a>
-  <a href="">
-    <img alt="GitHub top language" src="https://img.shields.io/github/languages/top/dreamhunter2333/cloudflare_temp_email">
-  </a>
-  <a href="">
-    <img src="https://img.shields.io/github/last-commit/dreamhunter2333/cloudflare_temp_email">
-  </a>
-</p>
+基于 Cloudflare Workers 构建的现代化临时邮箱服务，支持邮件接收、附件存储、智能转发等功能。
 
-<p align="center">
-  <a href="https://hellogithub.com/repository/2ccc64bb1ba346b480625f584aa19eb1" target="_blank">
-    <img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=2ccc64bb1ba346b480625f584aa19eb1&claim_uid=FxNypXK7UQ9OECT" alt="Featured｜HelloGitHub" height="30"/>
-  </a>
-</p>
-
-<p align="center">
-  <a href="README.md">🇨🇳 中文文档</a> |
-  <a href="README_EN.md">🇺🇸 English Document</a>
-</p>
-
-> 本项目仅供学习和个人用途，请勿将其用于任何违法行为，否则后果自负。
-
-**🎉 一个功能完整的临时邮箱服务！**
-
-- 🆓 **完全免费** - 基于 Cloudflare 免费服务构建，零成本运行
-- ⚡ **高性能** - Rust WASM 邮件解析，响应速度极快
-- 🎨 **现代化界面** - 响应式设计，支持多语言，操作简便
-
-## 📚 部署文档 - 快速开始
-
-[📖 部署文档](https://temp-mail-docs.awsl.uk) | [🚀 Github Action 部署文档](https://temp-mail-docs.awsl.uk/zh/guide/actions/github-action.html)
-
-<a href="https://temp-mail-docs.awsl.uk/zh/guide/actions/github-action.html">
-  <img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare Workers" height="32">
-</a>
-
-## 📝 更新日志
-
-查看 [CHANGELOG](CHANGELOG.md) 了解最新更新内容。
-
-## 🎯 在线体验
-
-立即体验 → [https://mail.awsl.uk/](https://mail.awsl.uk/)
-
-<details>
-<summary>📊 服务状态监控（点击收缩/展开）</summary>
-
-|                                            |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [Backend](https://temp-email-api.awsl.uk/) | [![Deploy Backend Production](https://github.com/dreamhunter2333/cloudflare_temp_email/actions/workflows/backend_deploy.yaml/badge.svg)](https://github.com/dreamhunter2333/cloudflare_temp_email/actions/workflows/backend_deploy.yaml) ![](https://uptime.aks.awsl.icu/api/badge/10/status) ![](https://uptime.aks.awsl.icu/api/badge/10/uptime) ![](https://uptime.aks.awsl.icu/api/badge/10/ping) ![](https://uptime.aks.awsl.icu/api/badge/10/avg-response) ![](https://uptime.aks.awsl.icu/api/badge/10/cert-exp) ![](https://uptime.aks.awsl.icu/api/badge/10/response) |
-| [Frontend](https://mail.awsl.uk/)          | [![Deploy Frontend](https://github.com/dreamhunter2333/cloudflare_temp_email/actions/workflows/frontend_deploy.yaml/badge.svg)](https://github.com/dreamhunter2333/cloudflare_temp_email/actions/workflows/frontend_deploy.yaml) ![](https://uptime.aks.awsl.icu/api/badge/12/status) ![](https://uptime.aks.awsl.icu/api/badge/12/uptime) ![](https://uptime.aks.awsl.icu/api/badge/12/ping) ![](https://uptime.aks.awsl.icu/api/badge/12/avg-response) ![](https://uptime.aks.awsl.icu/api/badge/12/cert-exp) ![](https://uptime.aks.awsl.icu/api/badge/12/response)         |
-
-</details>
-
-<details>
-<summary>⭐ Star History（点击收缩/展开）</summary>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=dreamhunter2333/cloudflare_temp_email&type=Date&theme=dark" />
-  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=dreamhunter2333/cloudflare_temp_email&type=Date" />
-  <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=dreamhunter2333/cloudflare_temp_email&type=Date" />
-</picture>
-
-</details>
-
-<details open>
-<summary>📖 目录（点击收缩/展开）</summary>
-
-- [🚀 Cloudflare 临时邮箱 - 免费搭建临时邮件服务](#-cloudflare-临时邮箱---免费搭建临时邮件服务)
-  - [📚 部署文档 - 快速开始](#-部署文档---快速开始)
-  - [📝 更新日志](#-更新日志)
-  - [🎯 在线体验](#-在线体验)
-  - [✨ 核心功能](#-核心功能)
-    - [📧 邮件处理](#-邮件处理)
-    - [👥 用户管理](#-用户管理)
-    - [🔧 管理功能](#-管理功能)
-    - [🌐 多语言与界面](#-多语言与界面)
-    - [🤖 集成与扩展](#-集成与扩展)
-  - [🏗️ 技术架构](#️-技术架构)
-    - [🏛️ 系统架构](#️-系统架构)
-    - [🛠️ 技术栈](#️-技术栈)
-    - [📦 主要组件](#-主要组件)
-  - [🌟 加入社区](#-加入社区)
-
-</details>
-
-## ✨ 核心功能
-
-<details open>
-<summary>✨ 核心功能详情（点击收缩/展开）</summary>
+## ✨ 主要特性
 
 ### 📧 邮件处理
-
-- [x] 使用 `rust wasm` 解析邮件，解析速度快，几乎所有邮件都能解析，node 的解析模块解析邮件失败的邮件，rust wasm 也能解析成功
-- [x] 支持发送邮件，支持 `DKIM` 验证
-- [x] 支持 `SMTP` 和 `Resend` 等多种发送方式
-- [x] 增加查看 `附件` 功能，支持附件图片显示
-- [x] 支持 S3 附件存储和删除功能
-- [x] 垃圾邮件检测和黑白名单配置
-- [x] 邮件转发功能，支持全局转发地址
+- 🔥 **高性能邮件接收** - 基于 Cloudflare Email Routing
+- 📎 **附件支持** - 最大支持50MB附件，存储在R2
+- 🗄️ **数据持久化** - 使用D1数据库存储邮件数据
+- 🧹 **自动清理** - 可配置的自动清理策略
 
 ### 👥 用户管理
+- 🔐 **安全认证** - JWT Token + 密码认证
+- 🎲 **随机前缀** - 自动生成邮箱前缀，保护隐私
+- 👨‍💼 **角色管理** - 支持普通用户和管理员角色
+- ⚙️ **个人设置** - 支持修改密码、Webhook等
 
-- [x] 使用 `凭证` 重新登录之前的邮箱
-- [x] 添加完整的用户注册登录功能，可绑定邮箱地址，绑定后可自动获取邮箱JWT凭证切换不同邮箱
-- [x] 支持 `OAuth2` 第三方登录（Github、Authentik 等）
-- [x] 支持 `Passkey` 无密码登录
-- [x] 用户角色管理，支持多角色域名和前缀配置
-- [x] 用户收件箱查看，支持地址和关键词过滤
+### 🔗 智能转发
+- 🤖 **Webhook支持** - 钉钉、飞书、自定义Webhook
+- 📋 **规则配置** - 灵活的转发规则设置
+- 🔍 **条件过滤** - 发件人、关键词、收件人过滤
+- 🔐 **签名验证** - 支持Webhook签名验证
 
-### 🔧 管理功能
+### 🛡️ 安全特性
+- 🚫 **防SQL注入** - 完善的输入验证和清理
+- 🚦 **限流保护** - 基于IP的请求频率限制
+- 🔒 **登录保护** - 失败尝试次数限制
+- 📝 **安全日志** - 详细的安全事件记录
 
-- [x] 完整的 admin 控制台
-- [x] `admin` 后台创建无前缀邮箱
-- [x] admin 用户管理页面，增加用户地址查看功能
-- [x] 定时清理功能，支持多种清理策略
-- [x] 获取自定义名字的邮箱，`admin` 可配置黑名单
-- [x] 增加访问密码，可作为私人站点
-
-### 🌐 多语言与界面
-
-- [x] 前后台均支持多语言
-- [x] 现代化 UI 设计，支持响应式布局
-- [x] 支持 Google Ads 集成
-- [x] 使用 shadow DOM 防止样式污染
-- [x] 支持 URL JWT 参数自动登录
-
-### 🤖 集成与扩展
-
-- [x] 完整的 `Telegram Bot` 支持，以及 `Telegram` 推送，Telegram Bot 小程序
-- [x] 添加 `SMTP proxy server`，支持 `SMTP` 发送邮件，`IMAP` 查看邮件
-- [x] Webhook 支持，消息推送集成
-- [x] 支持 `CF Turnstile` 人机验证
-- [x] 限流配置，防止滥用
-
-</details>
+### 💻 管理功能
+- 👥 **用户管理** - 创建、删除、查看用户
+- 📊 **统计信息** - 邮件、用户、附件统计
+- ⚙️ **系统设置** - 注册开关、清理配置等
+- 📄 **转发日志** - 详细的转发记录
 
 ## 🏗️ 技术架构
 
-<details>
-<summary>🏗️ 技术架构详情（点击收缩/展开）</summary>
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   前端界面      │    │  Cloudflare      │    │    外部服务     │
+│   (静态文件)    │◄──►│    Workers       │◄──►│   (钉钉/飞书)   │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                              │
+                              ▼
+            ┌─────────────────────────────────────────┐
+            │              数据层                      │
+            ├─────────────┬─────────────┬─────────────┤
+            │     D1      │     R2      │     KV      │
+            │   数据库    │  附件存储   │   缓存层    │
+            └─────────────┴─────────────┴─────────────┘
+```
 
-### 🏛️ 系统架构
-
-- **数据库**: Cloudflare D1 作为主数据库
-- **前端部署**: 使用 Cloudflare Pages 部署前端
-- **后端部署**: 使用 Cloudflare Workers 部署后端
-- **邮件转发**: 使用 Cloudflare Email Routing
-
-### 🛠️ 技术栈
-
-- **前端**: Vue 3 + Vite + TypeScript
-- **后端**: TypeScript + Cloudflare Workers
-- **邮件解析**: Rust WASM (mail-parser-wasm)
+- **前端**: 纯HTML/CSS/JavaScript，集成在Workers中
+- **后端**: Cloudflare Workers + Hono框架
 - **数据库**: Cloudflare D1 (SQLite)
-- **存储**: Cloudflare KV + R2 (可选 S3)
-- **代理服务**: Python SMTP/IMAP Proxy Server
+- **存储**: Cloudflare R2 (附件存储)
+- **缓存**: Cloudflare KV (限流、会话等)
 
-### 📦 主要组件
+## 🚀 快速开始
 
-- **Worker**: 核心后端服务
-- **Frontend**: Vue 3 用户界面
-- **Mail Parser WASM**: Rust 邮件解析模块
-- **SMTP Proxy Server**: Python 邮件代理服务
-- **Pages Functions**: Cloudflare Pages 中间件
-- **Documentation**: VitePress 文档站点
+### 1. 环境准备
 
-</details>
+```bash
+# 安装依赖
+npm install
 
-## 🌟 加入社区
+# 安装 Wrangler CLI
+npm install -g wrangler
 
-- [Telegram](https://t.me/cloudflare_temp_email)
+# 登录 Cloudflare
+wrangler auth login
+```
+
+### 2. 创建资源
+
+```bash
+# 创建 D1 数据库
+wrangler d1 create temp-email-db
+
+# 创建 R2 存储桶
+wrangler r2 bucket create temp-email-attachments
+
+# 创建 KV 命名空间
+wrangler kv:namespace create "temp-email-kv"
+```
+
+### 3. 配置环境
+
+编辑 `wrangler.toml` 文件，填入上一步创建的资源ID：
+
+```toml
+# 更新数据库ID
+database_id = "your-d1-database-id"
+
+# 更新KV命名空间ID
+id = "your-kv-namespace-id"
+
+# 更新域名配置
+DOMAIN = "your-domain.com"
+JWT_SECRET = "your-strong-jwt-secret"
+```
+
+### 4. 初始化数据库
+
+```bash
+# 创建数据库表
+wrangler d1 execute temp-email-db --file=./new_db_schema.sql
+```
+
+### 5. 配置邮件路由
+
+在 Cloudflare 控制台中：
+
+1. 进入您的域名管理
+2. 启用 Email Routing
+3. 创建路由规则：`*@your-domain.com` → `Send to Worker` → `temp-email-system`
+
+### 6. 部署应用
+
+```bash
+# 开发模式
+npm run dev
+
+# 生产部署
+npm run deploy
+```
+
+## 📖 使用指南
+
+### 普通用户
+
+#### 1. 注册账户
+- 访问您的域名
+- 点击"注册"标签
+- 设置密码（至少6位）
+- 系统自动分配邮箱前缀
+
+#### 2. 查看邮件
+- 使用分配的邮箱前缀和密码登录
+- 在"邮件列表"中查看收到的邮件
+- 支持按发件人、关键词、时间过滤
+- 点击邮件查看详情和下载附件
+
+#### 3. 个人设置
+- 在"个人设置"中配置Webhook地址
+- 设置Webhook签名密钥（可选）
+- 修改登录密码
+
+### 管理员
+
+#### 1. 用户管理
+- 查看所有用户列表
+- 创建新用户（可指定前缀和角色）
+- 删除用户及其所有数据
+- 向用户发送登录信息
+
+#### 2. 转发规则
+- 创建邮件转发规则
+- 支持多种过滤条件
+- 配置钉钉、飞书或自定义Webhook
+- 启用/禁用规则
+
+#### 3. 系统管理
+- 配置是否允许用户注册
+- 设置邮件保留天数
+- 查看系统统计信息
+- 手动触发清理任务
+
+## 🔧 配置说明
+
+### 环境变量
+
+| 变量名 | 说明 | 默认值 | 必需 |
+|--------|------|--------|------|
+| `DOMAIN` | 邮件域名 | - | ✅ |
+| `JWT_SECRET` | JWT签名密钥 | - | ✅ |
+| `ALLOW_REGISTRATION` | 是否允许注册 | `true` | ❌ |
+| `CLEANUP_DAYS` | 邮件保留天数 | `7` | ❌ |
+| `MAX_ATTACHMENT_SIZE` | 最大附件大小 | `52428800` | ❌ |
+| `MAX_REQUESTS_PER_MINUTE` | 每分钟请求限制 | `60` | ❌ |
+| `MAX_LOGIN_ATTEMPTS` | 登录尝试限制 | `5` | ❌ |
+
+### Webhook配置
+
+#### 钉钉机器人
+```javascript
+{
+  "webhook_type": "dingtalk",
+  "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN",
+  "webhook_secret": "YOUR_SECRET"
+}
+```
+
+#### 飞书机器人
+```javascript
+{
+  "webhook_type": "feishu",
+  "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_HOOK_ID",
+  "webhook_secret": "YOUR_SECRET"
+}
+```
+
+#### 自定义Webhook
+```javascript
+{
+  "webhook_type": "custom",
+  "webhook_url": "https://your-api.com/webhook",
+  "webhook_secret": "YOUR_SECRET"
+}
+```
+
+## 🛠️ 开发指南
+
+### 项目结构
+
+```
+src/
+├── index.ts              # 主入口文件
+├── api-routes.ts         # API路由定义
+├── email-processor.ts    # 邮件处理器
+├── webhook.ts           # Webhook系统
+├── cleanup.ts           # 清理系统
+├── security.ts          # 安全模块
+└── static-handler.ts    # 静态文件处理
+
+static/
+├── index.html           # 主页面
+├── admin.js            # 管理员功能
+└── styles.css          # 样式文件
+
+db/
+└── schema.sql          # 数据库结构
+```
+
+### 本地开发
+
+```bash
+# 启动开发服务器
+npm run dev
+
+# 代码格式化
+npm run format
+
+# 代码检查
+npm run lint
+
+# 运行测试
+npm test
+```
+
+### 数据库操作
+
+```bash
+# 执行SQL文件
+wrangler d1 execute temp-email-db --file=./path/to/file.sql
+
+# 备份数据库
+npm run db:backup
+
+# 查看数据库信息
+wrangler d1 info temp-email-db
+```
+
+## 🔐 安全最佳实践
+
+1. **强密码**: 使用至少32位的强随机JWT密钥
+2. **HTTPS**: 确保所有通信使用HTTPS
+3. **限流**: 根据实际需求调整限流参数
+4. **监控**: 定期检查安全日志
+5. **更新**: 及时更新依赖包和Worker运行时
+
+## 📊 监控和日志
+
+### Cloudflare 控制台
+- Workers 执行次数和错误率
+- D1 数据库查询统计
+- R2 存储使用情况
+
+### 应用日志
+- 邮件处理日志
+- 安全事件日志
+- Webhook发送日志
+- 清理任务日志
+
+## 🐛 故障排除
+
+### 常见问题
+
+#### 1. 邮件收不到
+- 检查 Email Routing 配置
+- 确认 Worker 部署成功
+- 查看 Worker 日志
+
+#### 2. 附件下载失败
+- 检查 R2 存储桶权限
+- 确认附件文件存在
+- 查看文件大小限制
+
+#### 3. Webhook 不工作
+- 验证 Webhook URL 可访问
+- 检查签名配置
+- 查看转发日志
+
+### 调试模式
+
+```bash
+# 启用详细日志
+wrangler dev --local
+
+# 查看实时日志
+wrangler tail
+```
+
+## 🤝 贡献指南
+
+1. Fork 本仓库
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 创建 Pull Request
+
+## 📄 许可证
+
+本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
+
+## 🙏 致谢
+
+- [Cloudflare Workers](https://workers.cloudflare.com/) - 强大的边缘计算平台
+- [Hono](https://hono.dev/) - 轻量级Web框架
+- [vwh/temp-mail](https://github.com/vwh/temp-mail) - UI设计参考
+
+## 📞 支持
+
+如果您遇到问题或有建议：
+
+- 📧 邮件: your-email@example.com
+- 🐛 Issues: [GitHub Issues](https://github.com/your-username/temp-email-system/issues)
+- 💬 讨论: [GitHub Discussions](https://github.com/your-username/temp-email-system/discussions)
+
+---
+
+⭐ 如果这个项目对您有帮助，请给它一个星标！

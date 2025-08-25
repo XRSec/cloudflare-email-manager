@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>临时邮箱 - 简洁高效的邮件服务</title>
+    <style>
+        /* 简洁的CSS样式，参考vwh/temp-mail的设计理念 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            color: white;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 1.1rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+
+        .login-card {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        .email-display {
+            text-align: center;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .email-address {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #667eea;
+            word-break: break-all;
+        }
+
+        .copy-btn {
+            margin-top: 10px;
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .copy-btn:hover {
+            background: #5a6fd8;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+            width: 100%;
+        }
+
+        .btn-primary:hover {
+            background: #5a6fd8;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .tab {
+            padding: 12px 20px;
+            background: none;
+            border: none;
+            font-size: 1rem;
+            cursor: pointer;
+            color: #6c757d;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .email-list {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .email-item {
+            padding: 15px;
+            border-bottom: 1px solid #e9ecef;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .email-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .email-item:last-child {
+            border-bottom: none;
+        }
+
+        .email-sender {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .email-subject {
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .email-preview {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+
+        .email-time {
+            color: #adb5bd;
+            font-size: 0.8rem;
+        }
+
+        .email-detail {
+            display: none;
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .email-detail.active {
+            display: block;
+        }
+
+        .email-detail-header {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .email-detail-content {
+            line-height: 1.6;
+        }
+
+        .attachments {
+            margin-top: 20px;
+        }
+
+        .attachment-item {
+            display: inline-flex;
+            align-items: center;
+            margin: 5px 10px 5px 0;
+            padding: 8px 12px;
+            background: #e9ecef;
+            border-radius: 6px;
+            text-decoration: none;
+            color: #495057;
+            font-size: 0.9rem;
+        }
+
+        .attachment-item:hover {
+            background: #dee2e6;
+        }
+
+        .filters {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .filter-input {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .page-btn {
+            padding: 8px 12px;
+            border: 1px solid #dee2e6;
+            background: white;
+            color: #495057;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .page-btn:hover {
+            background: #e9ecef;
+        }
+
+        .page-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            z-index: 1000;
+            transform: translateX(400px);
+            transition: transform 0.3s;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.success {
+            background: #28a745;
+        }
+
+        .notification.error {
+            background: #dc3545;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 10px;
+            color: #495057;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .card {
+                padding: 20px;
+            }
+
+            .filters {
+                flex-direction: column;
+            }
+
+            .filter-input {
+                min-width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>临时邮箱</h1>
+            <p>简洁高效的邮件服务，支持附件和转发</p>
+        </div>
+
+        <!-- 登录界面 -->
+        <div id="loginSection" class="card login-card">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('login')">登录</button>
+                <button class="tab" onclick="switchTab('register')">注册</button>
+            </div>
+
+            <!-- 登录表单 -->
+            <div id="loginForm" class="tab-content active">
+                <div class="form-group">
+                    <label for="loginPrefix">邮箱前缀</label>
+                    <input type="text" id="loginPrefix" class="form-control" placeholder="请输入邮箱前缀">
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">邮箱密码</label>
+                    <input type="password" id="loginPassword" class="form-control" placeholder="请输入邮箱密码">
+                </div>
+                <button class="btn btn-primary" onclick="login()">登录</button>
+            </div>
+
+            <!-- 注册表单 -->
+            <div id="registerForm" class="tab-content">
+                <div class="form-group">
+                    <label for="registerPassword">邮箱密码</label>
+                    <input type="password" id="registerPassword" class="form-control" placeholder="设置邮箱密码（至少6位）">
+                </div>
+                <button class="btn btn-primary" onclick="register()">注册</button>
+                <p style="margin-top: 15px; color: #6c757d; font-size: 0.9rem;">
+                    注册成功后将为您分配一个随机邮箱前缀
+                </p>
+            </div>
+        </div>
+
+        <!-- 主界面 -->
+        <div id="mainSection" class="hidden">
+            <!-- 用户信息 -->
+            <div class="card">
+                <div class="email-display">
+                    <div class="email-address" id="userEmail"></div>
+                    <button class="copy-btn" onclick="copyEmail()">复制邮箱</button>
+                    <button class="btn btn-secondary" style="margin-left: 10px;" onclick="logout()">退出登录</button>
+                </div>
+            </div>
+
+            <!-- 主要功能区 -->
+            <div class="card">
+                <div class="tabs">
+                    <button class="tab active" onclick="switchMainTab('emails')">邮件列表</button>
+                    <button class="tab" onclick="switchMainTab('settings')">个人设置</button>
+                    <button id="adminTab" class="tab hidden" onclick="switchMainTab('admin')">管理后台</button>
+                </div>
+
+                <!-- 邮件列表 -->
+                <div id="emailsTab" class="tab-content active">
+                    <div class="filters">
+                        <input type="text" id="senderFilter" class="form-control filter-input" placeholder="发件人过滤">
+                        <input type="text" id="keywordFilter" class="form-control filter-input" placeholder="关键字过滤">
+                        <input type="date" id="startDateFilter" class="form-control filter-input">
+                        <input type="date" id="endDateFilter" class="form-control filter-input">
+                        <button class="btn btn-primary" onclick="loadEmails()">搜索</button>
+                    </div>
+
+                    <div id="emailList" class="email-list">
+                        <div class="loading">加载中...</div>
+                    </div>
+
+                    <div id="pagination" class="pagination"></div>
+
+                    <!-- 邮件详情 -->
+                    <div id="emailDetail" class="email-detail">
+                        <div class="email-detail-header">
+                            <h3 id="detailSubject"></h3>
+                            <p><strong>发件人:</strong> <span id="detailSender"></span></p>
+                            <p><strong>收件人:</strong> <span id="detailRecipient"></span></p>
+                            <p><strong>时间:</strong> <span id="detailTime"></span></p>
+                            <button class="btn btn-danger" onclick="deleteEmail()">删除邮件</button>
+                            <button class="btn btn-secondary" onclick="closeEmailDetail()">关闭</button>
+                        </div>
+                        <div class="email-detail-content">
+                            <div id="detailContent"></div>
+                            <div id="detailAttachments" class="attachments"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 个人设置 -->
+                <div id="settingsTab" class="tab-content">
+                    <div class="form-group">
+                        <label for="webhookUrl">Webhook地址</label>
+                        <input type="url" id="webhookUrl" class="form-control" placeholder="https://example.com/webhook">
+                    </div>
+                    <div class="form-group">
+                        <label for="webhookSecret">Webhook签名密钥</label>
+                        <input type="text" id="webhookSecret" class="form-control" placeholder="用于验证webhook请求的密钥">
+                    </div>
+                    <div class="form-group">
+                        <label for="newPassword">修改密码</label>
+                        <input type="password" id="newPassword" class="form-control" placeholder="新密码（留空则不修改）">
+                    </div>
+                    <button class="btn btn-primary" onclick="updateSettings()">保存设置</button>
+                </div>
+
+                <!-- 管理后台 -->
+                <div id="adminTab" class="tab-content">
+                    <div class="tabs">
+                        <button class="tab active" onclick="switchAdminTab('users')">用户管理</button>
+                        <button class="tab" onclick="switchAdminTab('rules')">转发规则</button>
+                        <button class="tab" onclick="switchAdminTab('system')">系统设置</button>
+                        <button class="tab" onclick="switchAdminTab('stats')">统计信息</button>
+                    </div>
+
+                    <!-- 用户管理 -->
+                    <div id="usersAdmin" class="tab-content active">
+                        <div style="margin-bottom: 20px;">
+                            <button class="btn btn-primary" onclick="showCreateUserForm()">创建用户</button>
+                        </div>
+                        <div id="usersList">加载中...</div>
+                    </div>
+
+                    <!-- 转发规则 -->
+                    <div id="rulesAdmin" class="tab-content">
+                        <div style="margin-bottom: 20px;">
+                            <button class="btn btn-primary" onclick="showCreateRuleForm()">创建规则</button>
+                        </div>
+                        <div id="rulesList">加载中...</div>
+                    </div>
+
+                    <!-- 系统设置 -->
+                    <div id="systemAdmin" class="tab-content">
+                        <div id="systemSettings">加载中...</div>
+                    </div>
+
+                    <!-- 统计信息 -->
+                    <div id="statsAdmin" class="tab-content">
+                        <div id="statsInfo">加载中...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通知组件 -->
+    <div id="notification" class="notification"></div>
+
+    <script>
+        // 全局变量
+        let currentUser = null;
+        let currentToken = null;
+        let currentEmails = [];
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentEmailDetail = null;
+
+        // API基础URL
+        const API_BASE = '/api';
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuth();
+        });
+
+        // 检查认证状态
+        function checkAuth() {
+            const token = localStorage.getItem('token');
+            if (token) {
+                currentToken = token;
+                getUserInfo();
+            } else {
+                showLoginSection();
+            }
+        }
+
+        // 显示登录界面
+        function showLoginSection() {
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('mainSection').classList.add('hidden');
+        }
+
+        // 显示主界面
+        function showMainSection() {
+            document.getElementById('loginSection').classList.add('hidden');
+            document.getElementById('mainSection').classList.remove('hidden');
+            loadEmails();
+        }
+
+        // 切换登录/注册标签
+        function switchTab(tab) {
+            const tabs = document.querySelectorAll('.tab');
+            const contents = document.querySelectorAll('.tab-content');
+            
+            tabs.forEach(t => t.classList.remove('active'));
+            contents.forEach(c => c.classList.remove('active'));
+            
+            document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
+            document.getElementById(tab + 'Form').classList.add('active');
+        }
+
+        // 切换主界面标签
+        function switchMainTab(tab) {
+            const tabs = document.querySelectorAll('#mainSection .tabs .tab');
+            const contents = document.querySelectorAll('#mainSection .tab-content');
+            
+            tabs.forEach(t => t.classList.remove('active'));
+            contents.forEach(c => c.classList.remove('active'));
+            
+            document.querySelector(`[onclick="switchMainTab('${tab}')"]`).classList.add('active');
+            document.getElementById(tab + 'Tab').classList.add('active');
+
+            // 加载对应内容
+            if (tab === 'admin' && currentUser.user_type === 'admin') {
+                loadAdminData();
+            } else if (tab === 'settings') {
+                loadUserSettings();
+            }
+        }
+
+        // 切换管理员标签
+        function switchAdminTab(tab) {
+            const tabs = document.querySelectorAll('#adminTab .tabs .tab');
+            const contents = document.querySelectorAll('#adminTab .tab-content');
+            
+            tabs.forEach(t => t.classList.remove('active'));
+            contents.forEach(c => c.classList.remove('active'));
+            
+            document.querySelector(`[onclick="switchAdminTab('${tab}')"]`).classList.add('active');
+            document.getElementById(tab + 'Admin').classList.add('active');
+
+            // 加载对应数据
+            switch(tab) {
+                case 'users':
+                    loadUsers();
+                    break;
+                case 'rules':
+                    loadForwardRules();
+                    break;
+                case 'system':
+                    loadSystemSettings();
+                    break;
+                case 'stats':
+                    loadStats();
+                    break;
+            }
+        }
+
+        // 用户注册
+        async function register() {
+            const password = document.getElementById('registerPassword').value;
+            
+            if (!password || password.length < 6) {
+                showNotification('密码长度至少6位', 'error');
+                return;
+            }
+
+            try {
+                const response = await apiCall('/register', 'POST', {
+                    email_password: password
+                }, false);
+
+                if (response.success) {
+                    showNotification('注册成功！', 'success');
+                    document.getElementById('loginPrefix').value = response.data.email_prefix;
+                    document.getElementById('loginPassword').value = password;
+                    switchTab('login');
+                } else {
+                    showNotification(response.message || '注册失败', 'error');
+                }
+            } catch (error) {
+                showNotification('注册失败: ' + error.message, 'error');
+            }
+        }
+
+        // 用户登录
+        async function login() {
+            const prefix = document.getElementById('loginPrefix').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            if (!prefix || !password) {
+                showNotification('请填写邮箱前缀和密码', 'error');
+                return;
+            }
+
+            try {
+                const response = await apiCall('/login', 'POST', {
+                    email_prefix: prefix,
+                    email_password: password
+                }, false);
+
+                if (response.success) {
+                    currentToken = response.data.token;
+                    currentUser = response.data.user;
+                    localStorage.setItem('token', currentToken);
+                    
+                    showNotification('登录成功！', 'success');
+                    showMainSection();
+                    updateUserDisplay();
+                } else {
+                    showNotification(response.message || '登录失败', 'error');
+                }
+            } catch (error) {
+                showNotification('登录失败: ' + error.message, 'error');
+            }
+        }
+
+        // 用户退出
+        function logout() {
+            currentToken = null;
+            currentUser = null;
+            localStorage.removeItem('token');
+            showLoginSection();
+            showNotification('已退出登录', 'success');
+        }
+
+        // 获取用户信息
+        async function getUserInfo() {
+            try {
+                const response = await apiCall('/protected/user', 'GET');
+                if (response.success) {
+                    currentUser = response.data.user;
+                    updateUserDisplay();
+                    showMainSection();
+                } else {
+                    logout();
+                }
+            } catch (error) {
+                logout();
+            }
+        }
+
+        // 更新用户显示
+        function updateUserDisplay() {
+            if (currentUser) {
+                document.getElementById('userEmail').textContent = currentUser.email_address;
+                
+                // 显示管理员标签
+                if (currentUser.user_type === 'admin') {
+                    document.getElementById('adminTab').classList.remove('hidden');
+                }
+            }
+        }
+
+        // 复制邮箱地址
+        function copyEmail() {
+            const email = document.getElementById('userEmail').textContent;
+            navigator.clipboard.writeText(email).then(() => {
+                showNotification('邮箱地址已复制', 'success');
+            }).catch(() => {
+                showNotification('复制失败', 'error');
+            });
+        }
+
+        // 加载邮件列表
+        async function loadEmails(page = 1) {
+            currentPage = page;
+            
+            const sender = document.getElementById('senderFilter').value;
+            const keyword = document.getElementById('keywordFilter').value;
+            const startDate = document.getElementById('startDateFilter').value;
+            const endDate = document.getElementById('endDateFilter').value;
+            
+            const params = new URLSearchParams({
+                page: page,
+                limit: 20
+            });
+            
+            if (sender) params.append('sender', sender);
+            if (keyword) params.append('keyword', keyword);
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+
+            try {
+                document.getElementById('emailList').innerHTML = '<div class="loading">加载中...</div>';
+                
+                const response = await apiCall(`/protected/emails?${params}`, 'GET');
+                
+                if (response.success) {
+                    currentEmails = response.data.emails;
+                    totalPages = Math.ceil(response.data.total / response.data.limit);
+                    renderEmailList();
+                    renderPagination();
+                } else {
+                    throw new Error(response.message);
+                }
+            } catch (error) {
+                document.getElementById('emailList').innerHTML = 
+                    '<div class="empty-state"><h3>加载失败</h3><p>' + error.message + '</p></div>';
+            }
+        }
+
+        // 渲染邮件列表
+        function renderEmailList() {
+            const emailList = document.getElementById('emailList');
+            
+            if (currentEmails.length === 0) {
+                emailList.innerHTML = `
+                    <div class="empty-state">
+                        <h3>暂无邮件</h3>
+                        <p>您的邮箱中还没有收到邮件</p>
+                    </div>
+                `;
+                return;
+            }
+
+            emailList.innerHTML = currentEmails.map(email => `
+                <div class="email-item" onclick="showEmailDetail(${email.id})">
+                    <div class="email-sender">${email.sender_email}</div>
+                    <div class="email-subject">${email.subject || '(无主题)'}</div>
+                    <div class="email-preview">${(email.text_content || '').substring(0, 100)}...</div>
+                    <div class="email-time">
+                        ${new Date(email.received_at).toLocaleString()}
+                        ${email.has_attachments ? ' 📎' : ''}
+                        ${email.attachment_count > 0 ? ` (${email.attachment_count}个附件)` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 渲染分页
+        function renderPagination() {
+            const pagination = document.getElementById('pagination');
+            
+            if (totalPages <= 1) {
+                pagination.innerHTML = '';
+                return;
+            }
+
+            let paginationHTML = '';
+            
+            // 上一页
+            if (currentPage > 1) {
+                paginationHTML += `<button class="page-btn" onclick="loadEmails(${currentPage - 1})">上一页</button>`;
+            }
+            
+            // 页码
+            for (let i = Math.max(1, currentPage - 2); i <= Math.min(totalPages, currentPage + 2); i++) {
+                paginationHTML += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="loadEmails(${i})">${i}</button>`;
+            }
+            
+            // 下一页
+            if (currentPage < totalPages) {
+                paginationHTML += `<button class="page-btn" onclick="loadEmails(${currentPage + 1})">下一页</button>`;
+            }
+            
+            pagination.innerHTML = paginationHTML;
+        }
+
+        // 显示邮件详情
+        async function showEmailDetail(emailId) {
+            try {
+                const response = await apiCall(`/protected/emails/${emailId}`, 'GET');
+                
+                if (response.success) {
+                    currentEmailDetail = response.data.email;
+                    const attachments = response.data.attachments;
+                    
+                    document.getElementById('detailSubject').textContent = currentEmailDetail.subject || '(无主题)';
+                    document.getElementById('detailSender').textContent = currentEmailDetail.sender_email;
+                    document.getElementById('detailRecipient').textContent = currentEmailDetail.recipient_email;
+                    document.getElementById('detailTime').textContent = new Date(currentEmailDetail.received_at).toLocaleString();
+                    
+                    // 显示邮件内容
+                    const contentDiv = document.getElementById('detailContent');
+                    if (currentEmailDetail.html_content) {
+                        contentDiv.innerHTML = currentEmailDetail.html_content;
+                    } else {
+                        contentDiv.innerHTML = `<pre style="white-space: pre-wrap; font-family: inherit;">${currentEmailDetail.text_content || '(无内容)'}</pre>`;
+                    }
+                    
+                    // 显示附件
+                    const attachmentsDiv = document.getElementById('detailAttachments');
+                    if (attachments.length > 0) {
+                        attachmentsDiv.innerHTML = `
+                            <h4>附件 (${attachments.length}个)</h4>
+                            ${attachments.map(att => `
+                                <a href="/api/protected/attachments/${att.id}" class="attachment-item" target="_blank">
+                                    📎 ${att.filename} (${formatFileSize(att.size_bytes)})
+                                </a>
+                            `).join('')}
+                        `;
+                    } else {
+                        attachmentsDiv.innerHTML = '';
+                    }
+                    
+                    document.getElementById('emailDetail').classList.add('active');
+                } else {
+                    showNotification('加载邮件详情失败', 'error');
+                }
+            } catch (error) {
+                showNotification('加载邮件详情失败: ' + error.message, 'error');
+            }
+        }
+
+        // 关闭邮件详情
+        function closeEmailDetail() {
+            document.getElementById('emailDetail').classList.remove('active');
+            currentEmailDetail = null;
+        }
+
+        // 删除邮件
+        async function deleteEmail() {
+            if (!currentEmailDetail || !confirm('确定要删除这封邮件吗？')) {
+                return;
+            }
+
+            try {
+                const response = await apiCall(`/protected/emails/${currentEmailDetail.id}`, 'DELETE');
+                
+                if (response.success) {
+                    showNotification('邮件已删除', 'success');
+                    closeEmailDetail();
+                    loadEmails(currentPage);
+                } else {
+                    showNotification('删除失败: ' + response.message, 'error');
+                }
+            } catch (error) {
+                showNotification('删除失败: ' + error.message, 'error');
+            }
+        }
+
+        // 加载用户设置
+        async function loadUserSettings() {
+            if (!currentUser) return;
+            
+            document.getElementById('webhookUrl').value = currentUser.webhook_url || '';
+            // webhook_secret 不从服务器返回，保持为空
+            document.getElementById('webhookSecret').value = '';
+            document.getElementById('newPassword').value = '';
+        }
+
+        // 更新用户设置
+        async function updateSettings() {
+            const webhookUrl = document.getElementById('webhookUrl').value;
+            const webhookSecret = document.getElementById('webhookSecret').value;
+            const newPassword = document.getElementById('newPassword').value;
+
+            const updateData = {};
+            
+            if (webhookUrl !== undefined) updateData.webhook_url = webhookUrl;
+            if (webhookSecret) updateData.webhook_secret = webhookSecret;
+            if (newPassword && newPassword.length >= 6) updateData.email_password = newPassword;
+
+            try {
+                const response = await apiCall('/protected/settings', 'PUT', updateData);
+                
+                if (response.success) {
+                    showNotification('设置更新成功', 'success');
+                    document.getElementById('webhookSecret').value = '';
+                    document.getElementById('newPassword').value = '';
+                    // 更新当前用户信息
+                    if (webhookUrl !== undefined) currentUser.webhook_url = webhookUrl;
+                } else {
+                    showNotification('更新失败: ' + response.message, 'error');
+                }
+            } catch (error) {
+                showNotification('更新失败: ' + error.message, 'error');
+            }
+        }
+
+        // API调用函数
+        async function apiCall(endpoint, method = 'GET', data = null, needAuth = true) {
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            
+            if (needAuth && currentToken) {
+                headers['Authorization'] = `Bearer ${currentToken}`;
+            }
+            
+            const config = {
+                method: method,
+                headers: headers
+            };
+            
+            if (data && (method === 'POST' || method === 'PUT')) {
+                config.body = JSON.stringify(data);
+            }
+            
+            const response = await fetch(API_BASE + endpoint, config);
+            
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ message: '网络错误' }));
+                throw new Error(error.message || '请求失败');
+            }
+            
+            return await response.json();
+        }
+
+        // 显示通知
+        function showNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${type}`;
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // 管理员功能（待实现详细内容）
+        function loadAdminData() {
+            // 根据当前激活的管理员标签加载相应数据
+            const activeTab = document.querySelector('#adminTab .tabs .tab.active');
+            if (activeTab) {
+                const tabName = activeTab.getAttribute('onclick').match(/'([^']+)'/)[1];
+                switchAdminTab(tabName);
+            }
+        }
+
+        // 以下是管理员功能的占位符函数，需要根据实际API实现
+        function loadUsers() {
+            document.getElementById('usersList').innerHTML = '<div class="loading">加载用户列表...</div>';
+            // TODO: 实现用户列表加载
+        }
+
+        function loadForwardRules() {
+            document.getElementById('rulesList').innerHTML = '<div class="loading">加载转发规则...</div>';
+            // TODO: 实现转发规则加载
+        }
+
+        function loadSystemSettings() {
+            document.getElementById('systemSettings').innerHTML = '<div class="loading">加载系统设置...</div>';
+            // TODO: 实现系统设置加载
+        }
+
+        function loadStats() {
+            document.getElementById('statsInfo').innerHTML = '<div class="loading">加载统计信息...</div>';
+            // TODO: 实现统计信息加载
+        }
+
+        function showCreateUserForm() {
+            // TODO: 实现创建用户表单
+        }
+
+        function showCreateRuleForm() {
+            // TODO: 实现创建规则表单
+        }
+    </script>
+</body>
+</html>
