@@ -1,0 +1,100 @@
+export const ADMIN_HTML = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>邮件管理</title>
+    <style>
+      body { font-family: sans-serif; padding: 16px; }
+      input, select, button { margin: 4px; }
+      table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+      th, td { border: 1px solid #ccc; padding: 6px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <h2>转发规则</h2>
+    <div>
+      <input id="token" placeholder="Bearer Token" style="width: 280px" />
+    </div>
+    <div>
+      <input id="source" placeholder="source_addr(收件地址)" />
+      <input id="target" placeholder="target_addr(目标地址)" />
+      <input id="webhook" placeholder="fallback_webhook(失败回调)" style="width: 320px" />
+      <select id="platform">
+        <option value="">generic</option>
+        <option value="feishu">feishu</option>
+        <option value="dingtalk">dingtalk</option>
+      </select>
+      <button id="saveRule">保存/更新</button>
+    </div>
+    <table id="rules"><thead><tr><th>source</th><th>target</th><th>webhook</th><th>platform</th><th>操作</th></tr></thead><tbody></tbody></table>
+
+    <h2 style="margin-top:24px;">邮件列表</h2>
+    <div>
+      <input id="filterTo" placeholder="收件地址过滤" />
+      <input id="after" placeholder="after(ts)" />
+      <input id="before" placeholder="before(ts)" />
+      <input id="minSize" placeholder="minSize(bytes)" />
+      <input id="maxSize" placeholder="maxSize(bytes)" />
+      <button id="loadEmails">加载</button>
+    </div>
+    <table id="emails"><thead><tr><th>id</th><th>from</th><th>to</th><th>subject</th><th>size</th><th>time</th><th>操作</th></tr></thead><tbody></tbody></table>
+
+    <script>
+      const base = location.origin + '/v1';
+      const headers = () => ({ 'content-type': 'application/json', 'authorization': 'Bearer ' + (document.getElementById('token').value || '') });
+
+      document.getElementById('saveRule').onclick = async () => {
+        const body = {
+          source_addr: document.getElementById('source').value,
+          target_addr: document.getElementById('target').value,
+          fallback_webhook: document.getElementById('webhook').value,
+          fallback_platform: document.getElementById('platform').value
+        };
+        await fetch(base + '/admin/rules', { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+        loadRules();
+      };
+
+      async function loadRules() {
+        const resp = await fetch(base + '/admin/rules', { headers: headers() });
+        const data = await resp.json();
+        const tbody = document.querySelector('#rules tbody');
+        tbody.innerHTML = '';
+        (data.data || []).forEach(r => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${r.source_addr}</td><td>${r.target_addr||''}</td><td>${r.fallback_webhook||''}</td><td>${r.fallback_platform||''}</td><td><button data-id="${r.id}">删除</button></td>`;
+          tr.querySelector('button').onclick = async (e) => {
+            await fetch(base + '/admin/rules/' + e.target.getAttribute('data-id'), { method: 'DELETE', headers: headers() });
+            loadRules();
+          };
+          tbody.appendChild(tr);
+        });
+      }
+
+      document.getElementById('loadEmails').onclick = loadEmails;
+      async function loadEmails() {
+        const q = new URLSearchParams();
+        for (const k of ['filterTo','after','before','minSize','maxSize']) {
+          const v = document.getElementById(k).value;
+          if (v) q.set(k==='filterTo'?'to':k, v);
+        }
+        const resp = await fetch(base + '/admin/emails?' + q.toString(), { headers: headers() });
+        const data = await resp.json();
+        const tbody = document.querySelector('#emails tbody');
+        tbody.innerHTML = '';
+        (data.data || []).forEach(e => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${e.id}</td><td>${e.from_addr}</td><td>${e.to_addr}</td><td>${e.subject||''}</td><td>${e.total_size}</td><td>${new Date(e.created_at).toLocaleString()}</td><td><button data-id="${e.id}">删除</button></td>`;
+          tr.querySelector('button').onclick = async (btn) => {
+            await fetch(base + '/admin/emails/' + btn.target.getAttribute('data-id'), { method: 'DELETE', headers: headers() });
+            loadEmails();
+          };
+          tbody.appendChild(tr);
+        });
+      }
+
+      loadRules();
+    </script>
+  </body>
+  </html>`;
+

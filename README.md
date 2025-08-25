@@ -55,7 +55,16 @@
 5. 运行 `npx wrangler secret put RESEND_APIKEY` 设置 Resend 中得到的 key
    ![image](https://file.devcxl.cn/blog/images/2024111600143187-20241116001431.png)
 
-6. 部署项目
+6. 创建 D1 与 R2 绑定（控制台或 wrangler）：
+   - D1：创建名为 `email_db` 的数据库并把 ID 填入 `wrangler.toml` 中 `database_id`
+   - R2：创建名为 `email-attachments` 的 Bucket
+
+7. 初始化数据库（首次部署后运行）：
+   ```bash
+   npx wrangler d1 execute email_db --file=./src/schema.sql
+   ```
+
+8. 部署项目
     ```
     npm run deploy
     ```

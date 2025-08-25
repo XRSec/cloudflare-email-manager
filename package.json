@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "hono": "^4.6.10",
-    "resend": "4.0.1-alpha.0"
+    "resend": "4.0.1-alpha.0",
+    "postal-mime": "^2.3.2"
   },
   "overrides": {
     "@types/node": "20.8.3"
