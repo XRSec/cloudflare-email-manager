@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>管理员面板</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px;}
+    input,select,button{padding:8px;margin:4px}
+    .card{border:1px solid #ddd;border-radius:8px;padding:16px;margin:12px 0}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    table{border-collapse:collapse;width:100%}
+    th,td{border:1px solid #eee;padding:6px;text-align:left}
+  </style>
+</head>
+<body>
+  <h2>管理员面板</h2>
+  <div class="card">
+    <h3>初始化数据库</h3>
+    <div class="row">
+      <input id="adminkey" placeholder="X-Admin-Key" />
+      <button onclick="initSchema()">执行初始化</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>创建管理员账号</h3>
+    <div class="row">
+      <input id="aprefix" placeholder="邮箱前缀" />
+      <input id="apass" placeholder="密码" type="password" />
+      <button onclick="bootstrapAdmin()">创建</button>
+    </div>
+  </div>
+
+  <script>
+    async function initSchema(){
+      const k = document.getElementById('adminkey').value;
+      const r = await fetch('/api/admin/init',{method:'POST',headers:{'x-admin-key':k}});
+      alert('初始化: ' + r.status);
+    }
+    async function bootstrapAdmin(){
+      const k = document.getElementById('adminkey').value;
+      const email_prefix = document.getElementById('aprefix').value;
+      const password = document.getElementById('apass').value;
+      const r = await fetch('/api/admin/bootstrap',{method:'POST',headers:{'content-type':'application/json','x-admin-key':k},body:JSON.stringify({email_prefix,password})});
+      const j = await r.json();
+      alert(JSON.stringify(j));
+    }
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>用户邮箱</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:24px;}
+    input,select,button{padding:8px;margin:4px}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    table{border-collapse:collapse;width:100%}
+    th,td{border:1px solid #eee;padding:6px;text-align:left}
+  </style>
+</head>
+<body>
+  <h2>我的邮件</h2>
+  <div class="row">
+    <input id="prefix" placeholder="邮箱前缀" />
+    <input id="password" placeholder="密码" type="password" />
+    <button onclick="login()">登录</button>
+  </div>
+  <div class="row">
+    <input id="sender" placeholder="按发件人筛选" />
+    <button onclick="loadEmails()">刷新</button>
+  </div>
+  <table>
+    <thead><tr><th>时间</th><th>发件人</th><th>主题</th><th>大小</th><th>操作</th></tr></thead>
+    <tbody id="list"></tbody>
+  </table>
+
+  <script>
+    let token = '';
+    async function login(){
+      const email_prefix = document.getElementById('prefix').value;
+      const password = document.getElementById('password').value;
+      const r = await fetch('/api/session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email_prefix,password})});
+      const j = await r.json();
+      if(j.token){ token=j.token; loadEmails(); } else { alert('登录失败'); }
+    }
+    async function loadEmails(){
+      if(!token) return alert('请先登录');
+      const sender = document.getElementById('sender').value;
+      const url = new URL('/api/emails', location.origin);
+      if(sender) url.searchParams.set('sender', sender);
+      const r = await fetch(url, { headers:{'authorization':'Bearer '+token} });
+      const j = await r.json();
+      const tb = document.getElementById('list');
+      tb.innerHTML = '';
+      for(const it of j.items){
+        const tr = document.createElement('tr');
+        const dt = new Date(it.received_at).toLocaleString();
+        tr.innerHTML = `<td>${dt}</td><td>${it.from_address||''}</td><td>${it.subject||''}</td><td>${(it.size_bytes||0)}</td><td><button data-id="${it.id}">详情</button> <button data-del="${it.id}">删除</button></td>`;
+        tb.appendChild(tr);
+      }
+      tb.querySelectorAll('button[data-del]').forEach(b=>b.onclick=()=>delEmail(b.getAttribute('data-del')));
+    }
+    async function delEmail(id){
+      if(!confirm('确认删除？')) return;
+      const r = await fetch('/api/emails/'+id,{method:'DELETE',headers:{'authorization':'Bearer '+token}});
+      if(r.ok) loadEmails(); else alert('删除失败');
+    }
+  </script>
+</body>
+</html>
+
