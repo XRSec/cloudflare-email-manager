@@ -1,0 +1,26 @@
+name: Deploy Worker
+on:
+  push:
+    tags:
+      - "v*"
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build & Deploy Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          secrets: |
+            ACCESS_TOKEN
+            RESEND_APIKEY
+            SENDER_NAME
+            SENDER_EMAIL
+        env:
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+          RESEND_APIKEY: ${{ secrets.RESEND_APIKEY }}
+          SENDER_NAME: ${{ secrets.SENDER_NAME }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+
