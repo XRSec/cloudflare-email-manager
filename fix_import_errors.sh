@@ -1,3 +1,26 @@
+#!/bin/bash
+
+# 修复导入错误的脚本
+
+echo "🔧 修复 Worker 导入错误..."
+
+# 检查是否在正确的目录
+if [ ! -f "wrangler.toml" ]; then
+    echo "❌ 请在项目根目录执行此脚本"
+    exit 1
+fi
+
+# 确保 src 目录存在
+mkdir -p src
+
+# 备份现有的 src/index.ts（如果存在）
+if [ -f "src/index.ts" ]; then
+    cp src/index.ts src/index.ts.backup
+    echo "✅ 已备份现有的 src/index.ts 为 src/index.ts.backup"
+fi
+
+# 使用完整的单文件版本替换 src/index.ts
+cat > src/index.ts << 'EOF'
 /**
  * 完整的临时邮箱系统 - 单文件版本
  * 所有功能都整合在这个文件中，便于部署
@@ -596,3 +619,12 @@ export default {
     await handleScheduledCleanup(env);
   }
 };
+EOF
+
+echo "✅ 已创建完整的单文件 src/index.ts"
+echo ""
+echo "现在可以尝试部署："
+echo "wrangler deploy"
+echo ""
+echo "或者本地测试："
+echo "wrangler dev"

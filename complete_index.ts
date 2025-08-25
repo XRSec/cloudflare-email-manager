@@ -5,10 +5,10 @@
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { jwt } from 'hono/jwt';
 import { HTTPException } from 'hono/http-exception';
 
-// ============= 类型定义 =============
-
+// 环境变量接口
 interface Env {
   DB: D1Database;
   R2: R2Bucket;
@@ -20,17 +20,19 @@ interface Env {
   MAX_ATTACHMENT_SIZE: string;
 }
 
-interface User {
-  id: number;
-  email_prefix: string;
-  email_password: string;
-  user_type: 'admin' | 'user';
-  webhook_url?: string;
-  webhook_secret?: string;
-}
+// 创建应用实例
+const app = new Hono<{ Bindings: Env }>();
+
+// CORS配置
+app.use('*', cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+}));
 
 // ============= 工具函数 =============
 
+// 生成随机字符串
 function generateRandomString(length: number = 8): string {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let result = '';
@@ -40,6 +42,7 @@ function generateRandomString(length: number = 8): string {
   return result;
 }
 
+// 密码哈希
 async function hashPassword(password: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(password);
@@ -49,37 +52,52 @@ async function hashPassword(password: string): Promise<string> {
     .join('');
 }
 
+// 验证密码
 async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
   const hash = await hashPassword(password);
   return hash === hashedPassword;
 }
 
+// 生成JWT token
 async function generateJWT(payload: any, secret: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const exp = now + (24 * 60 * 60);
+  const exp = now + (24 * 60 * 60); // 24小时过期
   
-  const jwtPayload = { ...payload, iat: now, exp: exp };
+  const jwtPayload = {
+    ...payload,
+    iat: now,
+    exp: exp
+  };
   
+  // 简单的JWT实现
   const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const payloadStr = btoa(JSON.stringify(jwtPayload));
   const signature = await signJWT(`${header}.${payloadStr}`, secret);
   return `${header}.${payloadStr}.${signature}`;
 }
 
+// JWT签名
 async function signJWT(data: string, secret: string): Promise<string> {
   const encoder = new TextEncoder();
   const keyData = encoder.encode(secret);
   const dataToSign = encoder.encode(data);
   
   const key = await crypto.subtle.importKey(
-    'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
   );
   
   const signature = await crypto.subtle.sign('HMAC', key, dataToSign);
   return btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
 }
 
+// 验证JWT token
 async function verifyJWT(token: string, secret: string): Promise<any> {
   try {
     const [header, payload, signature] = token.split('.');
@@ -91,6 +109,7 @@ async function verifyJWT(token: string, secret: string): Promise<any> {
     
     const decodedPayload = JSON.parse(atob(payload));
     
+    // 检查过期时间
     if (decodedPayload.exp < Math.floor(Date.now() / 1000)) {
       throw new Error('Token expired');
     }
@@ -101,44 +120,9 @@ async function verifyJWT(token: string, secret: string): Promise<any> {
   }
 }
 
-async function findUserByPrefix(db: D1Database, prefix: string): Promise<User | null> {
-  const result = await db.prepare(`
-    SELECT id, email_prefix, email_password, user_type, webhook_url, webhook_secret 
-    FROM users WHERE email_prefix = ?
-  `).bind(prefix).first();
-  
-  return result as User | null;
-}
-
-// ============= Hono 应用 =============
-
-const app = new Hono<{ Bindings: Env }>();
-
-app.use('*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-}));
-
-// JWT认证中间件
-app.use('/api/protected/*', async (c, next) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new HTTPException(401, { message: '缺少认证令牌' });
-  }
-  
-  const token = authHeader.substring(7);
-  try {
-    const payload = await verifyJWT(token, c.env.JWT_SECRET);
-    c.set('jwtPayload', payload);
-    await next();
-  } catch (error) {
-    throw new HTTPException(401, { message: '无效的认证令牌' });
-  }
-});
-
 // ============= API 路由 =============
 
+// 用户注册
 app.post('/api/register', async (c) => {
   try {
     const { email_password } = await c.req.json();
@@ -147,24 +131,16 @@ app.post('/api/register', async (c) => {
       throw new HTTPException(400, { message: '密码长度至少6位' });
     }
     
+    // 检查是否允许注册
     const allowRegistration = c.env.ALLOW_REGISTRATION !== 'false';
     if (!allowRegistration) {
       throw new HTTPException(403, { message: '当前不允许新用户注册' });
     }
     
-    let emailPrefix: string;
-    let attempts = 0;
-    do {
-      emailPrefix = generateRandomString(8);
-      const existingUser = await findUserByPrefix(c.env.DB, emailPrefix);
-      if (!existingUser) break;
-      attempts++;
-    } while (attempts < 10);
+    // 生成随机邮件前缀
+    const emailPrefix = generateRandomString(8);
     
-    if (attempts >= 10) {
-      throw new HTTPException(500, { message: '生成邮箱前缀失败，请重试' });
-    }
-    
+    // 创建用户
     const hashedPassword = await hashPassword(email_password);
     const result = await c.env.DB.prepare(`
       INSERT INTO users (email_prefix, email_password, user_type)
@@ -184,11 +160,14 @@ app.post('/api/register', async (c) => {
     
   } catch (error) {
     console.error('用户注册失败:', error);
-    if (error instanceof HTTPException) throw error;
+    if (error instanceof HTTPException) {
+      throw error;
+    }
     throw new HTTPException(500, { message: '注册失败' });
   }
 });
 
+// 用户登录
 app.post('/api/login', async (c) => {
   try {
     const { email_prefix, email_password } = await c.req.json();
@@ -197,16 +176,23 @@ app.post('/api/login', async (c) => {
       throw new HTTPException(400, { message: '邮件前缀和密码不能为空' });
     }
     
-    const user = await findUserByPrefix(c.env.DB, email_prefix);
+    // 查找用户
+    const user = await c.env.DB.prepare(`
+      SELECT id, email_prefix, email_password, user_type
+      FROM users WHERE email_prefix = ?
+    `).bind(email_prefix).first();
+    
     if (!user) {
       throw new HTTPException(401, { message: '用户不存在' });
     }
     
-    const isValidPassword = await verifyPassword(email_password, user.email_password);
+    // 验证密码
+    const isValidPassword = await verifyPassword(email_password, user.email_password as string);
     if (!isValidPassword) {
       throw new HTTPException(401, { message: '密码错误' });
     }
     
+    // 生成JWT token
     const token = await generateJWT({
       user_id: user.id,
       email_prefix: user.email_prefix,
@@ -228,11 +214,31 @@ app.post('/api/login', async (c) => {
     
   } catch (error) {
     console.error('用户登录失败:', error);
-    if (error instanceof HTTPException) throw error;
+    if (error instanceof HTTPException) {
+      throw error;
+    }
     throw new HTTPException(500, { message: '登录失败' });
   }
 });
 
+// JWT中间件
+app.use('/api/protected/*', async (c, next) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw new HTTPException(401, { message: '缺少认证令牌' });
+  }
+  
+  const token = authHeader.substring(7);
+  try {
+    const payload = await verifyJWT(token, c.env.JWT_SECRET);
+    c.set('jwtPayload', payload);
+    await next();
+  } catch (error) {
+    throw new HTTPException(401, { message: '无效的认证令牌' });
+  }
+});
+
+// 获取用户邮件列表
 app.get('/api/protected/emails', async (c) => {
   try {
     const payload = c.get('jwtPayload') as any;
@@ -241,16 +247,21 @@ app.get('/api/protected/emails', async (c) => {
     const userId = payload.user_id;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
     
+    // 查询邮件列表
     const emails = await c.env.DB.prepare(`
       SELECT 
         e.id, e.message_id, e.sender_email, e.recipient_email,
-        e.subject, e.text_content, e.has_attachments, e.received_at
+        e.subject, e.text_content, e.has_attachments, e.received_at,
+        COUNT(a.id) as attachment_count
       FROM emails e
+      LEFT JOIN attachments a ON e.id = a.email_id
       WHERE e.user_id = ?
+      GROUP BY e.id
       ORDER BY e.received_at DESC
       LIMIT ? OFFSET ?
     `).bind(userId, parseInt(limit as string), offset).all();
     
+    // 查询总数
     const countResult = await c.env.DB.prepare(`
       SELECT COUNT(*) as total FROM emails WHERE user_id = ?
     `).bind(userId).first();
@@ -271,7 +282,92 @@ app.get('/api/protected/emails', async (c) => {
   }
 });
 
-// 静态文件服务 - 简化版
+// 获取邮件详情
+app.get('/api/protected/emails/:id', async (c) => {
+  try {
+    const payload = c.get('jwtPayload') as any;
+    const emailId = c.req.param('id');
+    const userId = payload.user_id;
+    
+    // 查询邮件详情
+    const email = await c.env.DB.prepare(`
+      SELECT * FROM emails WHERE id = ? AND user_id = ?
+    `).bind(emailId, userId).first();
+    
+    if (!email) {
+      throw new HTTPException(404, { message: '邮件不存在或无权限访问' });
+    }
+    
+    // 查询附件列表
+    const attachments = await c.env.DB.prepare(`
+      SELECT id, filename, content_type, size_bytes, created_at
+      FROM attachments WHERE email_id = ?
+    `).bind(emailId).all();
+    
+    return c.json({
+      success: true,
+      data: {
+        email: email,
+        attachments: attachments.results
+      }
+    });
+    
+  } catch (error) {
+    console.error('获取邮件详情失败:', error);
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+    throw new HTTPException(500, { message: '获取邮件详情失败' });
+  }
+});
+
+// 删除邮件
+app.delete('/api/protected/emails/:id', async (c) => {
+  try {
+    const payload = c.get('jwtPayload') as any;
+    const emailId = c.req.param('id');
+    const userId = payload.user_id;
+    
+    // 先查询要删除的邮件的附件
+    const attachments = await c.env.DB.prepare(`
+      SELECT r2_key FROM attachments a
+      JOIN emails e ON a.email_id = e.id
+      WHERE e.id = ? AND e.user_id = ?
+    `).bind(emailId, userId).all();
+    
+    // 删除R2中的附件
+    for (const attachment of attachments.results) {
+      try {
+        await c.env.R2.delete(attachment.r2_key as string);
+      } catch (error) {
+        console.warn('删除R2附件失败:', attachment.r2_key, error);
+      }
+    }
+    
+    // 删除邮件记录
+    const result = await c.env.DB.prepare(`
+      DELETE FROM emails WHERE id = ? AND user_id = ?
+    `).bind(emailId, userId).run();
+    
+    if (result.changes === 0) {
+      throw new HTTPException(404, { message: '邮件不存在或无权限删除' });
+    }
+    
+    return c.json({
+      success: true,
+      message: '邮件删除成功'
+    });
+    
+  } catch (error) {
+    console.error('删除邮件失败:', error);
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+    throw new HTTPException(500, { message: '删除邮件失败' });
+  }
+});
+
+// 静态文件服务
 app.get('/', (c) => {
   return c.html(`
 <!DOCTYPE html>
@@ -307,6 +403,9 @@ app.get('/', (c) => {
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         .hidden { display: none !important; }
+        .email-display { text-align: center; padding: 20px; 
+                         background: #f8f9fa; border-radius: 8px; margin-bottom: 20px; }
+        .email-address { font-size: 1.2rem; font-weight: 600; color: #667eea; }
         .notification { position: fixed; top: 20px; right: 20px; 
                         padding: 15px 20px; border-radius: 8px; color: white; 
                         font-weight: 500; z-index: 1000; }
@@ -353,13 +452,13 @@ app.get('/', (c) => {
 
         <div id="mainSection" class="hidden">
             <div class="card">
-                <div style="text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-                    <div style="font-size: 1.2rem; font-weight: 600; color: #667eea;" id="userEmail"></div>
+                <div class="email-display">
+                    <div class="email-address" id="userEmail"></div>
                     <button class="btn btn-primary" style="margin-top: 10px; width: auto;" onclick="logout()">退出登录</button>
                 </div>
-                <div style="margin-top: 20px;">
+                <div id="emailList">
                     <h3>邮件列表</h3>
-                    <div id="emailList">加载中...</div>
+                    <div id="emails"></div>
                 </div>
             </div>
         </div>
@@ -477,7 +576,7 @@ app.get('/', (c) => {
                         </div>
                     \`).join('');
                     
-                    document.getElementById('emailList').innerHTML = emailsHtml || '<p style="color: #6c757d;">暂无邮件</p>';
+                    document.getElementById('emails').innerHTML = emailsHtml || '<p style="color: #6c757d;">暂无邮件</p>';
                 }
             } catch (error) {
                 console.error('加载邮件失败:', error);
@@ -509,12 +608,16 @@ app.get('/', (c) => {
   `);
 });
 
-// ============= 邮件处理函数 =============
+// ============= 邮件处理 =============
 
+/**
+ * 处理接收到的邮件
+ */
 async function handleIncomingEmail(message: any, env: Env): Promise<void> {
   try {
     console.log('收到新邮件:', message.from, '到', message.to);
     
+    // 解析收件人邮箱，提取用户前缀
     const recipientEmail = message.to;
     const emailPrefix = recipientEmail.split('@')[0];
     
@@ -523,45 +626,47 @@ async function handleIncomingEmail(message: any, env: Env): Promise<void> {
       return;
     }
 
-    const user = await findUserByPrefix(env.DB, emailPrefix);
+    // 查找用户
+    const user = await env.DB.prepare(`
+      SELECT id FROM users WHERE email_prefix = ?
+    `).bind(emailPrefix).first();
+    
     if (!user) {
       console.log('用户不存在:', emailPrefix);
       return;
     }
 
+    // 读取邮件内容
     const rawEmail = await message.raw();
     const subject = message.headers.get('Subject') || '';
-    const messageId = message.headers.get('Message-ID') || \`\${Date.now()}-\${Math.random().toString(36).substr(2, 9)}\`;
+    const messageId = message.headers.get('Message-ID') || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
-    let textContent = '';
-    try {
-      textContent = await message.text() || '';
-    } catch (error) {
-      console.warn('提取邮件文本内容失败:', error);
-    }
-    
-    await env.DB.prepare(\`
+    // 存储邮件到数据库
+    await env.DB.prepare(`
       INSERT INTO emails (
         message_id, user_id, sender_email, recipient_email, 
         subject, text_content, raw_email, has_attachments
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-    \`).bind(
+    `).bind(
       messageId,
       user.id,
       message.from,
       recipientEmail,
       subject,
-      textContent,
+      '', // 简化版本暂不解析邮件内容
       rawEmail
     ).run();
 
-    console.log('邮件处理完成, ID:', messageId);
+    console.log('邮件处理完成');
     
   } catch (error) {
     console.error('处理邮件时发生错误:', error);
   }
 }
 
+/**
+ * 定时清理过期邮件
+ */
 async function handleScheduledCleanup(env: Env): Promise<void> {
   try {
     console.log('开始执行定时清理任务');
@@ -570,11 +675,12 @@ async function handleScheduledCleanup(env: Env): Promise<void> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - cleanupDays);
     
-    const result = await env.DB.prepare(\`
+    // 删除过期邮件
+    const result = await env.DB.prepare(`
       DELETE FROM emails WHERE received_at < ?
-    \`).bind(cutoffDate.toISOString()).run();
+    `).bind(cutoffDate.toISOString()).run();
     
-    console.log(\`清理完成，删除了 \${result.changes} 封邮件\`);
+    console.log(`清理完成，删除了 ${result.changes} 封邮件`);
     
   } catch (error) {
     console.error('定时清理任务失败:', error);

@@ -280,7 +280,7 @@ class WebhookSender {
       },
       // 用于验证的额外信息
       version: '1.0',
-      source: 'temp-email-system'
+      source: 'cloudflare-email-manager'
     };
   }
 

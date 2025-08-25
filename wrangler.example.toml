@@ -1,0 +1,88 @@
+# Cloudflare Workers 配置文件
+# 邮箱管理系统
+
+name = "cem"
+main = "src/index.ts"
+compatibility_date = "2025-08-26"
+
+# 基础环境变量（用于默认部署）
+[vars]
+DOMAIN = "your-domain.com"           # 替换为您的域名
+JWT_SECRET = ""                      # 替换为强密码
+ALLOW_REGISTRATION = "true"          # 是否允许用户注册
+CLEANUP_DAYS = "7"                   # 邮件保留天数
+MAX_ATTACHMENT_SIZE = "52428800"     # 最大附件大小（50MB）
+
+# D1 数据库绑定
+[[d1_databases]]
+binding = "DB"
+database_name = "cem-db"
+database_id = "your-d1-database-id"   # 替换为您的D1数据库ID
+
+# R2 存储绑定
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "cem-r2" # 替换为您的R2命名空间ID
+
+# KV 存储绑定
+[[kv_namespaces]]
+binding = "KV"
+id = "your-kv-namespace-id"            # 替换为您的KV命名空间ID
+
+# Cron 触发器（定时清理）
+[triggers]
+crons = ["0 2 * * *"]  # 每天凌晨2点执行清理
+
+# 生产环境配置
+[env.production]
+name = "cem-prod"
+
+[env.production.vars]
+DOMAIN = "your-domain.com"           # 替换为您的域名
+JWT_SECRET = ""                      "your-jwt-secret-key"   # 替换为强密码
+ALLOW_REGISTRATION = "true"          # 是否允许用户注册
+CLEANUP_DAYS = "7"                   # 邮件保留天数
+MAX_ATTACHMENT_SIZE = "52428800"     # 最大附件大小（50MB）
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "cem-db"
+database_id = "your-d1-database-id"   # 替换为您的D1数据库ID
+
+[[env.production.r2_buckets]]
+binding = "R2"
+bucket_name = "cem-r2" # 替换为您的R2命名空间ID
+
+[[env.production.kv_namespaces]]
+binding = "KV"
+id = "your-kv-namespace-id"            # 替换为您的KV命名空间ID
+
+[env.production.triggers]
+crons = ["0 2 * * *"]
+
+# 开发环境配置
+[env.development]
+name = "cem-dev"
+
+[env.development.vars]
+DOMAIN = "localhost:8787"            # 替换为您的域名
+JWT_SECRET = ""                      "dev-jwt-secret-key"    # 替换为强密码
+ALLOW_REGISTRATION = "true"          # 是否允许用户注册
+CLEANUP_DAYS = "1"                   # 邮件保留天数
+MAX_ATTACHMENT_SIZE = "10485760"     # 最大附件大小（50MB）
+
+[[env.development.d1_databases]]
+binding = "DB"
+database_name = "cem-db-dev"
+database_id = "your-dev-d1-database-id"   # 替换为您的D1数据库ID
+
+[[env.development.r2_buckets]]
+binding = "R2"
+bucket_name = "cem-r2-dev" # 替换为您的R2命名空间ID
+
+[[env.development.kv_namespaces]]
+binding = "KV"
+id = "your-dev-kv-namespace-id"            # 替换为您的KV命名空间ID
+
+[env.development.triggers]
+crons = [ "0 2 * * *" ]

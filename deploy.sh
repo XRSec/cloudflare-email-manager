@@ -25,7 +25,7 @@ fi
 echo -e "${BLUE}🔐 检查 Cloudflare 登录状态...${NC}"
 if ! wrangler whoami &> /dev/null; then
     echo -e "${YELLOW}⚠️  未登录 Cloudflare，正在启动登录流程...${NC}"
-    wrangler auth login
+    wrangler login
 fi
 
 echo -e "${GREEN}✅ Cloudflare 登录状态正常${NC}"
@@ -76,28 +76,27 @@ npm install
 
 # 创建 Cloudflare 资源
 echo -e "${BLUE}☁️  创建 Cloudflare 资源...${NC}"
-
 # 创建 D1 数据库
 echo "创建 D1 数据库..."
-DB_NAME="temp-email-db"
+DB_NAME="cem-db"
 if [ "$ENVIRONMENT" = "development" ]; then
-    DB_NAME="temp-email-db-dev"
+    DB_NAME="cem-db-dev"
 fi
 
-DB_OUTPUT=$(wrangler d1 create $DB_NAME 2>&1)
+DB_OUTPUT=$(wrangler d1 create $DB_NAME 2>&1 || true)
 if echo "$DB_OUTPUT" | grep -q "already exists"; then
     echo -e "${YELLOW}⚠️  数据库 $DB_NAME 已存在${NC}"
     DB_ID=$(wrangler d1 list | grep $DB_NAME | awk '{print $2}')
 else
-    DB_ID=$(echo "$DB_OUTPUT" | grep -oP 'database_id = "\K[^"]+')
+    DB_ID=$(echo "$DB_OUTPUT" | awk -F'database_id = "' '/database_id/ {split($2,a,"\""); print a[1]}')
     echo -e "${GREEN}✅ 数据库创建成功: $DB_ID${NC}"
 fi
 
 # 创建 R2 存储桶
 echo "创建 R2 存储桶..."
-BUCKET_NAME="temp-email-attachments"
+BUCKET_NAME="cem-r2"
 if [ "$ENVIRONMENT" = "development" ]; then
-    BUCKET_NAME="temp-email-attachments-dev"
+    BUCKET_NAME="cem-r2-dev"
 fi
 
 if wrangler r2 bucket create $BUCKET_NAME 2>&1 | grep -q "already exists"; then
@@ -108,17 +107,17 @@ fi
 
 # 创建 KV 命名空间
 echo "创建 KV 命名空间..."
-KV_NAME="temp-email-kv"
+KV_NAME="cem-kv"
 if [ "$ENVIRONMENT" = "development" ]; then
-    KV_NAME="temp-email-kv-dev"
+    KV_NAME="cem-kv-dev"
 fi
 
-KV_OUTPUT=$(wrangler kv:namespace create $KV_NAME 2>&1)
+KV_OUTPUT=$(wrangler kv namespace create "$KV_NAME" 2>&1 || true)
 if echo "$KV_OUTPUT" | grep -q "already exists"; then
     echo -e "${YELLOW}⚠️  KV 命名空间 $KV_NAME 已存在${NC}"
-    KV_ID=$(wrangler kv:namespace list | grep $KV_NAME | jq -r '.id')
+    KV_ID=$(wrangler kv namespace list | jq -r --arg NAME "$KV_NAME" '.[] | select(.title==$NAME) | .id')
 else
-    KV_ID=$(echo "$KV_OUTPUT" | grep -oP 'id = "\K[^"]+')
+    KV_ID=$(echo "$KV_OUTPUT" | awk -F'id = "' '/id = "/ {split($2,a,"\""); print a[1]}')
     echo -e "${GREEN}✅ KV 命名空间创建成功: $KV_ID${NC}"
 fi
 
@@ -127,31 +126,36 @@ echo -e "${BLUE}⚙️  更新配置文件...${NC}"
 
 # 备份原配置
 cp wrangler.toml wrangler.toml.backup
-
 # 使用 sed 更新配置 (跨平台兼容)
 if [[ "$OSTYPE" == "darwin"* ]]; then
     # macOS
-    sed -i '' "s/your-domain.com/$DOMAIN/g" wrangler.toml
-    sed -i '' "s/your-jwt-secret-key/$JWT_SECRET/g" wrangler.toml
-    sed -i '' "s/your-d1-database-id/$DB_ID/g" wrangler.toml
-    sed -i '' "s/your-kv-namespace-id/$KV_ID/g" wrangler.toml
-    sed -i '' "s/your-dev-d1-database-id/$DB_ID/g" wrangler.toml
-    sed -i '' "s/your-dev-kv-namespace-id/$KV_ID/g" wrangler.toml
+    if [ "$ENVIRONMENT" = "production" ]; then
+        sed -i '' "s|your-domain.com|$DOMAIN|g" wrangler.toml
+        sed -i '' "s|your-jwt-secret-key|$JWT_SECRET|g" wrangler.toml
+        sed -i '' "s|your-d1-database-id|$DB_ID|g" wrangler.toml
+        sed -i '' "s|your-kv-namespace-id|$KV_ID|g" wrangler.toml
+    else
+        sed -i '' "s|your-dev-d1-database-id|$DB_ID|g" wrangler.toml
+        sed -i '' "s|your-dev-kv-namespace-id|$KV_ID|g" wrangler.toml
+    fi
 else
     # Linux
-    sed -i "s/your-domain.com/$DOMAIN/g" wrangler.toml
-    sed -i "s/your-jwt-secret-key/$JWT_SECRET/g" wrangler.toml
-    sed -i "s/your-d1-database-id/$DB_ID/g" wrangler.toml
-    sed -i "s/your-kv-namespace-id/$KV_ID/g" wrangler.toml
-    sed -i "s/your-dev-d1-database-id/$DB_ID/g" wrangler.toml
-    sed -i "s/your-dev-kv-namespace-id/$KV_ID/g" wrangler.toml
+    if [ "$ENVIRONMENT" = "production" ]; then
+        sed -i "s|your-domain.com|$DOMAIN|g" wrangler.toml
+        sed -i "s|your-jwt-secret-key|$JWT_SECRET|g" wrangler.toml
+        sed -i "s|your-d1-database-id|$DB_ID|g" wrangler.toml
+        sed -i "s|your-kv-namespace-id|$KV_ID|g" wrangler.toml
+    else
+        sed -i "s|your-dev-d1-database-id|$DB_ID|g" wrangler.toml
+        sed -i "s|your-dev-kv-namespace-id|$KV_ID|g" wrangler.toml
+    fi
 fi
 
 echo -e "${GREEN}✅ 配置文件更新完成${NC}"
 
 # 初始化数据库
 echo -e "${BLUE}🗄️  初始化数据库...${NC}"
-wrangler d1 execute $DB_NAME --file=./new_db_schema.sql --env=$ENVIRONMENT
+wrangler d1 execute $DB_NAME --file=./new_db_schema.sql --env=$ENVIRONMENT || true
 
 echo -e "${GREEN}✅ 数据库初始化完成${NC}"
 
@@ -166,7 +170,7 @@ echo
 ADMIN_PASSWORD_HASH=$(echo -n "$ADMIN_PASSWORD" | sha256sum | cut -d' ' -f1)
 
 # 插入管理员用户
-wrangler d1 execute $DB_NAME --command="INSERT INTO users (email_prefix, email_password, user_type) VALUES ('$ADMIN_PREFIX', '$ADMIN_PASSWORD_HASH', 'admin')" --env=$ENVIRONMENT
+wrangler d1 execute $DB_NAME --command="INSERT OR IGNORE INTO users (email_prefix, email_password, user_type) VALUES ('${ADMIN_PREFIX:-admin}', '$ADMIN_PASSWORD_HASH', 'admin')" --env=$ENVIRONMENT
 
 echo -e "${GREEN}✅ 管理员账户创建完成${NC}"
 echo -e "${YELLOW}📧 管理员邮箱: $ADMIN_PREFIX@$DOMAIN${NC}"
@@ -194,7 +198,7 @@ if [ "$ENVIRONMENT" = "production" ]; then
         echo "1. 添加域名到 Cloudflare"
         echo "2. 在 Workers & Pages 中绑定自定义域名"
         echo "3. 在 Email Routing 中配置路由规则"
-        echo "   规则: *@$DOMAIN → Send to Worker → temp-email-system"
+        echo "   规则: *@$DOMAIN → Send to Worker → cloudflare-email-manager"
     fi
 fi
 
@@ -221,7 +225,7 @@ if [ "$ENVIRONMENT" = "development" ]; then
     echo "  启动开发服务器: npm run dev"
 else
     echo "  生产环境: https://$DOMAIN"
-    echo "  Worker 地址: https://temp-email-system.your-subdomain.workers.dev"
+    echo "  Worker 地址: https://cloudflare-email-manager.your-subdomain.workers.dev"
 fi
 echo
 echo -e "${BLUE}📚 更多信息请查看 README.md${NC}"
