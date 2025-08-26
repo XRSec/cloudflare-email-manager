@@ -37,8 +37,13 @@
 2. EMAIL PREFIX 使用随机数据，不可自定义，但是固定
 3. webhook 支持 钉钉 和 飞书，支持后期新增其他平台，webhook 发送相关可以参考：https://github.com/webbertakken/email-worker
 4. 我认为当前仓库的 UI 过于复杂，同样的 代码逻辑也很复杂，只适用于借鉴，不使用于我的项目，我认为 https://github.com/vwh/temp-mail 的 UI 够精简
+5. 我们的邮箱域名不止一个,需要有自动切换的功能,如果能自动匹配那就更好了,比如收到邮件,匹配邮箱域
 
 你需要做的是：
 
 1. 代码需要中文注释
 2. 参考当前仓库，魔改代码，实现我要的效果
+3. 完善(总结/清理) README.md
+4. README 中应该介绍 dev init clean deploy db:init db:init:dev 的作用
+5. 更新清理完善 [schema.sql](db/schema.sql) 的内容
+6. 
