@@ -58,12 +58,30 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY,
-    user_email TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    user_info TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+     id INTEGER PRIMARY KEY AUTOINCREMENT,
+     email_prefix TEXT UNIQUE NOT NULL,
+     email_password TEXT NOT NULL,
+     user_type TEXT DEFAULT 'user',
+     webhook_url TEXT,
+     webhook_secret TEXT,
+     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS emails (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id TEXT UNIQUE NOT NULL,
+      user_id INTEGER NOT NULL,
+      sender_email TEXT NOT NULL,
+      recipient_email TEXT NOT NULL,
+      subject TEXT,
+      text_content TEXT,
+      html_content TEXT,
+      raw_email TEXT,
+      has_attachments INTEGER DEFAULT 0,
+      received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_user_email ON users(user_email);
@@ -103,3 +121,9 @@ CREATE TABLE IF NOT EXISTS user_passkeys (
 CREATE INDEX IF NOT EXISTS idx_user_passkeys_user_id ON user_passkeys(user_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_passkeys_user_id_passkey_id ON user_passkeys(user_id, passkey_id);
+CREATE INDEX IF NOT EXISTS idx_users_email_prefix ON users(email_prefix);
+CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
+CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_email_id ON attachments(email_id);
+CREATE INDEX IF NOT EXISTS idx_forward_rules_enabled ON forward_rules(enabled);
+CREATE INDEX IF NOT EXISTS idx_forward_logs_email_id ON forward_logs(email_id);
