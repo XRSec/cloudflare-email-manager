@@ -407,7 +407,7 @@ app.get('/', (c) => {
         }
 
         async function register() {
-            const passwordElement = document.getElementById('registerPassword') as HTMLInputElement;
+            const passwordElement = document.getElementById('registerPassword');
             const password = passwordElement?.value || '';
             
             if (!password || password.length < 6) {
@@ -426,8 +426,8 @@ app.get('/', (c) => {
                 
                 if (result.success) {
                     showNotification('注册成功！', 'success');
-                    const loginPrefixElement = document.getElementById('loginPrefix') as HTMLInputElement;
-                    const loginPasswordElement = document.getElementById('loginPassword') as HTMLInputElement;
+                    const loginPrefixElement = document.getElementById('loginPrefix');
+                    const loginPasswordElement = document.getElementById('loginPassword');
                     if (loginPrefixElement) loginPrefixElement.value = result.data.email_prefix;
                     if (loginPasswordElement) loginPasswordElement.value = password;
                     switchTab('login');
@@ -438,15 +438,15 @@ app.get('/', (c) => {
                 showNotification('注册失败: ' + error.message, 'error');
                 // 如果是权限错误，可以隐藏注册选项卡
                 if (error.message && error.message.includes('不允许新用户注册')) {
-                    const registerTab = document.querySelector('[onclick="switchTab(\'register\')"]') as HTMLElement;
+                    const registerTab = document.querySelector('[onclick="switchTab(\'register\')"]');
                     if (registerTab) registerTab.style.display = 'none';
                 }
             }
         }
 
         async function login() {
-            const prefixElement = document.getElementById('loginPrefix') as HTMLInputElement;
-            const passwordElement = document.getElementById('loginPassword') as HTMLInputElement;
+            const prefixElement = document.getElementById('loginPrefix');
+            const passwordElement = document.getElementById('loginPassword');
             const prefix = prefixElement?.value || '';
             const password = passwordElement?.value || '';
             
