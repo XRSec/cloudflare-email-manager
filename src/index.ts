@@ -83,7 +83,8 @@ async function signJWT(data: string, secret: string): Promise<string> {
     );
 
     const signature = await crypto.subtle.sign('HMAC', key, dataToSign);
-    return btoa(String.fromCharCode(...new Uint8Array(signature))) // todo fix TS2802: Type 'Uint8Array<ArrayBuffer>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+    const uint8Array = new Uint8Array(signature);
+    return btoa(String.fromCharCode.apply(null, Array.from(uint8Array)))
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
@@ -115,12 +116,24 @@ async function findUserByPrefix(db: D1Database, prefix: string): Promise<User | 
         WHERE email_prefix = ?
     `).bind(prefix).first();
 
-    return result as User | null; // todo fix <html>TS2352: Conversion of type 'Record&lt;string, unknown&gt;' to type 'User' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.<br/>Type 'Record&lt;string, unknown&gt;' is missing the following properties from type 'User': id, email_prefix, email_password, user_type
+    if (!result) {
+        return null;
+    }
+
+    // 安全地转换数据库结果为 User 类型
+    return {
+        id: result.id as number,
+        email_prefix: result.email_prefix as string,
+        email_password: result.email_password as string,
+        user_type: result.user_type as 'admin' | 'user',
+        webhook_url: result.webhook_url as string | undefined,
+        webhook_secret: result.webhook_secret as string | undefined,
+    };
 }
 
 // ============= Hono 应用 =============
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono();
 
 app.use('*', cors({
     origin: '*',
@@ -137,8 +150,8 @@ app.use('/api/protected/*', async (c, next) => {
 
     const token = authHeader.substring(7);
     try {
-        const payload = await verifyJWT(token, c.env.JWT_SECRET);
-        c.set('jwtPayload', payload); // todo fix <html>TS2769: No overload matches this call.<br/>Overload 1 of 2, '(key: never, value: unknown): void', gave the following error.<br/>Argument of type '&quot;jwtPayload&quot;' is not assignable to parameter of type 'never'.<br/>Overload 2 of 2, '(key: never, value: never): void', gave the following error.<br/>Argument of type '&quot;jwtPayload&quot;' is not assignable to parameter of type 'never'.
+        const payload = await verifyJWT(token, (c.env as unknown as Env).JWT_SECRET);
+        (c as any).set('jwtPayload', payload);
         await next();
     } catch (error) {
         throw new HTTPException(401, {message: '无效的认证令牌'});
@@ -155,7 +168,8 @@ app.post('/api/register', async (c) => {
             throw new HTTPException(400, {message: '密码长度至少6位'});
         }
 
-        const allowRegistration = c.env.ALLOW_REGISTRATION !== 'false';
+        const env = c.env as unknown as Env;
+        const allowRegistration = env.ALLOW_REGISTRATION !== 'false';
         if (!allowRegistration) {
             throw new HTTPException(403, {message: '当前不允许新用户注册'});
         }
@@ -164,7 +178,7 @@ app.post('/api/register', async (c) => {
         let attempts = 0;
         do {
             emailPrefix = generateRandomString(8);
-            const existingUser = await findUserByPrefix(c.env.DB, emailPrefix);
+            const existingUser = await findUserByPrefix(env.DB, emailPrefix);
             if (!existingUser) break;
             attempts++;
         } while (attempts < 10);
@@ -174,7 +188,7 @@ app.post('/api/register', async (c) => {
         }
 
         const hashedPassword = await hashPassword(email_password);
-        const result = await c.env.DB.prepare(`
+        const result = await env.DB.prepare(`
             INSERT INTO users (email_prefix, email_password, user_type)
             VALUES (?, ?, 'user')
         `).bind(emailPrefix, hashedPassword).run();
@@ -185,7 +199,7 @@ app.post('/api/register', async (c) => {
             success: true,
             data: {
                 user_id: userId,
-                email_address: `${emailPrefix}@${c.env.DOMAIN}`,
+                email_address: `${emailPrefix}@${env.DOMAIN}`,
                 email_prefix: emailPrefix
             }
         });
@@ -205,7 +219,8 @@ app.post('/api/login', async (c) => {
             throw new HTTPException(400, {message: '邮件前缀和密码不能为空'});
         }
 
-        const user = await findUserByPrefix(c.env.DB, email_prefix);
+        const env = c.env as unknown as Env;
+        const user = await findUserByPrefix(env.DB, email_prefix);
         if (!user) {
             throw new HTTPException(401, {message: '用户不存在'});
         }
@@ -219,7 +234,7 @@ app.post('/api/login', async (c) => {
             user_id: user.id,
             email_prefix: user.email_prefix,
             user_type: user.user_type
-        }, c.env.JWT_SECRET);
+        }, env.JWT_SECRET);
 
         return c.json({
             success: true,
@@ -229,7 +244,7 @@ app.post('/api/login', async (c) => {
                     id: user.id,
                     email_prefix: user.email_prefix,
                     user_type: user.user_type,
-                    email_address: `${user.email_prefix}@${c.env.DOMAIN}`
+                    email_address: `${user.email_prefix}@${env.DOMAIN}`
                 }
             }
         });
@@ -243,13 +258,14 @@ app.post('/api/login', async (c) => {
 
 app.get('/api/protected/emails', async (c) => {
     try {
-        const payload = c.get('jwtPayload') as any; // todo fix <html>TS2769: No overload matches this call.<br/>Overload 1 of 2, '(key: never): unknown', gave the following error.<br/>Argument of type '&quot;jwtPayload&quot;' is not assignable to parameter of type 'never'.<br/>Overload 2 of 2, '(key: never): never', gave the following error.<br/>Argument of type '&quot;jwtPayload&quot;' is not assignable to parameter of type 'never'.
+        const payload = (c as any).get('jwtPayload');
         const {page = 1, limit = 20} = c.req.query();
 
         const userId = payload.user_id;
         const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
+        const env = c.env as unknown as Env;
 
-        const emails = await c.env.DB.prepare(`
+        const emails = await env.DB.prepare(`
             SELECT e.id,
                    e.message_id,
                    e.sender_email,
@@ -262,13 +278,13 @@ app.get('/api/protected/emails', async (c) => {
             WHERE e.user_id = ?
             ORDER BY e.received_at DESC LIMIT ?
             OFFSET ?
-        `).bind(userId, parseInt(limit as string), offset).all(); // todo fix 没有配置任何数据源来运行此 SQL 并提供高级代码辅助。 通过问题菜单(⌥⏎)禁用此检查。
+        `).bind(userId, parseInt(limit as string), offset).all();
 
-        const countResult = await c.env.DB.prepare(`
+        const countResult = await env.DB.prepare(`
             SELECT COUNT(*) as total
             FROM emails
             WHERE user_id = ?
-        `).bind(userId).first(); // todo fix 没有配置任何数据源来运行此 SQL 并提供高级代码辅助。 通过问题菜单(⌥⏎)禁用此检查。
+        `).bind(userId).first();
 
         return c.json({
             success: true,
@@ -393,7 +409,8 @@ app.get('/', (c) => {
         }
 
         async function register() {
-            const password = document.getElementById('registerPassword').value;// todo fix 未解析的变量 value
+            const passwordElement = document.getElementById('registerPassword') as HTMLInputElement;
+            const password = passwordElement?.value || '';
             
             if (!password || password.length < 6) {
                 showNotification('密码长度至少6位', 'error');
@@ -411,20 +428,29 @@ app.get('/', (c) => {
                 
                 if (result.success) {
                     showNotification('注册成功！', 'success');
-                    document.getElementById('loginPrefix').value = result.data.email_prefix;
-                    document.getElementById('loginPassword').value = password;
+                    const loginPrefixElement = document.getElementById('loginPrefix') as HTMLInputElement;
+                    const loginPasswordElement = document.getElementById('loginPassword') as HTMLInputElement;
+                    if (loginPrefixElement) loginPrefixElement.value = result.data.email_prefix;
+                    if (loginPasswordElement) loginPasswordElement.value = password;
                     switchTab('login');
                 } else {
                     showNotification(result.message || '注册失败', 'error');
                 }
             } catch (error) {
-                showNotification('注册失败: ' + error.message, 'error'); // todo fix 前端这里其实可以想办法让注册按钮不显示 ALLOW_REGISTRATION
+                showNotification('注册失败: ' + error.message, 'error');
+                // 如果是权限错误，可以隐藏注册选项卡
+                if (error.message && error.message.includes('不允许新用户注册')) {
+                    const registerTab = document.querySelector('[onclick="switchTab(\'register\')"]') as HTMLElement;
+                    if (registerTab) registerTab.style.display = 'none';
+                }
             }
         }
 
         async function login() {
-            const prefix = document.getElementById('loginPrefix').value; // todo fix 未解析的变量 value
-            const password = document.getElementById('loginPassword').value; // todo fix 未解析的变量 value
+            const prefixElement = document.getElementById('loginPrefix') as HTMLInputElement;
+            const passwordElement = document.getElementById('loginPassword') as HTMLInputElement;
+            const prefix = prefixElement?.value || '';
+            const password = passwordElement?.value || '';
             
             if (!prefix || !password) {
                 showNotification('请填写邮箱前缀和密码', 'error');
@@ -484,15 +510,18 @@ app.get('/', (c) => {
                 const result = await response.json();
                 
                 if (result.success) {
-                    const emailsHtml = result.data.emails.map(email => \`
+                    const emailsHtml = result.data.emails.map((email: any) => \`
                         <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 15px; margin-bottom: 10px;">
                             <div style="font-weight: 600;">\${email.sender_email}</div>
                             <div style="color: #667eea; margin: 5px 0;">\${email.subject || '(无主题)'}</div>
                             <div style="color: #6c757d; font-size: 0.9rem;">\${new Date(email.received_at).toLocaleString()}</div>
                         </div>
-                    \`).join(''); // todo fix 未解析的变量 received_at sender_email
+                    \`).join('');
                     
-                    document.getElementById('emailList').innerHTML = emailsHtml || '<p style="color: #6c757d;">暂无邮件</p>';
+                    const emailListElement = document.getElementById('emailList');
+                    if (emailListElement) {
+                        emailListElement.innerHTML = emailsHtml || '<p style="color: #6c757d;">暂无邮件</p>';
+                    }
                 }
             } catch (error) {
                 console.error('加载邮件失败:', error);
@@ -567,7 +596,7 @@ async function handleIncomingEmail(message: any, env: Env): Promise<void> {
             subject,
             textContent,
             rawEmail
-        ).run(); // todo fix 没有配置任何数据源来运行此 SQL 并提供高级代码辅助。 通过问题菜单(⌥⏎)禁用此检查。
+        ).run();
 
         console.log('邮件处理完成, ID:', messageId);
 
@@ -588,9 +617,9 @@ async function handleScheduledCleanup(env: Env): Promise<void> {
             DELETE
             FROM emails
             WHERE received_at < ?
-        `).bind(cutoffDate.toISOString()).run(); // todo fix 没有配置任何数据源来运行此 SQL 并提供高级代码辅助。 通过问题菜单(⌥⏎)禁用此检查。
+        `).bind(cutoffDate.toISOString()).run();
 
-        console.log(`清理完成，删除了 ${result.changes} 封邮件`); // todo fix TS2339: Property 'changes' does not exist on type 'D1Result<Record<string, unknown>>'.
+        console.log(`清理完成，删除了 ${result.meta?.changes || 0} 封邮件`);
 
     } catch (error) {
         console.error('定时清理任务失败:', error);
