@@ -37,7 +37,7 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
-    "hono": "^4.9.4"
+    "hono": "^4.9.6"
   },
   "engines": {
     "node": ">=18.0.0"
