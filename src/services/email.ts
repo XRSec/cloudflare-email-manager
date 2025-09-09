@@ -468,7 +468,11 @@ export async function parseEmailAttachments(rawEmail: string, env: Env): Promise
             }
 
             // 检查文件大小
-            const maxSize = parseInt(await getSystemSetting(env.DB, 'max_attachment_size') || '52428800');
+            const maxSizeSetting = await getSystemSetting(env.DB, 'max_attachment_size');
+            if (!maxSizeSetting) {
+                throw new Error('附件大小限制未配置');
+            }
+            const maxSize = parseInt(maxSizeSetting);
             if (decodedContent.byteLength > maxSize) {
                 console.warn(`附件过大，跳过: ${filename} (${decodedContent.byteLength} bytes)`);
                 continue;
@@ -508,7 +512,12 @@ export async function parseEmailAttachments(rawEmail: string, env: Env): Promise
  * 清理旧邮件
  */
 export async function cleanupOldEmails(env: Env): Promise<{ deletedEmails: number; deletedAttachments: number }> {
-    const cleanupDays = parseInt(await getSystemSetting(env.DB, 'cleanup_days') || '7');
+    const cleanupDaysSetting = await getSystemSetting(env.DB, 'cleanup_days');
+    if (!cleanupDaysSetting) {
+        console.error('清理天数未配置，跳过清理');
+        return { deletedEmails: 0, deletedAttachments: 0 };
+    }
+    const cleanupDays = parseInt(cleanupDaysSetting);
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - cleanupDays);
     const cutoffDateStr = cutoffDate.toISOString();

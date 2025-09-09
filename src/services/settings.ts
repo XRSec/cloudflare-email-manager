@@ -5,6 +5,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { SystemSetting, SystemConfig } from '../types';
 import { generateJWTSecret, isValidJWTSecret } from '../utils/jwt-secret';
+import { SYSTEM_DEFAULTS, validateConfigValue } from '../config/constants';
 
 // 系统设置缓存
 let systemSettingsCache: Map<string, string> = new Map();
@@ -27,16 +28,15 @@ export async function initializeSystemSettings(db: D1Database): Promise<void> {
             systemSettingsCache.set(setting.key as string, setting.value as string);
         }
 
-        // 设置默认值
+        // 设置默认值（仅用于初始化）
         const defaultSettings = {
-            'allow_registration': 'false',
-            'cleanup_days': '7',
-            'max_attachment_size': '52428800',
-            'cookie_max_age': '604800', // 7天
-            'primary_domain': 'example.com',
-            'admin_email': '',
-            'domains': '["example.com"]', // JSON 数组格式存储多个域名
-            'debug_mode': 'false'
+            'allow_registration': String(SYSTEM_DEFAULTS.ALLOW_REGISTRATION),
+            'cleanup_days': String(SYSTEM_DEFAULTS.CLEANUP_DAYS),
+            'max_attachment_size': String(SYSTEM_DEFAULTS.MAX_ATTACHMENT_SIZE),
+            'cookie_max_age': String(SYSTEM_DEFAULTS.COOKIE_MAX_AGE),
+            'debug_mode': String(SYSTEM_DEFAULTS.DEBUG_MODE),
+            'admin_email': SYSTEM_DEFAULTS.ADMIN_EMAIL,
+            // 注意：domains 和 primary_domain 需要用户配置，没有默认值
         };
 
         // 特殊处理 JWT Secret
