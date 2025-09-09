@@ -4,6 +4,7 @@
 
 import type { D1Database } from '@cloudflare/workers-types';
 import type { SystemSetting, SystemConfig } from '../types';
+import { generateJWTSecret, isValidJWTSecret } from '../utils/jwt-secret';
 
 // 系统设置缓存
 let systemSettingsCache: Map<string, string> = new Map();
@@ -32,13 +33,26 @@ export async function initializeSystemSettings(db: D1Database): Promise<void> {
             'cleanup_days': '7',
             'max_attachment_size': '52428800',
             'cookie_max_age': '604800', // 7天
-            'jwt_secret': 'your-jwt-secret-change-this-in-production',
             'primary_domain': 'example.com',
             'admin_email': '',
             'domains': '["example.com"]', // JSON 数组格式存储多个域名
             'debug_mode': 'false'
         };
 
+        // 特殊处理 JWT Secret
+        const existingJwtSecret = systemSettingsCache.get('jwt_secret');
+        if (!existingJwtSecret || !isValidJWTSecret(existingJwtSecret)) {
+            // 生成新的安全的 JWT Secret
+            const newJwtSecret = generateJWTSecret();
+            systemSettingsCache.set('jwt_secret', newJwtSecret);
+            await db.prepare(`
+                INSERT OR REPLACE INTO system_settings (key, value, description, updated_at)
+                VALUES ('jwt_secret', ?, 'JWT签名密钥（自动生成）', CURRENT_TIMESTAMP)
+            `).bind(newJwtSecret).run();
+            console.log('🔑 已生成新的安全 JWT Secret');
+        }
+
+        // 处理其他设置
         for (const [key, defaultValue] of Object.entries(defaultSettings)) {
             if (!systemSettingsCache.has(key)) {
                 systemSettingsCache.set(key, defaultValue);
