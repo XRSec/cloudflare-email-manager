@@ -1,0 +1,54 @@
+{
+  "name": "cloudflare-email-manager",
+  "version": "1.0.0",
+  "description": "基于Cloudflare的简洁邮箱管理系统",
+  "main": "src/main.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "init": "node deploy.js",
+    "clean": "node deploy.js deleteAll",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute cem-db --file=./db/schema.sql --remote",
+    "db:init:dev": "wrangler d1 execute cem-db --file=./db/schema.sql",
+    "db:migrate": "wrangler d1 migrations apply cem-db"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "email",
+    "temporary",
+    "d1",
+    "r2",
+    "webhook",
+    "临时邮箱"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250909.0",
+    "@types/node": "^24.3.1",
+    "@typescript-eslint/eslint-plugin": "^8.43.0",
+    "@typescript-eslint/parser": "^8.43.0",
+    "eslint": "^9.35.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.34.0"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "hono": "^4.9.6",
+    "npm-check-updates": "^18.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/XRSec/cloudflare-email-manager.git"
+  },
+  "bugs": {
+    "url": "https://github.com/XRSec/cloudflare-email-manager/issues"
+  },
+  "homepage": "https://github.com/XRSec/cloudflare-email-manager#readme"
+}
