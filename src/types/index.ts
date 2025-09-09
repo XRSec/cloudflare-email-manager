@@ -148,6 +148,9 @@ export interface SystemConfig {
     debug_mode: boolean;
     domains: string[];
     cookie_max_age: number;
+    jwt_secret?: string;
+    admin_email?: string;
+    primary_domain?: string;
 }
 
 // 扩展 Hono 上下文类型
