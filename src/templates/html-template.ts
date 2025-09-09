@@ -5,7 +5,7 @@
 
 import { getStyleTag } from '../static/styles';
 import { AppConfig } from '../static/app-config';
-import { getAppScript } from '../static/app';
+import { getJavaScript } from '../static/app';
 
 /**
  * 获取 HTML 头部
@@ -257,7 +257,7 @@ function getModals(): string {
 /**
  * 获取完整的 HTML 模板
  */
-export function getHTMLTemplate(): string {
+export async function getHTMLTemplate(): Promise<string> {
     const version = new Date().getTime(); // 用于缓存控制
     
     return `<!DOCTYPE html>
@@ -280,7 +280,7 @@ export function getHTMLTemplate(): string {
         ${AppConfig}
         
         // 主应用逻辑
-        ${getAppScript()}
+        ${await getJavaScript()}
         
         // 初始化应用
         document.addEventListener('DOMContentLoaded', async function() {

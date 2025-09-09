@@ -4,6 +4,21 @@
  * 数据会在标签页关闭后自动清除
  */
 
+// 类型定义（兼容 Worker 环境）
+interface StorageItem {
+    getItem(key: string): string | null;
+    setItem(key: string, value: string): void;
+    removeItem(key: string): void;
+    clear(): void;
+    length: number;
+    key(index: number): string | null;
+}
+
+// 使用 any 类型来避免 TypeScript 错误，因为这些代码会在浏览器中运行
+declare const window: any;
+declare const sessionStorage: StorageItem;
+declare const localStorage: StorageItem;
+
 interface CacheItem<T> {
     data: T;
     timestamp: number;
