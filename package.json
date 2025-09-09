@@ -4,14 +4,11 @@
   "description": "基于Cloudflare的简洁邮箱管理系统",
   "main": "src/main.ts",
   "scripts": {
-    "dev": "npm run build:template:dev && wrangler dev",
-    "build:template": "node build-template.js",
-    "build:template:dev": "node build-template.js",
-    "build:template:prod": "NODE_ENV=production node build-template.js",
-    "build": "npm run build:template:prod",
+    "dev": "wrangler dev",
+    "build": "tsc",
     "init": "node deploy.js",
     "clean": "node deploy.js deleteAll",
-    "deploy": "npm run build:template:prod && wrangler deploy",
+    "deploy": "wrangler deploy",
     "db:init": "wrangler d1 execute cem-db --file=./db/schema.sql --remote",
     "db:init:dev": "wrangler d1 execute cem-db --file=./db/schema.sql",
     "db:migrate": "wrangler d1 migrations apply cem-db"

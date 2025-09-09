@@ -1,18 +1,18 @@
 /**
- * 模板工具 - 提供前端HTML模板
- * 
- * 使用预编译的 HTML 模板，保持代码和模板分离
+ * 模板加载器
+ * 使用模块化的 HTML、CSS、JavaScript
  */
 
-import { getTemplate as getCompiledTemplate } from '../templates/compiled';
+import { getHTMLTemplate } from '../templates/html-template';
 
 /**
  * 获取完整的HTML模板
+ * 所有内容都已模块化
  */
 export async function getTemplate(): Promise<string> {
     try {
-        // 返回编译后的 HTML 模板
-        return getCompiledTemplate();
+        // 返回模块化的 HTML 模板
+        return getHTMLTemplate();
     } catch (error) {
         console.error('获取模板失败:', error);
         // 返回错误页面
@@ -37,44 +37,46 @@ function getErrorTemplate(): string {
             padding: 20px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        .error {
+        .error-container {
             background: white;
             border-radius: 10px;
             padding: 40px;
             max-width: 500px;
-            margin: 100px auto;
             text-align: center;
             box-shadow: 0 10px 40px rgba(0,0,0,0.1);
         }
         h1 {
-            color: #333;
+            color: #e74c3c;
             margin-bottom: 20px;
         }
         p {
             color: #666;
             line-height: 1.6;
+            margin-bottom: 20px;
         }
         .btn {
             display: inline-block;
-            padding: 10px 20px;
-            margin-top: 20px;
-            background: #667eea;
+            padding: 12px 24px;
+            background: #3498db;
             color: white;
             text-decoration: none;
             border-radius: 5px;
             transition: background 0.3s;
         }
         .btn:hover {
-            background: #5a67d8;
+            background: #2980b9;
         }
     </style>
 </head>
 <body>
-    <div class="error">
+    <div class="error-container">
         <h1>⚠️ 系统错误</h1>
-        <p>模板加载失败，请刷新页面重试。</p>
-        <p>如果问题持续存在，请联系管理员。</p>
+        <p>抱歉，系统遇到了一些问题。</p>
+        <p>请稍后再试，或联系管理员。</p>
         <a href="/" class="btn">刷新页面</a>
     </div>
 </body>
