@@ -760,7 +760,7 @@ const UserManager = {
     // 加载用户设置
     async loadSettings() {
         try {
-            const response = await API.get('/api/protected/user/settings');
+            const response = await API.get('/api/protected/settings');
 
             if (response.success) {
                 const settings = response.data;
@@ -817,7 +817,7 @@ const UserManager = {
         }
 
         try {
-            const response = await API.put('/api/protected/user/settings', updates);
+            const response = await API.put('/api/protected/settings', updates);
 
             if (response.success) {
                 UI.showMessage('设置更新成功', 'success');
@@ -1009,7 +1009,7 @@ const AdminManager = {
                 '<div class="form-col">' +
                     '<div class="form-group">' +
                         '<label for="allowRegistration">允许用户注册</label>' +
-                        '<select id="allowRegistration" class="form-control">' +
+                        '<select id="allowRegistration" name="allow_registration" class="form-control">' +
                             '<option value="true"' + (config.allow_registration ? ' selected' : '') + '>是</option>' +
                             '<option value="false"' + (!config.allow_registration ? ' selected' : '') + '>否</option>' +
                         '</select>' +
@@ -1018,7 +1018,7 @@ const AdminManager = {
                 '<div class="form-col">' +
                     '<div class="form-group">' +
                         '<label for="debugMode">调试模式</label>' +
-                        '<select id="debugMode" class="form-control">' +
+                        '<select id="debugMode" name="debug_mode" class="form-control">' +
                             '<option value="true"' + (config.debug_mode ? ' selected' : '') + '>开启</option>' +
                             '<option value="false"' + (!config.debug_mode ? ' selected' : '') + '>关闭</option>' +
                         '</select>' +
@@ -1029,19 +1029,27 @@ const AdminManager = {
                 '<div class="form-col">' +
                     '<div class="form-group">' +
                         '<label for="cleanupDays">邮件清理天数</label>' +
-                        '<input type="number" id="cleanupDays" class="form-control" value="' + config.cleanup_days + '" min="1" max="365">' +
+                        '<input type="number" id="cleanupDays" name="cleanup_days" class="form-control" value="' + config.cleanup_days + '" min="1" max="365">' +
                     '</div>' +
                 '</div>' +
                 '<div class="form-col">' +
                     '<div class="form-group">' +
                         '<label for="maxAttachmentSize">最大附件大小 (MB)</label>' +
-                        '<input type="number" id="maxAttachmentSize" class="form-control" value="' + Math.round(config.max_attachment_size / 1024 / 1024) + '" min="1" max="100">' +
+                        '<input type="number" id="maxAttachmentSize" name="max_attachment_size_mb" class="form-control" value="' + Math.round(config.max_attachment_size / 1024 / 1024) + '" min="1" max="100">' +
                     '</div>' +
                 '</div>' +
             '</div>' +
             '<div class="form-group">' +
                 '<label for="domains">支持的域名（每行一个）</label>' +
-                '<textarea id="domains" class="form-control" rows="4" placeholder="example.com">' + config.domains.join('\\n') + '</textarea>' +
+                '<textarea id="domains" name="domains" class="form-control" rows="4" placeholder="example.com">' + config.domains.join('\\n') + '</textarea>' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label for="jwtSecret">JWT 密钥</label>' +
+                '<input type="text" id="jwtSecret" name="jwt_secret" class="form-control" value="' + (config.jwt_secret || '') + '" placeholder="输入新的JWT密钥">' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label for="adminEmail">管理员邮箱</label>' +
+                '<input type="email" id="adminEmail" name="admin_email" class="form-control" value="' + (config.admin_email || '') + '" placeholder="admin@example.com">' +
             '</div>' +
             '<button type="button" class="btn btn-primary" onclick="AdminManager.saveSystemSettings()">保存设置</button>' +
         '</form>';
@@ -1124,6 +1132,69 @@ const AdminManager = {
         }
     },
 
+    // 删除用户
+    async deleteUser(userId) {
+        if (!confirm('确定要删除此用户吗？')) {
+            return;
+        }
+
+        try {
+            const response = await API.delete('/api/admin/users/' + userId);
+            if (response.success) {
+                UI.showMessage('用户删除成功', 'success');
+                await this.loadUsers();
+            }
+        } catch (error) {
+            UI.showMessage(error.message || '删除用户失败', 'error');
+        }
+    },
+
+    // 发送用户信息
+    async sendUserInfo(userId) {
+        if (!confirm('确定要发送用户信息到其邮箱吗？')) {
+            return;
+        }
+
+        try {
+            const response = await API.post('/api/admin/users/' + userId + '/send-info', {});
+            if (response.success) {
+                UI.showMessage('用户信息已发送', 'success');
+            }
+        } catch (error) {
+            UI.showMessage(error.message || '发送用户信息失败', 'error');
+        }
+    },
+
+    // 保存系统设置
+    async saveSystemSettings() {
+        const form = document.getElementById('systemConfigForm');
+        if (!form) return;
+
+        const formData = new FormData(form);
+        const settings = {};
+        
+        for (const [key, value] of formData.entries()) {
+            // 特殊处理某些字段
+            if (key === 'max_attachment_size_mb') {
+                settings['max_attachment_size'] = parseInt(value) * 1024 * 1024; // 转换为字节
+            } else if (key === 'domains') {
+                settings[key] = value.split('\n').filter(d => d.trim()).join(','); // 转换为逗号分隔
+            } else {
+                settings[key] = value;
+            }
+        }
+
+        try {
+            const response = await API.put('/api/admin/settings', settings);
+            if (response.success) {
+                UI.showMessage('系统设置保存成功', 'success');
+                await this.loadSystemSettings();
+            }
+        } catch (error) {
+            UI.showMessage(error.message || '保存系统设置失败', 'error');
+        }
+    },
+
     // 工具函数
     escapeHtml(text) {
         const div = document.createElement('div');
@@ -1156,7 +1227,9 @@ window.updateSettings = UserManager.updateSettings.bind(UserManager);
 window.closeModal = UI.hideModal.bind(UI);
 
 // 管理员功能绑定
+window.AdminManager = AdminManager;  // 直接暴露 AdminManager 对象
 window.loadSystemSettings = AdminManager.loadSystemSettings.bind(AdminManager);
+window.saveSystemSettings = AdminManager.saveSystemSettings.bind(AdminManager);
 window.showCreateUserModal = function() { UI.showModal('createUserModal'); };
 window.showCreateRuleModal = function() { UI.showModal('createRuleModal'); };
 

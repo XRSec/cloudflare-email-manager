@@ -139,6 +139,11 @@ app.get('/', async (c: any) => {
     }
 });
 
+// favicon.ico 处理（返回空响应避免404）
+app.get('/favicon.ico', (c: any) => {
+    return c.body('', 204);
+});
+
 // 静态资源路由
 app.get('/static/*', async (c: any) => {
     const path = c.req.path.replace('/static/', '');
