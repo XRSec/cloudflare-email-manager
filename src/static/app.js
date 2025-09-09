@@ -15,8 +15,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // 检查登录状态
 async function checkLoginStatus() {
-    // 首先尝试从 localStorage 获取 token
-    let token = localStorage.getItem('token');
+    // 首先尝试从 localStorage 获取 token (使用带前缀的键)
+    let token = localStorage.getItem('cem_persist_token') || localStorage.getItem('token'); // 兼容旧版本
     
     // 如果没有，尝试从 Cookie 获取
     if (!token) {
@@ -40,7 +40,9 @@ async function checkLoginStatus() {
                 if (result.success) {
                     currentToken = token;
                     currentUser = result.data;
-                    localStorage.setItem('token', token);
+                    localStorage.setItem('cem_persist_token', token);
+                    // 清理旧的 token 键
+                    localStorage.removeItem('token');
                     showMainSection();
                     return;
                 }
@@ -117,7 +119,9 @@ async function login() {
         if (result.success) {
             currentToken = result.data.token;
             currentUser = result.data.user;
-            localStorage.setItem('token', currentToken);
+            localStorage.setItem('cem_persist_token', currentToken);
+            // 清理旧的 token 键
+            localStorage.removeItem('token');
             
             showNotification('登录成功！', 'success');
             showMainSection();
@@ -143,7 +147,19 @@ async function logout() {
     
     currentToken = null;
     currentUser = null;
-    localStorage.removeItem('token');
+    localStorage.removeItem('cem_persist_token');
+    localStorage.removeItem('token'); // 同时清理旧的键
+    // 清空 sessionStorage 缓存
+    if (window.sessionStorage) {
+        const keysToRemove = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+            const key = sessionStorage.key(i);
+            if (key && key.startsWith('cem_cache_')) {
+                keysToRemove.push(key);
+            }
+        }
+        keysToRemove.forEach(key => sessionStorage.removeItem(key));
+    }
     
     document.getElementById('loginSection').classList.remove('hidden');
     document.getElementById('mainSection').classList.add('hidden');

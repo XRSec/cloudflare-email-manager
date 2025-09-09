@@ -81,15 +81,18 @@ const API = {
     setToken(token) {
         this.token = token;
         if (token) {
-            localStorage.setItem('auth_token', token);
-        } else {
+            localStorage.setItem('cem_persist_auth_token', token);
+            // 清理旧的 token 键
             localStorage.removeItem('auth_token');
+        } else {
+            localStorage.removeItem('cem_persist_auth_token');
+            localStorage.removeItem('auth_token'); // 同时清理旧的键
         }
     },
 
     // 从存储中恢复令牌
     restoreToken() {
-        const token = localStorage.getItem('auth_token');
+        const token = localStorage.getItem('cem_persist_auth_token') || localStorage.getItem('auth_token'); // 兼容旧版本
         if (token) {
             this.token = token;
         }

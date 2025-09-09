@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>缓存测试页面</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        
+        h2 {
+            color: #666;
+            margin-top: 0;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        button.danger {
+            background: #f44336;
+        }
+        
+        button.danger:hover {
+            background: #da190b;
+        }
+        
+        button.info {
+            background: #2196F3;
+        }
+        
+        button.info:hover {
+            background: #0b7dda;
+        }
+        
+        .result {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .stat-item {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        .stat-label {
+            font-weight: bold;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .stat-value {
+            font-size: 1.2em;
+            color: #333;
+        }
+        
+        input[type="text"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+            width: 200px;
+        }
+        
+        .test-group {
+            margin-bottom: 20px;
+        }
+        
+        .success {
+            color: #4CAF50;
+        }
+        
+        .error {
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 SessionStorage 缓存测试页面</h1>
+    
+    <div class="container">
+        <h2>📊 缓存统计</h2>
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-label">缓存项数量</div>
+                <div class="stat-value" id="cacheCount">0</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">缓存大小</div>
+                <div class="stat-value" id="cacheSize">0 KB</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">SessionStorage 支持</div>
+                <div class="stat-value" id="storageSupport">检查中...</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Token 状态</div>
+                <div class="stat-value" id="tokenStatus">检查中...</div>
+            </div>
+        </div>
+        <button onclick="updateStats()" class="info">刷新统计</button>
+        <div class="result" id="statsResult"></div>
+    </div>
+    
+    <div class="container">
+        <h2>🧪 基础测试</h2>
+        
+        <div class="test-group">
+            <button onclick="testSetAndGet()">测试设置和获取</button>
+            <button onclick="testJSONSerialization()">测试 JSON 序列化</button>
+            <button onclick="testExpiration()">测试过期机制</button>
+            <button onclick="testLargeData()">测试大数据存储</button>
+        </div>
+        
+        <div class="result" id="testResult"></div>
+    </div>
+    
+    <div class="container">
+        <h2>🔍 缓存操作</h2>
+        
+        <div class="test-group">
+            <input type="text" id="cacheKey" placeholder="缓存键名" value="test_key">
+            <input type="text" id="cacheValue" placeholder="缓存值" value='{"test": "data"}'>
+            <button onclick="setCache()">设置缓存</button>
+            <button onclick="getCache()">获取缓存</button>
+            <button onclick="deleteCache()">删除缓存</button>
+        </div>
+        
+        <div class="test-group">
+            <button onclick="listAllCache()" class="info">列出所有缓存</button>
+            <button onclick="cleanExpired()" class="info">清理过期缓存</button>
+            <button onclick="clearAllCache()" class="danger">清空所有缓存</button>
+        </div>
+        
+        <div class="result" id="operationResult"></div>
+    </div>
+    
+    <div class="container">
+        <h2>🔐 Token 管理测试</h2>
+        
+        <div class="test-group">
+            <input type="text" id="tokenValue" placeholder="Token 值" value="test_token_12345">
+            <button onclick="setToken()">设置 Token</button>
+            <button onclick="getToken()">获取 Token</button>
+            <button onclick="removeToken()">删除 Token</button>
+            <button onclick="migrateOldToken()" class="info">迁移旧 Token</button>
+        </div>
+        
+        <div class="result" id="tokenResult"></div>
+    </div>
+
+    <script>
+        // SessionStorage 缓存管理器
+        const SessionCache = {
+            prefix: 'cem_cache_',
+            defaultTTL: 5 * 60 * 1000, // 5分钟
+            
+            set(key, data, ttl) {
+                if (!window.sessionStorage) return false;
+                
+                const cacheItem = {
+                    data: data,
+                    timestamp: Date.now(),
+                    ttl: ttl || this.defaultTTL
+                };
+                
+                try {
+                    sessionStorage.setItem(this.prefix + key, JSON.stringify(cacheItem));
+                    return true;
+                } catch (error) {
+                    console.error('设置缓存失败:', error);
+                    return false;
+                }
+            },
+            
+            get(key) {
+                if (!window.sessionStorage) return null;
+                
+                try {
+                    const serialized = sessionStorage.getItem(this.prefix + key);
+                    if (!serialized) return null;
+                    
+                    const item = JSON.parse(serialized);
+                    
+                    // 检查是否过期
+                    if (Date.now() - item.timestamp > item.ttl) {
+                        this.delete(key);
+                        return null;
+                    }
+                    
+                    return item.data;
+                } catch (error) {
+                    console.error('获取缓存失败:', error);
+                    return null;
+                }
+            },
+            
+            delete(key) {
+                if (!window.sessionStorage) return;
+                sessionStorage.removeItem(this.prefix + key);
+            },
+            
+            clear() {
+                if (!window.sessionStorage) return;
+                
+                const keysToRemove = [];
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const key = sessionStorage.key(i);
+                    if (key && key.startsWith(this.prefix)) {
+                        keysToRemove.push(key);
+                    }
+                }
+                
+                keysToRemove.forEach(key => sessionStorage.removeItem(key));
+            },
+            
+            keys() {
+                if (!window.sessionStorage) return [];
+                
+                const keys = [];
+                for (let i = 0; i < sessionStorage.length; i++) {
+                    const key = sessionStorage.key(i);
+                    if (key && key.startsWith(this.prefix)) {
+                        keys.push(key.substring(this.prefix.length));
+                    }
+                }
+                return keys;
+            },
+            
+            getStats() {
+                const keys = this.keys();
+                let totalSize = 0;
+                
+                keys.forEach(key => {
+                    const value = sessionStorage.getItem(this.prefix + key);
+                    if (value) {
+                        totalSize += (this.prefix + key).length + value.length;
+                    }
+                });
+                
+                return {
+                    count: keys.length,
+                    sizeBytes: totalSize * 2, // UTF-16
+                    sizeKB: (totalSize * 2 / 1024).toFixed(2),
+                    keys: keys
+                };
+            },
+            
+            cleanExpired() {
+                const keys = this.keys();
+                let cleaned = 0;
+                
+                keys.forEach(key => {
+                    const value = this.get(key); // 自动删除过期项
+                    if (value === null) cleaned++;
+                });
+                
+                return cleaned;
+            }
+        };
+        
+        // Token 管理器
+        const PersistentStorage = {
+            prefix: 'cem_persist_',
+            
+            setToken(token) {
+                if (window.localStorage) {
+                    localStorage.setItem(this.prefix + 'token', token);
+                    return true;
+                }
+                return false;
+            },
+            
+            getToken() {
+                if (!window.localStorage) return null;
+                return localStorage.getItem(this.prefix + 'token');
+            },
+            
+            removeToken() {
+                if (window.localStorage) {
+                    localStorage.removeItem(this.prefix + 'token');
+                }
+            }
+        };
+        
+        // 更新统计信息
+        function updateStats() {
+            const stats = SessionCache.getStats();
+            document.getElementById('cacheCount').textContent = stats.count;
+            document.getElementById('cacheSize').textContent = stats.sizeKB + ' KB';
+            
+            // 检查 SessionStorage 支持
+            const storageSupport = window.sessionStorage ? '✅ 支持' : '❌ 不支持';
+            document.getElementById('storageSupport').textContent = storageSupport;
+            
+            // 检查 Token
+            const token = PersistentStorage.getToken();
+            const oldToken = localStorage.getItem('token');
+            let tokenStatus = '无';
+            if (token) {
+                tokenStatus = '✅ 新版 Token 存在';
+            } else if (oldToken) {
+                tokenStatus = '⚠️ 仅旧版 Token 存在';
+            }
+            document.getElementById('tokenStatus').textContent = tokenStatus;
+            
+            // 显示详细信息
+            document.getElementById('statsResult').textContent = 
+                `缓存键列表:\n${stats.keys.length > 0 ? stats.keys.join('\n') : '(空)'}\n\n` +
+                `总大小: ${stats.sizeBytes} 字节 (${stats.sizeKB} KB)\n` +
+                `SessionStorage 总项数: ${sessionStorage.length}`;
+        }
+        
+        // 测试设置和获取
+        function testSetAndGet() {
+            const result = document.getElementById('testResult');
+            let output = '测试设置和获取:\n';
+            
+            // 测试字符串
+            SessionCache.set('test_string', 'Hello World');
+            const getString = SessionCache.get('test_string');
+            output += `字符串: ${getString === 'Hello World' ? '✅ 通过' : '❌ 失败'}\n`;
+            
+            // 测试数字
+            SessionCache.set('test_number', 42);
+            const getNumber = SessionCache.get('test_number');
+            output += `数字: ${getNumber === 42 ? '✅ 通过' : '❌ 失败'}\n`;
+            
+            // 测试对象
+            const testObj = { name: 'test', value: 123, nested: { key: 'value' } };
+            SessionCache.set('test_object', testObj);
+            const getObj = SessionCache.get('test_object');
+            output += `对象: ${JSON.stringify(getObj) === JSON.stringify(testObj) ? '✅ 通过' : '❌ 失败'}\n`;
+            
+            // 测试数组
+            const testArr = [1, 'two', { three: 3 }];
+            SessionCache.set('test_array', testArr);
+            const getArr = SessionCache.get('test_array');
+            output += `数组: ${JSON.stringify(getArr) === JSON.stringify(testArr) ? '✅ 通过' : '❌ 失败'}\n`;
+            
+            result.textContent = output;
+            updateStats();
+        }
+        
+        // 测试 JSON 序列化
+        function testJSONSerialization() {
+            const result = document.getElementById('testResult');
+            let output = '测试 JSON 序列化:\n';
+            
+            // 测试复杂对象
+            const complexObj = {
+                string: '字符串',
+                number: 123.456,
+                boolean: true,
+                null: null,
+                array: [1, 2, 3],
+                nested: {
+                    deep: {
+                        value: '深层值'
+                    }
+                },
+                unicode: '中文测试 🎉',
+                special: '"引号" \'单引号\' \\反斜杠'
+            };
+            
+            SessionCache.set('complex_object', complexObj);
+            const retrieved = SessionCache.get('complex_object');
+            
+            output += `复杂对象序列化: ${JSON.stringify(retrieved) === JSON.stringify(complexObj) ? '✅ 通过' : '❌ 失败'}\n`;
+            output += `原始对象:\n${JSON.stringify(complexObj, null, 2)}\n\n`;
+            output += `获取的对象:\n${JSON.stringify(retrieved, null, 2)}`;
+            
+            result.textContent = output;
+            updateStats();
+        }
+        
+        // 测试过期机制
+        async function testExpiration() {
+            const result = document.getElementById('testResult');
+            let output = '测试过期机制:\n';
+            
+            // 设置 1 秒过期的缓存
+            SessionCache.set('expire_test', 'will expire', 1000);
+            const immediate = SessionCache.get('expire_test');
+            output += `立即获取: ${immediate === 'will expire' ? '✅ 成功' : '❌ 失败'}\n`;
+            
+            output += '等待 1.5 秒...\n';
+            result.textContent = output;
+            
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            const afterExpire = SessionCache.get('expire_test');
+            output += `过期后获取: ${afterExpire === null ? '✅ 已过期' : '❌ 未过期'}\n`;
+            
+            result.textContent = output;
+            updateStats();
+        }
+        
+        // 测试大数据存储
+        function testLargeData() {
+            const result = document.getElementById('testResult');
+            let output = '测试大数据存储:\n';
+            
+            // 生成大字符串（约 100KB）
+            const largeString = 'x'.repeat(100000);
+            const largeData = {
+                data: largeString,
+                metadata: {
+                    size: largeString.length,
+                    type: 'test'
+                }
+            };
+            
+            try {
+                const success = SessionCache.set('large_data', largeData);
+                if (success) {
+                    const retrieved = SessionCache.get('large_data');
+                    output += `存储 100KB 数据: ${retrieved && retrieved.data.length === 100000 ? '✅ 成功' : '❌ 失败'}\n`;
+                } else {
+                    output += '存储 100KB 数据: ❌ 失败（可能超出配额）\n';
+                }
+            } catch (error) {
+                output += `存储 100KB 数据: ❌ 错误 - ${error.message}\n`;
+            }
+            
+            result.textContent = output;
+            updateStats();
+        }
+        
+        // 缓存操作
+        function setCache() {
+            const key = document.getElementById('cacheKey').value;
+            const value = document.getElementById('cacheValue').value;
+            
+            if (!key) {
+                document.getElementById('operationResult').textContent = '❌ 请输入缓存键名';
+                return;
+            }
+            
+            try {
+                // 尝试解析为 JSON
+                let data;
+                try {
+                    data = JSON.parse(value);
+                } catch {
+                    data = value; // 如果不是 JSON，作为字符串存储
+                }
+                
+                const success = SessionCache.set(key, data);
+                document.getElementById('operationResult').textContent = 
+                    success ? `✅ 缓存已设置\n键: ${key}\n值: ${JSON.stringify(data, null, 2)}` : '❌ 设置失败';
+            } catch (error) {
+                document.getElementById('operationResult').textContent = `❌ 错误: ${error.message}`;
+            }
+            
+            updateStats();
+        }
+        
+        function getCache() {
+            const key = document.getElementById('cacheKey').value;
+            
+            if (!key) {
+                document.getElementById('operationResult').textContent = '❌ 请输入缓存键名';
+                return;
+            }
+            
+            const value = SessionCache.get(key);
+            document.getElementById('operationResult').textContent = 
+                value !== null ? `✅ 获取成功\n键: ${key}\n值: ${JSON.stringify(value, null, 2)}` : `❌ 缓存不存在或已过期: ${key}`;
+        }
+        
+        function deleteCache() {
+            const key = document.getElementById('cacheKey').value;
+            
+            if (!key) {
+                document.getElementById('operationResult').textContent = '❌ 请输入缓存键名';
+                return;
+            }
+            
+            SessionCache.delete(key);
+            document.getElementById('operationResult').textContent = `✅ 缓存已删除: ${key}`;
+            updateStats();
+        }
+        
+        function listAllCache() {
+            const keys = SessionCache.keys();
+            let output = `找到 ${keys.length} 个缓存项:\n\n`;
+            
+            keys.forEach(key => {
+                const value = SessionCache.get(key);
+                output += `📦 ${key}:\n${JSON.stringify(value, null, 2)}\n\n`;
+            });
+            
+            document.getElementById('operationResult').textContent = output || '没有缓存项';
+        }
+        
+        function cleanExpired() {
+            const cleaned = SessionCache.cleanExpired();
+            document.getElementById('operationResult').textContent = `✅ 清理了 ${cleaned} 个过期缓存项`;
+            updateStats();
+        }
+        
+        function clearAllCache() {
+            if (confirm('确定要清空所有缓存吗？')) {
+                SessionCache.clear();
+                document.getElementById('operationResult').textContent = '✅ 所有缓存已清空';
+                updateStats();
+            }
+        }
+        
+        // Token 操作
+        function setToken() {
+            const token = document.getElementById('tokenValue').value;
+            
+            if (!token) {
+                document.getElementById('tokenResult').textContent = '❌ 请输入 Token 值';
+                return;
+            }
+            
+            const success = PersistentStorage.setToken(token);
+            document.getElementById('tokenResult').textContent = 
+                success ? `✅ Token 已设置: ${token}` : '❌ 设置失败（localStorage 不可用）';
+            updateStats();
+        }
+        
+        function getToken() {
+            const token = PersistentStorage.getToken();
+            const oldToken = localStorage.getItem('token');
+            
+            let output = '';
+            if (token) {
+                output += `✅ 新版 Token: ${token}\n`;
+            }
+            if (oldToken) {
+                output += `⚠️ 旧版 Token: ${oldToken}\n`;
+            }
+            if (!token && !oldToken) {
+                output = '❌ 没有找到 Token';
+            }
+            
+            document.getElementById('tokenResult').textContent = output;
+        }
+        
+        function removeToken() {
+            PersistentStorage.removeToken();
+            localStorage.removeItem('token'); // 同时清理旧版
+            document.getElementById('tokenResult').textContent = '✅ Token 已删除';
+            updateStats();
+        }
+        
+        function migrateOldToken() {
+            const oldToken = localStorage.getItem('token');
+            
+            if (oldToken) {
+                PersistentStorage.setToken(oldToken);
+                localStorage.removeItem('token');
+                document.getElementById('tokenResult').textContent = `✅ 已迁移旧 Token: ${oldToken}`;
+            } else {
+                document.getElementById('tokenResult').textContent = '❌ 没有找到旧 Token';
+            }
+            updateStats();
+        }
+        
+        // 页面加载时更新统计
+        window.onload = function() {
+            updateStats();
+        };
+    </script>
+</body>
+</html>

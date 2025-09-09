@@ -290,7 +290,7 @@ export function getHTMLTemplate(): string {
             await ConfigManager.init();
             
             // 检查登录状态
-            const token = localStorage.getItem('token');
+            const token = localStorage.getItem('cem_persist_token') || localStorage.getItem('token'); // 兼容旧版本
             if (token) {
                 // 验证 token 并显示主界面
                 checkAuth();
