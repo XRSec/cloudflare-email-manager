@@ -188,7 +188,7 @@ INSERT INTO system_settings (key, value, description) VALUES
     ('max_attachment_size', '52428800', '最大附件大小（50MB）'),
     ('domain', 'example.com', '邮件域名'),
     ('admin_email', '', '管理员邮箱'),
-    ('jwt_secret', 'your-jwt-secret-change-this-in-production', 'JWT签名密钥'),
+    -- JWT secret 将在首次运行时自动生成
     ('primary_domain', 'example.com', '主域名'),
     ('cookie_max_age', '604800', 'Cookie过期时间（秒）'),
     ('debug_mode', 'false', '调试模式开关'),

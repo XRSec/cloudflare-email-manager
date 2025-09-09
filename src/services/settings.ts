@@ -107,45 +107,73 @@ export async function refreshSystemSettings(db: D1Database): Promise<void> {
 export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
     await initializeSystemSettings(db);
 
-    const allowRegistration = systemSettingsCache.get('allow_registration') === 'true';
-    const cleanupDays = parseInt(systemSettingsCache.get('cleanup_days') || '7');
-    const maxAttachmentSize = parseInt(systemSettingsCache.get('max_attachment_size') || '52428800');
-    const debugMode = systemSettingsCache.get('debug_mode') === 'true';
-    const cookieMaxAge = parseInt(systemSettingsCache.get('cookie_max_age') || '604800');
-
-    let domains: string[] = [];
-    try {
-        const domainsStr = systemSettingsCache.get('domains') || '[]';
-        domains = JSON.parse(domainsStr);
-    } catch (error) {
-        console.error('解析域名配置失败:', error);
-        domains = [];
-    }
-
-    // 如果没有配置多域名，使用单个域名配置
-    if (domains.length === 0) {
-        const singleDomain = systemSettingsCache.get('domain');
-        if (singleDomain) {
-            domains = [singleDomain];
+    // 辅助函数：获取必需设置
+    const getRequiredSetting = (key: string): string => {
+        const value = systemSettingsCache.get(key);
+        if (!value) {
+            throw new Error(`系统设置 '${key}' 未配置或为空`);
         }
-    }
-
-    // 获取 JWT 密钥和管理员邮箱
-    const jwtSecret = systemSettingsCache.get('jwt_secret') || '';
-    const adminEmail = systemSettingsCache.get('admin_email') || '';
-    const primaryDomain = systemSettingsCache.get('primary_domain') || domains[0] || 'example.com';
-
-    return {
-        allow_registration: allowRegistration,
-        cleanup_days: cleanupDays,
-        max_attachment_size: maxAttachmentSize,
-        debug_mode: debugMode,
-        domains,
-        cookie_max_age: cookieMaxAge,
-        jwt_secret: jwtSecret,
-        admin_email: adminEmail,
-        primary_domain: primaryDomain
+        return value;
     };
+
+    // 辅助函数：获取可选设置
+    const getOptionalSetting = (key: string, defaultValue: string): string => {
+        return systemSettingsCache.get(key) || defaultValue;
+    };
+
+    try {
+        // 必需配置项
+        const allowRegistration = getRequiredSetting('allow_registration') === 'true';
+        const cleanupDays = parseInt(getRequiredSetting('cleanup_days'));
+        const maxAttachmentSize = parseInt(getRequiredSetting('max_attachment_size'));
+        const cookieMaxAge = parseInt(getRequiredSetting('cookie_max_age'));
+        
+        // 可选配置项
+        const debugMode = getOptionalSetting('debug_mode', 'false') === 'true';
+        const adminEmail = getOptionalSetting('admin_email', '');
+
+        // 获取域名列表
+        let domains: string[] = [];
+        const domainsStr = systemSettingsCache.get('domains');
+        if (domainsStr) {
+            try {
+                domains = JSON.parse(domainsStr);
+            } catch (error) {
+                console.error('解析域名配置失败:', error);
+            }
+        }
+
+        // 如果没有配置多域名，尝试单个域名
+        if (domains.length === 0) {
+            const singleDomain = systemSettingsCache.get('domain');
+            if (singleDomain) {
+                domains = [singleDomain];
+            } else {
+                throw new Error('未配置任何域名');
+            }
+        }
+
+        // 获取 JWT 密钥 - 必须存在且有效
+        const jwtSecret = await getJWTSecret(db);
+        
+        // 主域名
+        const primaryDomain = getOptionalSetting('primary_domain', domains[0]);
+
+        return {
+            allow_registration: allowRegistration,
+            cleanup_days: cleanupDays,
+            max_attachment_size: maxAttachmentSize,
+            debug_mode: debugMode,
+            domains,
+            cookie_max_age: cookieMaxAge,
+            jwt_secret: jwtSecret,
+            admin_email: adminEmail,
+            primary_domain: primaryDomain
+        };
+    } catch (error) {
+        console.error('获取系统配置失败:', error);
+        throw error;
+    }
 }
 
 /**
@@ -217,10 +245,31 @@ export async function getAllSystemSettings(db: D1Database): Promise<SystemSettin
 
 /**
  * 获取JWT密钥（从数据库读取）
+ * 如果不存在或无效，将自动生成新的密钥
  */
 export async function getJWTSecret(db: D1Database): Promise<string> {
     await initializeSystemSettings(db);
-    return systemSettingsCache.get('jwt_secret') || 'your-jwt-secret-change-this-in-production';
+    
+    let jwtSecret = systemSettingsCache.get('jwt_secret');
+    
+    // 检查密钥是否有效
+    if (!jwtSecret || !isValidJWTSecret(jwtSecret)) {
+        console.warn('⚠️ JWT Secret 不存在或无效，生成新的密钥...');
+        
+        // 生成新的密钥
+        jwtSecret = generateJWTSecret();
+        
+        // 保存到数据库和缓存
+        await db.prepare(`
+            INSERT OR REPLACE INTO system_settings (key, value, description, updated_at)
+            VALUES ('jwt_secret', ?, 'JWT签名密钥（自动生成）', CURRENT_TIMESTAMP)
+        `).bind(jwtSecret).run();
+        
+        systemSettingsCache.set('jwt_secret', jwtSecret);
+        console.log('✅ 新的 JWT Secret 已生成并保存');
+    }
+    
+    return jwtSecret;
 }
 
 /**
@@ -228,7 +277,32 @@ export async function getJWTSecret(db: D1Database): Promise<string> {
  */
 export async function getPrimaryDomain(db: D1Database): Promise<string> {
     await initializeSystemSettings(db);
-    return systemSettingsCache.get('primary_domain') || 'example.com';
+    
+    const primaryDomain = systemSettingsCache.get('primary_domain');
+    if (!primaryDomain) {
+        // 尝试获取第一个域名
+        const domainsStr = systemSettingsCache.get('domains');
+        if (domainsStr) {
+            try {
+                const domains = JSON.parse(domainsStr);
+                if (Array.isArray(domains) && domains.length > 0) {
+                    return domains[0];
+                }
+            } catch (error) {
+                console.error('解析域名列表失败:', error);
+            }
+        }
+        
+        // 尝试单个域名配置
+        const singleDomain = systemSettingsCache.get('domain');
+        if (singleDomain) {
+            return singleDomain;
+        }
+        
+        throw new Error('未找到任何可用域名配置');
+    }
+    
+    return primaryDomain;
 }
 
 /**

@@ -16,6 +16,7 @@ import { auth } from './routes/auth';
 import { user } from './routes/user';
 import { admin } from './routes/admin';
 import { system } from './routes/system';
+import { adminSecurityRoutes } from './routes/admin-security';
 
 // 处理器模块
 import emailHandler from './handlers/email';
@@ -62,6 +63,7 @@ app.notFound((c: any) => {
 app.route('/api', auth);           // 认证相关: /api/register, /api/login, /api/logout
 app.route('/api/protected', user); // 用户功能: /api/protected/...
 app.route('/api/admin', admin);    // 管理员功能: /api/admin/...
+app.route('/api/admin/security', adminSecurityRoutes); // 管理员安全功能: /api/admin/security/...
 app.route('/api/system', system);  // 系统配置: /api/system/...
 
 // 调试接口（仅在调试模式下启用）
