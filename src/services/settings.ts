@@ -116,13 +116,21 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
         }
     }
 
+    // 获取 JWT 密钥和管理员邮箱
+    const jwtSecret = systemSettingsCache.get('jwt_secret') || '';
+    const adminEmail = systemSettingsCache.get('admin_email') || '';
+    const primaryDomain = systemSettingsCache.get('primary_domain') || domains[0] || 'example.com';
+
     return {
         allow_registration: allowRegistration,
         cleanup_days: cleanupDays,
         max_attachment_size: maxAttachmentSize,
         debug_mode: debugMode,
         domains,
-        cookie_max_age: cookieMaxAge
+        cookie_max_age: cookieMaxAge,
+        jwt_secret: jwtSecret,
+        admin_email: adminEmail,
+        primary_domain: primaryDomain
     };
 }
 
@@ -154,6 +162,18 @@ export async function updateSystemConfig(db: D1Database, config: Partial<SystemC
 
     if (config.cookie_max_age !== undefined) {
         updates.push({ key: 'cookie_max_age', value: config.cookie_max_age.toString() });
+    }
+
+    if (config.jwt_secret !== undefined && config.jwt_secret !== '') {
+        updates.push({ key: 'jwt_secret', value: config.jwt_secret });
+    }
+
+    if (config.admin_email !== undefined) {
+        updates.push({ key: 'admin_email', value: config.admin_email });
+    }
+
+    if (config.primary_domain !== undefined) {
+        updates.push({ key: 'primary_domain', value: config.primary_domain });
     }
 
     // 批量更新

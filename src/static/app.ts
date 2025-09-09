@@ -283,6 +283,18 @@ const UI = {
 
     // 显示页面部分
     showSection(sectionName) {
+        // ID 映射
+        const sectionIdMap = {
+            'emails': 'emailsSection',
+            'settings': 'settingsSection',
+            'admin-users': 'adminUsersSection',
+            'admin-rules': 'adminRulesSection',
+            'admin-emails': 'adminEmailsSection',
+            'admin-settings': 'adminSettingsSection'
+        };
+
+        const targetSectionId = sectionIdMap[sectionName] || (sectionName + 'Section');
+
         // 隐藏所有部分
         const sections = document.querySelectorAll('.card');
         sections.forEach(section => {
@@ -292,7 +304,7 @@ const UI = {
         });
 
         // 显示指定部分
-        const targetSection = document.getElementById(sectionName + 'Section');
+        const targetSection = document.getElementById(targetSectionId);
         if (targetSection) {
             targetSection.classList.remove('hidden');
         }
@@ -1178,7 +1190,14 @@ const AdminManager = {
             if (key === 'max_attachment_size_mb') {
                 settings['max_attachment_size'] = parseInt(value) * 1024 * 1024; // 转换为字节
             } else if (key === 'domains') {
-                settings[key] = value.split('\n').filter(d => d.trim()).join(','); // 转换为逗号分隔
+                // 将换行分隔的域名转换为数组
+                settings[key] = value.split('\n').filter(d => d.trim()).map(d => d.trim());
+            } else if (key === 'allow_registration' || key === 'debug_mode') {
+                // 布尔值转换
+                settings[key] = value === 'true';
+            } else if (key === 'cleanup_days') {
+                // 数字转换
+                settings[key] = parseInt(value);
             } else {
                 settings[key] = value;
             }

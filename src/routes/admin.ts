@@ -404,7 +404,9 @@ admin.delete('/forward-rules/:id', async (c) => {
  */
 admin.get('/settings', async (c) => {
     try {
+        debugLog('[管理员-系统设置] 开始获取系统配置');
         const config = await getSystemConfig(c.env.DB);
+        debugLog('[管理员-系统设置] 配置获取成功:', config);
 
         return c.json<ApiResponse>({
             success: true,
@@ -412,7 +414,11 @@ admin.get('/settings', async (c) => {
         });
     } catch (error) {
         errorLog('[管理员-系统设置] 获取失败:', error);
-        throw new HTTPException(500, { message: '获取系统设置失败' });
+        // 返回更详细的错误信息
+        return c.json<ApiResponse>({
+            success: false,
+            error: error instanceof Error ? error.message : '获取系统设置失败'
+        }, 500);
     }
 });
 
