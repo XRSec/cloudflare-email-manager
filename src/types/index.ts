@@ -31,6 +31,32 @@ export interface User {
     updated_at?: string;
 }
 
+// 邮箱接口
+export interface Mailbox {
+    id: number;
+    user_id: number;
+    email_address: string;
+    is_default: number;
+    is_active: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
+// 邮箱申请接口
+export interface MailboxApplication {
+    id: number;
+    user_id: number;
+    email_address: string;
+    status: 'pending' | 'approved' | 'rejected';
+    reason?: string;
+    admin_comment?: string;
+    applied_at: string;
+    processed_at?: string;
+    processed_by?: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
 // 邮件接口
 export interface Email {
     id: number;

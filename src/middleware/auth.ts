@@ -57,6 +57,13 @@ export async function jwtAuthMiddleware(c: Context<{ Bindings: Env }>, next: Nex
 
         // 将解码的payload存储在上下文中
         c.set('jwtPayload', payload);
+        
+        // 同时设置user对象以保持兼容性
+        c.set('user', {
+            id: payload.user_id,
+            email_prefix: payload.email_prefix,
+            user_type: payload.user_type
+        });
 
         await next();
     } catch (error) {
@@ -104,3 +111,20 @@ export async function userResourceMiddleware(c: Context<{ Bindings: Env }>, next
     // 这里可以根据具体的路由参数进行更细粒度的权限控制
     await next();
 }
+
+/**
+ * 简化的认证中间件 - 用于路由装饰器
+ */
+export const requireAuth = jwtAuthMiddleware;
+
+/**
+ * 简化的管理员认证中间件 - 用于路由装饰器
+ * 包含完整的认证流程：JWT验证 + 管理员权限检查
+ */
+export const requireAdmin = async (c: Context<{ Bindings: Env }>, next: Next) => {
+    // 先进行JWT认证
+    await jwtAuthMiddleware(c, async () => {
+        // 然后进行管理员权限检查
+        await adminAuthMiddleware(c, next);
+    });
+};

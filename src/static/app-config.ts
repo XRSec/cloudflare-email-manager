@@ -222,15 +222,7 @@ const ConfigManager = {
             registerTab.style.display = config.allow_registration ? 'block' : 'none';
         }
 
-        // 显示/隐藏调试菜单
-        const debugMenuItem = document.getElementById('debugMenuItem');
-        if (debugMenuItem) {
-            if (config.debug_mode) {
-                debugMenuItem.classList.remove('hidden');
-            } else {
-                debugMenuItem.classList.add('hidden');
-            }
-        }
+        // 调试菜单现在由 State.updateDebugMenuItem() 统一处理
 
         // 更新域名显示
         const domainElements = document.querySelectorAll('.domain-display');
@@ -270,8 +262,53 @@ const ConfigManager = {
 // 全局刷新函数
 window.refreshConfig = async function() {
     ConfigManager.clearCache();
-    await ConfigManager.init();
-    showMessage('配置已刷新', 'success');
+    const { config, userInfo } = await ConfigManager.init();
+    
+    // 更新状态，触发UI更新
+    if (window.State) {
+        if (config) {
+            window.State.setSystemConfig(config);
+        }
+        if (userInfo) {
+            window.State.setCurrentUser(userInfo);
+        }
+        
+        // 确保调试菜单项状态正确更新
+        if (window.State.updateDebugMenuItem) {
+            window.State.updateDebugMenuItem();
+        }
+    }
+    
+    // 刷新前端调试状态
+    if (window.FrontendDebug && window.FrontendDebug.init) {
+        await window.FrontendDebug.init();
+    }
+    
+    // 刷新调试信息
+    if (window.DebugManager && window.DebugManager.refreshDebugInfo) {
+        await window.DebugManager.refreshDebugInfo();
+    }
+    
+    // 刷新当前页面数据
+    if (window.UI && window.UI.loadSectionData) {
+        await window.UI.loadSectionData(window.UI.currentSection || 'emails');
+    }
+    
+    // 再次确保调试菜单项正确显示（防止被loadSectionData覆盖）
+    if (window.State && window.State.updateDebugMenuItem) {
+        window.State.updateDebugMenuItem();
+        
+        // 使用setTimeout确保DOM更新完成后再次更新
+        setTimeout(() => {
+            if (window.State && window.State.updateDebugMenuItem) {
+                window.State.updateDebugMenuItem();
+            }
+        }, 100);
+    }
+    
+    if (window.UI && window.UI.showMessage) {
+        window.UI.showMessage('配置已刷新', 'success');
+    }
 };
 
 // 导出到全局

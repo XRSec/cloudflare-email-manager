@@ -4,6 +4,67 @@
 
 export async function getJavaScript(): Promise<string> {
     return `
+// 前端调试系统
+const FrontendDebug = {
+    enabled: false,
+    
+    // 初始化调试模式
+    async init() {
+        try {
+            // 检查系统配置中的调试模式
+            const response = await fetch('/api/system/config');
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success && data.data.config) {
+                    this.enabled = data.data.config.debug_mode === true;
+                }
+            }
+            
+            // 检查环境变量（开发环境）
+            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                this.enabled = true;
+            }
+            
+            // 如果调试模式关闭，禁用console.debug
+            if (!this.enabled) {
+                console.debug = function() {};
+            }
+            
+            console.log('[FrontendDebug] 调试模式:', this.enabled ? '已启用' : '已禁用');
+        } catch (error) {
+            console.warn('[FrontendDebug] 初始化失败:', error);
+            // 默认在开发环境启用调试
+            this.enabled = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        }
+    },
+    
+    // 调试日志
+    debug(message, ...args) {
+        if (this.enabled) {
+            console.debug('[DEBUG]', message, ...args);
+        }
+    },
+    
+    // 信息日志
+    info(message, ...args) {
+        if (this.enabled) {
+            console.log('[INFO]', message, ...args);
+        }
+    },
+    
+    // 错误日志（总是显示）
+    error(message, ...args) {
+        console.error('[ERROR]', message, ...args);
+    },
+    
+    // 警告日志（总是显示）
+    warn(message, ...args) {
+        console.warn('[WARN]', message, ...args);
+    }
+};
+
+// 初始化调试系统
+FrontendDebug.init();
 // =============================================================================
 // 临时邮箱管理系统 - 前端应用
 // =============================================================================
@@ -112,6 +173,11 @@ const State = {
         this.updateUserUI();
     },
 
+    // 获取当前用户
+    getCurrentUser() {
+        return this.currentUser;
+    },
+
     // 设置系统配置
     setSystemConfig(config) {
         this.systemConfig = config;
@@ -121,11 +187,11 @@ const State = {
     // 更新用户界面
     updateUserUI() {
         if (!this.currentUser) {
-            console.log('updateUserUI: 没有当前用户');
+            FrontendDebug.debug('updateUserUI: 没有当前用户');
             return;
         }
 
-        console.log('updateUserUI: 当前用户', this.currentUser);
+        FrontendDebug.debug('updateUserUI: 当前用户', this.currentUser);
 
         const userEmail = document.getElementById('userEmail');
         const userType = document.getElementById('userType');
@@ -153,16 +219,46 @@ const State = {
 
         // 显示/隐藏管理员菜单
         const adminMenuItems = document.getElementById('adminMenuItems');
-        console.log('管理员菜单元素:', adminMenuItems, '用户类型:', this.currentUser.user_type);
+        FrontendDebug.debug('管理员菜单元素:', adminMenuItems, '用户类型:', this.currentUser.user_type);
         
         if (adminMenuItems) {
             if (this.currentUser.user_type === 'admin') {
                 adminMenuItems.classList.remove('hidden');
-                console.log('已显示管理员菜单');
+                FrontendDebug.debug('已显示管理员菜单');
             } else {
                 adminMenuItems.classList.add('hidden');
-                console.log('已隐藏管理员菜单');
+                FrontendDebug.debug('已隐藏管理员菜单');
             }
+        }
+
+        // 更新调试模式菜单项显示状态
+        this.updateDebugMenuItem();
+    },
+
+    // 更新调试模式菜单项显示状态
+    updateDebugMenuItem() {
+        const debugMenuItem = document.getElementById('debugMenuItem');
+        FrontendDebug.debug('updateDebugMenuItem: debugMenuItem元素:', debugMenuItem);
+        FrontendDebug.debug('updateDebugMenuItem: systemConfig:', this.systemConfig);
+        
+        if (debugMenuItem) {
+            // 检查是否启用调试模式
+            const isDebugMode = this.systemConfig?.debug_mode || 
+                               (typeof window !== 'undefined' && 
+                                (window.location.hostname === 'localhost' || 
+                                 window.location.hostname === '127.0.0.1'));
+            
+            FrontendDebug.debug('updateDebugMenuItem: isDebugMode:', isDebugMode);
+            
+            if (isDebugMode) {
+                debugMenuItem.classList.remove('hidden');
+                FrontendDebug.debug('已显示调试模式菜单项');
+            } else {
+                debugMenuItem.classList.add('hidden');
+                FrontendDebug.debug('已隐藏调试模式菜单项');
+            }
+        } else {
+            FrontendDebug.debug('updateDebugMenuItem: debugMenuItem元素未找到');
         }
     },
 
@@ -180,15 +276,8 @@ const State = {
             }
         }
 
-        // 显示/隐藏调试菜单
-        const debugMenuItem = document.getElementById('debugMenuItem');
-        if (debugMenuItem) {
-            if (this.systemConfig.debug_mode) {
-                debugMenuItem.classList.remove('hidden');
-            } else {
-                debugMenuItem.classList.add('hidden');
-            }
-        }
+        // 更新调试模式菜单项显示状态
+        this.updateDebugMenuItem();
     }
 };
 
@@ -333,10 +422,15 @@ const UI = {
         const sectionIdMap = {
             'emails': 'emailsSection',
             'settings': 'settingsSection',
+            'mailboxes': 'mailboxesSection',
+            'mailbox-applications': 'mailboxApplicationsSection',
             'admin-users': 'adminUsersSection',
             'admin-rules': 'adminRulesSection',
             'admin-emails': 'adminEmailsSection',
-            'admin-settings': 'adminSettingsSection'
+            'admin-mailboxes': 'adminMailboxesSection',
+            'admin-mailbox-applications': 'adminMailboxApplicationsSection',
+            'admin-settings': 'adminSettingsSection',
+            'debug': 'debugSection'
         };
 
         const targetSectionId = sectionIdMap[sectionName] || (sectionName + 'Section');
@@ -362,7 +456,7 @@ const UI = {
         });
 
         // 找到对应的菜单项并激活
-        const menuItem = document.querySelector('[onclick="showSection(\\''+sectionName+'\\')"]');
+        const menuItem = document.querySelector('[onclick="showSection(\' + sectionName + \')"]');
         if (menuItem) {
             menuItem.classList.add('active');
         }
@@ -388,6 +482,12 @@ const UI = {
             case 'settings':
                 await UserManager.loadSettings();
                 break;
+            case 'mailboxes':
+                await MailboxManager.loadUserMailboxes();
+                break;
+            case 'mailbox-applications':
+                await MailboxManager.loadUserApplications();
+                break;
             case 'admin-users':
                 if (State.currentUser?.user_type === 'admin') {
                     await AdminManager.loadUsers();
@@ -401,6 +501,16 @@ const UI = {
             case 'admin-emails':
                 if (State.currentUser?.user_type === 'admin') {
                     await AdminManager.loadAllEmails();
+                }
+                break;
+            case 'admin-mailboxes':
+                if (State.currentUser?.user_type === 'admin') {
+                    await MailboxManager.loadAdminMailboxes();
+                }
+                break;
+            case 'admin-mailbox-applications':
+                if (State.currentUser?.user_type === 'admin') {
+                    await MailboxManager.loadAdminApplications();
                 }
                 break;
             case 'admin-settings':
@@ -576,10 +686,252 @@ const AuthManager = {
     }
 };
 
+// 邮件管理基类 - 提供通用功能
+const BaseEmailManager = {
+    // 通用工具函数
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text || '';
+        return div.innerHTML;
+    },
+
+    // 安全的HTML渲染（只允许基本标签）
+    safeHtml(html) {
+        if (!html) return '';
+        // 创建一个临时元素来解析HTML
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        
+        // 只保留安全的标签
+        const allowedTags = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'span', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+        const walker = document.createTreeWalker(temp, NodeFilter.SHOW_ELEMENT);
+        const elementsToRemove = [];
+        
+        let node;
+        while (node = walker.nextNode()) {
+            if (!allowedTags.includes(node.tagName.toLowerCase())) {
+                elementsToRemove.push(node);
+            }
+            // 移除所有属性（防止XSS）
+            while (node.attributes.length > 0) {
+                node.removeAttribute(node.attributes[0].name);
+            }
+        }
+        
+        // 移除不安全的标签
+        elementsToRemove.forEach(el => {
+            el.replaceWith(...el.childNodes);
+        });
+        
+        return temp.innerHTML;
+    },
+
+    formatDate(dateString) {
+        if (!dateString) return '-';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    },
+
+    // 智能渲染邮件内容
+    renderEmailContent(email) {
+        let contentHtml = '';
+        
+        // 判断是否有HTML内容
+        const hasHtml = email.html_content && email.html_content.trim();
+        const hasText = email.text_content && email.text_content.trim();
+        
+        if (hasHtml) {
+            // 检测HTML内容是否只是纯文本的HTML包装
+            const isRichHtml = this.isRichHtml(email.html_content);
+            
+            if (isRichHtml) {
+                // 富HTML内容
+                contentHtml += '<div class="email-detail-row">' +
+                    '<span class="detail-label">📧 邮件内容:</span>' +
+                    '<div class="detail-value html-content">' + this.safeHtml(email.html_content.substring(0, 800)) + 
+                    (email.html_content.length > 800 ? '<div class="truncated">...（内容已截断，点击查看详情查看完整内容）</div>' : '') + '</div>' +
+                '</div>';
+                
+                // 如果还有纯文本版本，显示为备选
+                if (hasText && email.text_content !== this.stripHtml(email.html_content)) {
+                    contentHtml += '<div class="email-detail-row">' +
+                        '<span class="detail-label">📄 纯文本版本:</span>' +
+                        '<div class="detail-value text-content">' + this.escapeHtml(email.text_content.substring(0, 400)) + 
+                        (email.text_content.length > 400 ? '<div class="truncated">...（已截断）</div>' : '') + '</div>' +
+                    '</div>';
+                }
+            } else {
+                // HTML只是纯文本的包装，优先显示纯文本
+                if (hasText) {
+                    contentHtml += '<div class="email-detail-row">' +
+                        '<span class="detail-label">📄 邮件内容:</span>' +
+                        '<div class="detail-value text-content">' + this.escapeHtml(email.text_content.substring(0, 600)) + 
+                        (email.text_content.length > 600 ? '<div class="truncated">...（内容已截断）</div>' : '') + '</div>' +
+                    '</div>';
+                } else {
+                    // 只有简单HTML，转换为纯文本显示
+                    const textVersion = this.stripHtml(email.html_content);
+                    contentHtml += '<div class="email-detail-row">' +
+                        '<span class="detail-label">📄 邮件内容:</span>' +
+                        '<div class="detail-value text-content">' + this.escapeHtml(textVersion.substring(0, 600)) + 
+                        (textVersion.length > 600 ? '<div class="truncated">...（内容已截断）</div>' : '') + '</div>' +
+                    '</div>';
+                }
+            }
+        } else if (hasText) {
+            // 只有纯文本内容
+            contentHtml += '<div class="email-detail-row">' +
+                '<span class="detail-label">📄 邮件内容:</span>' +
+                '<div class="detail-value text-content">' + this.escapeHtml(email.text_content.substring(0, 600)) + 
+                (email.text_content.length > 600 ? '<div class="truncated">...（内容已截断）</div>' : '') + '</div>' +
+            '</div>';
+        } else {
+            // 无内容
+            contentHtml += '<div class="email-detail-row">' +
+                '<span class="detail-label">📄 邮件内容:</span>' +
+                '<div class="detail-value" style="color: #6c757d; font-style: italic;">（此邮件无内容）</div>' +
+            '</div>';
+        }
+        
+        return contentHtml;
+    },
+
+    // 检测是否为富HTML内容
+    isRichHtml(html) {
+        if (!html) return false;
+        
+        // 移除常见的简单标签
+        const withoutSimpleTags = html.replace(/<\\/?(?:p|br|div|span)\\b[^>]*>/gi, '');
+        
+        // 检测是否包含富文本标签
+        const richTags = /<(?:strong|b|em|i|u|h[1-6]|ul|ol|li|table|tr|td|th|img|a\s+href|style|color|font)/i;
+        
+        return richTags.test(withoutSimpleTags);
+    },
+
+    // 从HTML中提取纯文本
+    stripHtml(html) {
+        if (!html) return '';
+        
+        // 创建临时元素
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        
+        // 获取纯文本，保留换行
+        return temp.textContent || temp.innerText || '';
+    },
+
+    // 通用邮件渲染函数
+    renderEmailItem(email, isExpanded = false, managerName = 'EmailManager') {
+        const emailId = email.id;
+        
+        // 获取邮件内容预览（优先文本，再HTML转文本）
+        let contentPreview = '';
+        if (email.text_content && email.text_content.trim()) {
+            contentPreview = email.text_content.trim();
+        } else if (email.html_content && email.html_content.trim()) {
+            contentPreview = this.stripHtml(email.html_content).trim();
+        }
+        
+        // 截断到20个字符
+        const shortContent = contentPreview ? 
+            (contentPreview.length > 20 ? contentPreview.substring(0, 20) + '...' : contentPreview) : 
+            '(无内容)';
+        
+        return '<div class="email-item" data-email-id="' + emailId + '">' +
+            '<div class="email-header" onclick="' + managerName + '.toggleEmailExpansion(' + emailId + ')">' +
+                '<div class="email-main-info">' +
+                    '<div class="email-sender-line">' +
+                        '<span class="email-sender">' + this.escapeHtml(email.sender_email) + 
+                            (managerName === 'AdminManager' ? ' → ' + this.escapeHtml(email.recipient_email) : '') + '</span>' +
+                        '<span class="email-content-preview">' + this.escapeHtml(shortContent) + '</span>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="email-meta">' +
+                    '<div class="email-time">' + this.formatDate(email.received_at) + '</div>' +
+                    (email.has_attachments ? '<div class="email-attachments">📎</div>' : '') +
+                    '<div class="email-toggle">' + (isExpanded ? '▼' : '▶') + '</div>' +
+                '</div>' +
+            '</div>' +
+            '<div class="email-details' + (isExpanded ? ' expanded' : '') + '">' +
+                '<div class="email-detail-row">' +
+                    '<span class="detail-label">📧 主题:</span>' +
+                    '<span class="detail-value">' + this.escapeHtml(email.subject || '(无主题)') + '</span>' +
+                '</div>' +
+                '<div class="email-detail-row">' +
+                    '<span class="detail-label">收件人:</span>' +
+                    '<span class="detail-value">' + this.escapeHtml(email.recipient_email) + '</span>' +
+                '</div>' +
+                '<div class="email-detail-row">' +
+                    '<span class="detail-label">邮件ID:</span>' +
+                    '<span class="detail-value">' + this.escapeHtml(email.message_id) + '</span>' +
+                '</div>' +
+                (managerName === 'AdminManager' ? 
+                    '<div class="email-detail-row">' +
+                        '<span class="detail-label">用户ID:</span>' +
+                        '<span class="detail-value">' + email.user_id + '</span>' +
+                    '</div>' : '') +
+                '<div class="email-detail-row">' +
+                    '<span class="detail-label">接收时间:</span>' +
+                    '<span class="detail-value">' + this.formatDate(email.received_at) + '</span>' +
+                '</div>' +
+                '<div class="email-detail-row">' +
+                    '<span class="detail-label">创建时间:</span>' +
+                    '<span class="detail-value">' + this.formatDate(email.created_at) + '</span>' +
+                '</div>' +
+                this.renderEmailContent(email) +
+                '<div class="email-actions">' +
+                    '<button class="btn btn-primary btn-sm" onclick="' + managerName + '.showEmailDetail(' + emailId + ')">查看详情</button>' +
+                    '<button class="btn btn-secondary btn-sm" onclick="' + managerName + '.copyEmailId(' + emailId + ')">复制ID</button>' +
+                    '<button class="btn btn-danger btn-sm" onclick="' + managerName + '.deleteEmail(' + emailId + ')">删除邮件</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+    },
+
+    // 通用展开/收起功能
+    updateEmailExpansionUI(containerSelector, expandedEmails) {
+        const emailItems = document.querySelectorAll(containerSelector + ' .email-item');
+        emailItems.forEach(item => {
+            const emailId = parseInt(item.dataset.emailId);
+            if (emailId) {
+                const details = item.querySelector('.email-details');
+                const toggle = item.querySelector('.email-toggle');
+                
+                if (details && toggle) {
+                    if (expandedEmails.has(emailId)) {
+                        details.classList.add('expanded');
+                        toggle.textContent = '▼';
+                    } else {
+                        details.classList.remove('expanded');
+                        toggle.textContent = '▶';
+                    }
+                }
+            }
+        });
+    },
+
+    // 通用复制邮件ID
+    copyEmailId(emailId) {
+        navigator.clipboard.writeText(emailId.toString()).then(() => {
+            UI.showMessage('邮件ID已复制到剪贴板', 'success');
+        }).catch(() => {
+            UI.showMessage('复制失败', 'error');
+        });
+    },
+
+    // 通用显示邮件详情
+    showEmailDetail(emailId) {
+        // 这里可以打开一个模态框显示更详细的邮件信息
+        UI.showMessage('邮件详情功能开发中...', 'info');
+    }
+};
+
 // 邮件管理模块
 const EmailManager = {
     currentPage: 1,
     pageSize: 20,
+    expandedEmails: new Set(), // 存储展开的邮件ID
 
     // 加载邮件列表
     async loadEmails(page = 1) {
@@ -612,18 +964,10 @@ const EmailManager = {
             return;
         }
 
-        const emailsHtml = emails.map(email =>
-            '<div class="email-item" onclick="EmailManager.showEmailDetail(' + email.id + ')">' +
-                '<div class="email-header">' +
-                    '<div class="email-sender">' + this.escapeHtml(email.sender_email) + '</div>' +
-                    '<div class="email-time">' + this.formatDate(email.received_at) + '</div>' +
-                '</div>' +
-                '<div class="email-subject">' + this.escapeHtml(email.subject || '(无主题)') + '</div>' +
-                '<div class="email-preview">' + this.escapeHtml((email.text_content || '(无内容)').substring(0, 100)) +
-                    (email.text_content && email.text_content.length > 100 ? '...' : '') + '</div>' +
-                (email.has_attachments ? '<div class="email-attachments">📎 有附件</div>' : '') +
-            '</div>'
-        ).join('');
+        const emailsHtml = emails.map(email => {
+            const isExpanded = this.expandedEmails && this.expandedEmails.has(email.id);
+            return BaseEmailManager.renderEmailItem(email, isExpanded, 'EmailManager');
+        }).join('');
 
         emailList.innerHTML = emailsHtml;
     },
@@ -808,7 +1152,62 @@ const EmailManager = {
         const sizes = ['B', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
+    },
+
+    // 一键展开所有邮件
+    expandAllEmails() {
+        const emailItems = document.querySelectorAll('#emailList .email-item');
+        emailItems.forEach(item => {
+            const emailId = parseInt(item.dataset.emailId);
+            if (emailId) {
+                this.expandedEmails.add(emailId);
+            }
+        });
+        BaseEmailManager.updateEmailExpansionUI('#emailList', this.expandedEmails);
+    },
+
+    // 一键收起所有邮件
+    collapseAllEmails() {
+        this.expandedEmails.clear();
+        BaseEmailManager.updateEmailExpansionUI('#emailList', this.expandedEmails);
+    },
+
+    // 删除邮件
+    async deleteEmail(emailId) {
+        if (!confirm('确定要删除这封邮件吗？此操作不可撤销。')) {
+            return;
+        }
+
+        try {
+            const response = await API.delete('/api/protected/emails/' + emailId);
+            if (response.success) {
+                UI.showMessage('邮件已删除', 'success');
+                // 重新加载邮件列表
+                await this.loadEmails(this.currentPage);
+            } else {
+                UI.showMessage('删除失败: ' + response.error, 'error');
+            }
+        } catch (error) {
+            UI.showMessage('删除失败: ' + error.message, 'error');
+        }
+    },
+
+    // 切换邮件展开状态
+    toggleEmailExpansion(emailId) {
+        if (this.expandedEmails.has(emailId)) {
+            this.expandedEmails.delete(emailId);
+        } else {
+            this.expandedEmails.add(emailId);
+        }
+        BaseEmailManager.updateEmailExpansionUI('#emailList', this.expandedEmails);
+    },
+
+    // 使用BaseEmailManager的方法
+    copyEmailId: BaseEmailManager.copyEmailId,
+    showEmailDetail: BaseEmailManager.showEmailDetail,
+    escapeHtml: BaseEmailManager.escapeHtml,
+    safeHtml: BaseEmailManager.safeHtml,
+    formatDate: BaseEmailManager.formatDate
 };
 
 // 用户管理模块
@@ -894,6 +1293,7 @@ const UserManager = {
 
 // 管理员管理模块
 const AdminManager = {
+    expandedEmails: new Set(), // 存储展开的邮件ID
     // 加载用户列表
     async loadUsers() {
         const usersList = document.getElementById('usersList');
@@ -1022,20 +1422,47 @@ const AdminManager = {
             return;
         }
 
-        const emailsHtml = emails.map(email =>
-            '<div class="email-item" onclick="EmailManager.showEmailDetail(' + email.id + ')">' +
-                '<div class="email-header">' +
-                    '<div class="email-sender">' + this.escapeHtml(email.sender_email) + ' → ' + this.escapeHtml(email.recipient_email) + '</div>' +
-                    '<div class="email-time">' + this.formatDate(email.received_at) + '</div>' +
-                '</div>' +
-                '<div class="email-subject">' + this.escapeHtml(email.subject || '(无主题)') + '</div>' +
-                '<div class="email-preview">' + this.escapeHtml((email.text_content || '(无内容)').substring(0, 100)) +
-                    (email.text_content && email.text_content.length > 100 ? '...' : '') + '</div>' +
-                (email.has_attachments ? '<div class="email-attachments">📎 有附件</div>' : '') +
-            '</div>'
-        ).join('');
+        const emailsHtml = emails.map(email => {
+            const isExpanded = this.expandedEmails && this.expandedEmails.has(email.id);
+            return BaseEmailManager.renderEmailItem(email, isExpanded, 'AdminManager');
+        }).join('');
 
         adminEmailsList.innerHTML = emailsHtml;
+    },
+
+    // 复制邮件ID
+    copyEmailId(emailId) {
+        navigator.clipboard.writeText(emailId.toString()).then(() => {
+            UI.showMessage('邮件ID已复制到剪贴板', 'success');
+        }).catch(() => {
+            UI.showMessage('复制失败', 'error');
+        });
+    },
+
+    // 显示邮件详情
+    showEmailDetail(emailId) {
+        // 这里可以打开一个模态框显示更详细的邮件信息
+        UI.showMessage('邮件详情功能开发中...', 'info');
+    },
+
+    // 删除邮件
+    async deleteEmail(emailId) {
+        if (!confirm('确定要删除这封邮件吗？此操作不可撤销。')) {
+            return;
+        }
+
+        try {
+            const response = await API.delete('/api/admin/emails/' + emailId);
+            if (response.success) {
+                UI.showMessage('邮件已删除', 'success');
+                // 重新加载邮件列表
+                await this.loadAllEmails();
+            } else {
+                UI.showMessage('删除失败: ' + response.error, 'error');
+            }
+        } catch (error) {
+            UI.showMessage('删除失败: ' + error.message, 'error');
+        }
     },
 
     // 加载系统设置
@@ -1258,44 +1685,161 @@ const AdminManager = {
         }
     },
 
-    // 工具函数
-    escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text || '';
-        return div.innerHTML;
+    // 切换邮件展开状态
+    toggleEmailExpansion(emailId) {
+        if (this.expandedEmails.has(emailId)) {
+            this.expandedEmails.delete(emailId);
+        } else {
+            this.expandedEmails.add(emailId);
+        }
+        BaseEmailManager.updateEmailExpansionUI('#adminEmailsList', this.expandedEmails);
     },
 
-    formatDate(dateString) {
-        if (!dateString) return '-';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    }
+    // 一键展开所有邮件
+    expandAllEmails() {
+        const emailItems = document.querySelectorAll('#adminEmailsList .email-item');
+        emailItems.forEach(item => {
+            const emailId = parseInt(item.dataset.emailId);
+            if (emailId) {
+                this.expandedEmails.add(emailId);
+            }
+        });
+        BaseEmailManager.updateEmailExpansionUI('#adminEmailsList', this.expandedEmails);
+    },
+
+    // 一键收起所有邮件
+    collapseAllEmails() {
+        this.expandedEmails.clear();
+        BaseEmailManager.updateEmailExpansionUI('#adminEmailsList', this.expandedEmails);
+    },
+
+    // 复制邮件ID
+    copyEmailId(emailId) {
+        navigator.clipboard.writeText(emailId.toString()).then(() => {
+            UI.showMessage('邮件ID已复制到剪贴板', 'success');
+        }).catch(() => {
+            UI.showMessage('复制失败', 'error');
+        });
+    },
+
+    // 创建用户
+    async createUser() {
+        const emailPrefix = document.getElementById('createUserPrefix').value;
+        const password = document.getElementById('createUserPassword').value;
+        const userType = document.getElementById('createUserType').value;
+
+        if (!emailPrefix || !password) {
+            UI.showMessage('请填写所有必填字段', 'error');
+            return;
+        }
+
+        try {
+            const response = await API.post('/api/admin/users', {
+                email_prefix: emailPrefix,
+                email_password: password,
+                user_type: userType
+            });
+
+            if (response.success) {
+                UI.showMessage(response.message, 'success');
+                window.closeModal('createUserModal');
+                // 清空表单
+                document.getElementById('createUserPrefix').value = '';
+                document.getElementById('createUserPassword').value = '';
+                document.getElementById('createUserType').value = 'user';
+                // 刷新用户列表
+                await this.loadUsers();
+            } else {
+                UI.showMessage('创建失败: ' + response.error, 'error');
+            }
+        } catch (error) {
+            console.error('创建用户失败:', error);
+            UI.showMessage('创建用户失败', 'error');
+        }
+    },
+
+    // 创建转发规则
+    async createRule() {
+        const ruleName = document.getElementById('createRuleName').value;
+        const rulePattern = document.getElementById('createRulePattern').value;
+        const ruleAction = document.getElementById('createRuleAction').value;
+        const ruleTarget = document.getElementById('createRuleTarget').value;
+
+        if (!ruleName || !rulePattern || !ruleAction) {
+            UI.showMessage('请填写所有必填字段', 'error');
+            return;
+        }
+
+        try {
+            const response = await API.post('/api/admin/forward-rules', {
+                rule_name: ruleName,
+                pattern: rulePattern,
+                action: ruleAction,
+                webhook_url: ruleTarget,
+                webhook_type: 'custom',
+                enabled: 1
+            });
+
+            if (response.success) {
+                UI.showMessage(response.message, 'success');
+                window.closeModal('createRuleModal');
+                // 清空表单
+                document.getElementById('createRuleName').value = '';
+                document.getElementById('createRulePattern').value = '';
+                document.getElementById('createRuleAction').value = 'forward';
+                document.getElementById('createRuleTarget').value = '';
+                // 刷新规则列表
+                await this.loadForwardRules();
+            } else {
+                UI.showMessage('创建失败: ' + response.error, 'error');
+            }
+        } catch (error) {
+            console.error('创建规则失败:', error);
+            UI.showMessage('创建规则失败', 'error');
+        }
+    },
+
+    // 使用BaseEmailManager的方法
+    copyEmailId: BaseEmailManager.copyEmailId,
+    showEmailDetail: BaseEmailManager.showEmailDetail,
+    escapeHtml: BaseEmailManager.escapeHtml,
+    safeHtml: BaseEmailManager.safeHtml,
+    formatDate: BaseEmailManager.formatDate
 };
 
 // 调试管理模块
 const DebugManager = {
     // 初始化调试部分
     async initializeDebugSection() {
-        console.log('[Debug] 初始化调试部分');
+        FrontendDebug.info('[Debug] 初始化调试部分');
         
         // 更新调试信息
         await this.refreshDebugInfo();
         
         // 设置默认的收件人邮箱
-        const toEmailInput = document.getElementById('simToEmail');
+        const toEmailInput = document.getElementById('simTo');
         const currentUser = State.getCurrentUser();
         if (toEmailInput && currentUser) {
             // 获取系统配置中的域名
             try {
                 const response = await API.get('/api/system/config');
-                if (response.success && response.data.domains && response.data.domains.length > 0) {
-                    toEmailInput.value = currentUser.email_prefix + '@' + response.data.domains[0];
+                if (response.success && response.data.config && response.data.config.domains && response.data.config.domains.length > 0) {
+                    toEmailInput.value = currentUser.email_prefix + '@' + response.data.config.domains[0];
                 } else {
                     toEmailInput.value = currentUser.email_prefix + '@example.com';
                 }
             } catch (error) {
                 toEmailInput.value = currentUser.email_prefix + '@example.com';
             }
+        }
+        
+        // 绑定模拟邮件表单提交事件
+        const simulateForm = document.getElementById('simulateEmailForm');
+        if (simulateForm) {
+            simulateForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await this.simulateEmailReceive();
+            });
         }
     },
 
@@ -1352,11 +1896,11 @@ const DebugManager = {
     // 模拟邮件接收
     async simulateEmailReceive() {
         try {
-            const fromEmail = document.getElementById('simFromEmail').value;
-            const toEmail = document.getElementById('simToEmail').value;
+            const fromEmail = document.getElementById('simFrom').value;
+            const toEmail = document.getElementById('simTo').value;
             const subject = document.getElementById('simSubject').value;
-            const textContent = document.getElementById('simTextContent').value;
-            const htmlContent = document.getElementById('simHtmlContent').value;
+            const textContent = document.getElementById('simText').value;
+            const htmlContent = document.getElementById('simHtml').value;
 
             if (!fromEmail || !toEmail || !subject) {
                 UI.showMessage('请填写必填字段：发件人、收件人和主题', 'error');
@@ -1385,7 +1929,7 @@ const DebugManager = {
                 }
                 
                 // 清空表单
-                this.clearSimulateForm();
+                // this.clearSimulateForm();
                 
                 // 刷新邮件列表
                 if (EmailManager && EmailManager.loadEmails) {
@@ -1402,12 +1946,14 @@ const DebugManager = {
 
     // 清空模拟表单
     clearSimulateForm() {
-        const fromEmailInput = document.getElementById('simFromEmail');
+        const fromEmailInput = document.getElementById('simFrom');
+        const toEmailInput = document.getElementById('simTo');
         const subjectInput = document.getElementById('simSubject');
-        const textContentInput = document.getElementById('simTextContent');
-        const htmlContentInput = document.getElementById('simHtmlContent');
+        const textContentInput = document.getElementById('simText');
+        const htmlContentInput = document.getElementById('simHtml');
         
         if (fromEmailInput) fromEmailInput.value = '';
+        if (toEmailInput) toEmailInput.value = '';
         if (subjectInput) subjectInput.value = '';
         if (textContentInput) textContentInput.value = '';
         if (htmlContentInput) htmlContentInput.value = '';
@@ -1444,12 +1990,359 @@ window.toggleSidebar = UI.toggleSidebar.bind(UI);
 window.updateSettings = UserManager.updateSettings.bind(UserManager);
 window.closeModal = UI.hideModal.bind(UI);
 
+// 邮件管理功能绑定
+window.EmailManager = EmailManager;
+window.AdminManager = AdminManager;
+
+// 邮箱管理模块
+const MailboxManager = {
+    // 加载用户邮箱列表
+    async loadUserMailboxes() {
+        try {
+            const response = await API.get('/api/mailbox/user/mailboxes');
+            if (response.success) {
+                this.renderUserMailboxes(response.data.mailboxes);
+            } else {
+                UI.showMessage('加载邮箱失败: ' + response.error, 'error');
+            }
+        } catch (error) {
+            console.error('加载邮箱失败:', error);
+            UI.showMessage('加载邮箱失败', 'error');
+        }
+    },
+
+    // 渲染用户邮箱列表
+    renderUserMailboxes(mailboxes) {
+        const container = document.getElementById('mailboxesList');
+        if (!container) return;
+
+        if (mailboxes.length === 0) {
+            container.innerHTML = '<div class="empty-state">您还没有任何邮箱，点击上方按钮申请新邮箱</div>';
+            return;
+        }
+
+        const mailboxesHtml = mailboxes.map(mailbox => 
+            '<div class="mailbox-item">' +
+                '<div class="mailbox-info">' +
+                    '<div class="mailbox-address">' +
+                        '📮 ' + BaseEmailManager.escapeHtml(mailbox.email_address) +
+                        (mailbox.is_default ? '<span class="badge badge-primary">默认</span>' : '') +
+                        (mailbox.is_active ? '<span class="badge badge-success">启用</span>' : '<span class="badge badge-secondary">禁用</span>') +
+                    '</div>' +
+                    '<div class="mailbox-date">创建时间: ' + BaseEmailManager.formatDate(mailbox.created_at) + '</div>' +
+                '</div>' +
+                '<div class="mailbox-actions">' +
+                    (!mailbox.is_default ? '<button class="btn btn-danger btn-sm" onclick="deleteUserMailbox(' + mailbox.id + ')">删除</button>' : '') +
+                '</div>' +
+            '</div>'
+        ).join('');
+
+        container.innerHTML = mailboxesHtml;
+    },
+
+    // 加载用户申请列表
+    async loadUserApplications() {
+        try {
+            const response = await API.get('/api/mailbox/user/applications');
+            if (response.success) {
+                this.renderUserApplications(response.data.applications);
+            } else {
+                UI.showMessage('加载申请记录失败: ' + response.error, 'error');
+            }
+        } catch (error) {
+            console.error('加载申请记录失败:', error);
+            UI.showMessage('加载申请记录失败', 'error');
+        }
+    },
+
+    // 渲染用户申请列表
+    renderUserApplications(applications) {
+        const container = document.getElementById('applicationsList');
+        if (!container) return;
+
+        if (applications.length === 0) {
+            container.innerHTML = '<div class="empty-state">您还没有任何申请记录</div>';
+            return;
+        }
+
+        const applicationsHtml = applications.map(app => {
+            const statusClass = app.status === 'approved' ? 'success' : 
+                              app.status === 'rejected' ? 'danger' : 'warning';
+            const statusText = app.status === 'approved' ? '已批准' : 
+                             app.status === 'rejected' ? '已拒绝' : '待审核';
+
+            return '<div class="application-item">' +
+                '<div class="application-info">' +
+                    '<div class="application-email">📧 ' + BaseEmailManager.escapeHtml(app.email_address) + '</div>' +
+                    '<div class="application-status">' +
+                        '<span class="badge badge-' + statusClass + '">' + statusText + '</span>' +
+                    '</div>' +
+                    '<div class="application-date">申请时间: ' + BaseEmailManager.formatDate(app.applied_at) + '</div>' +
+                    (app.reason ? '<div class="application-reason">申请理由: ' + BaseEmailManager.escapeHtml(app.reason) + '</div>' : '') +
+                    (app.admin_comment ? '<div class="application-comment">管理员备注: ' + BaseEmailManager.escapeHtml(app.admin_comment) + '</div>' : '') +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+        container.innerHTML = applicationsHtml;
+    },
+
+    // 加载管理员邮箱列表
+    async loadAdminMailboxes() {
+        try {
+            const response = await API.get('/api/mailbox/admin/mailboxes?page=1&page_size=50');
+            if (response.success) {
+                this.renderAdminMailboxes(response.data.mailboxes);
+            } else {
+                UI.showMessage('加载邮箱失败: ' + response.error, 'error');
+            }
+        } catch (error) {
+            console.error('加载邮箱失败:', error);
+            UI.showMessage('加载邮箱失败', 'error');
+        }
+    },
+
+    // 渲染管理员邮箱列表
+    renderAdminMailboxes(mailboxes) {
+        const container = document.getElementById('adminMailboxesList');
+        if (!container) return;
+
+        if (mailboxes.length === 0) {
+            container.innerHTML = '<div class="empty-state">暂无邮箱</div>';
+            return;
+        }
+
+        const mailboxesHtml = mailboxes.map(mailbox => 
+            '<div class="mailbox-item">' +
+                '<div class="mailbox-info">' +
+                    '<div class="mailbox-address">' +
+                        '📮 ' + BaseEmailManager.escapeHtml(mailbox.email_address) +
+                        (mailbox.is_default ? '<span class="badge badge-primary">默认</span>' : '') +
+                        (mailbox.is_active ? '<span class="badge badge-success">启用</span>' : '<span class="badge badge-secondary">禁用</span>') +
+                    '</div>' +
+                    '<div class="mailbox-user">用户: ' + BaseEmailManager.escapeHtml(mailbox.user_email_prefix) + ' (' + mailbox.user_type + ')</div>' +
+                    '<div class="mailbox-date">创建时间: ' + BaseEmailManager.formatDate(mailbox.created_at) + '</div>' +
+                '</div>' +
+                '<div class="mailbox-actions">' +
+                    '<button class="btn btn-danger btn-sm" onclick="deleteAdminMailbox(' + mailbox.id + ')">删除</button>' +
+                '</div>' +
+            '</div>'
+        ).join('');
+
+        container.innerHTML = mailboxesHtml;
+    },
+
+    // 加载管理员申请列表
+    async loadAdminApplications() {
+        try {
+            const response = await API.get('/api/mailbox/admin/applications?page=1&page_size=50');
+            if (response.success) {
+                this.renderAdminApplications(response.data.applications);
+            } else {
+                UI.showMessage('加载申请列表失败: ' + response.error, 'error');
+            }
+        } catch (error) {
+            console.error('加载申请列表失败:', error);
+            UI.showMessage('加载申请列表失败', 'error');
+        }
+    },
+
+    // 渲染管理员申请列表
+    renderAdminApplications(applications) {
+        const container = document.getElementById('adminApplicationsList');
+        if (!container) return;
+
+        if (applications.length === 0) {
+            container.innerHTML = '<div class="empty-state">暂无待处理申请</div>';
+            return;
+        }
+
+        const applicationsHtml = applications.map(app => {
+            const statusClass = app.status === 'approved' ? 'success' : 
+                              app.status === 'rejected' ? 'danger' : 'warning';
+            const statusText = app.status === 'approved' ? '已批准' : 
+                             app.status === 'rejected' ? '已拒绝' : '待审核';
+
+            return '<div class="application-item">' +
+                '<div class="application-info">' +
+                    '<div class="application-email">📧 ' + BaseEmailManager.escapeHtml(app.email_address) + '</div>' +
+                    '<div class="application-user">用户: ' + BaseEmailManager.escapeHtml(app.user_email_prefix) + '</div>' +
+                    '<div class="application-status">' +
+                        '<span class="badge badge-' + statusClass + '">' + statusText + '</span>' +
+                    '</div>' +
+                    '<div class="application-date">申请时间: ' + BaseEmailManager.formatDate(app.applied_at) + '</div>' +
+                    (app.reason ? '<div class="application-reason">申请理由: ' + BaseEmailManager.escapeHtml(app.reason) + '</div>' : '') +
+                    (app.admin_comment ? '<div class="application-comment">管理员备注: ' + BaseEmailManager.escapeHtml(app.admin_comment) + '</div>' : '') +
+                '</div>' +
+                '<div class="application-actions">' +
+                    (app.status === 'pending' ? 
+                        '<button class="btn btn-success btn-sm" onclick="showProcessApplicationModal(' + app.id + ', \\'' + BaseEmailManager.escapeHtml(app.email_address) + '\\', \\'' + BaseEmailManager.escapeHtml(app.user_email_prefix) + '\\')">处理</button>' 
+                        : '') +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+        container.innerHTML = applicationsHtml;
+    }
+};
+
 // 管理员功能绑定
 window.AdminManager = AdminManager;  // 直接暴露 AdminManager 对象
 window.loadSystemSettings = AdminManager.loadSystemSettings.bind(AdminManager);
 window.saveSystemSettings = AdminManager.saveSystemSettings.bind(AdminManager);
 window.showCreateUserModal = function() { UI.showModal('createUserModal'); };
 window.showCreateRuleModal = function() { UI.showModal('createRuleModal'); };
+window.createUser = AdminManager.createUser.bind(AdminManager);
+window.createRule = AdminManager.createRule.bind(AdminManager);
+
+// 邮箱管理功能绑定
+window.MailboxManager = MailboxManager;
+window.showApplyMailboxModal = function() { UI.showModal('applyMailboxModal'); };
+window.showCreateMailboxModal = function() { UI.showModal('createMailboxModal'); };
+window.submitMailboxApplication = async function() {
+    const emailAddress = document.getElementById('applyEmailAddress').value;
+    const reason = document.getElementById('applyReason').value;
+
+    if (!emailAddress) {
+        UI.showMessage('请输入邮箱地址', 'error');
+        return;
+    }
+
+    try {
+        const response = await API.post('/api/mailbox/user/applications', {
+            email_address: emailAddress,
+            reason: reason
+        });
+
+        if (response.success) {
+            UI.showMessage(response.message, 'success');
+            window.closeModal('applyMailboxModal');
+            // 清空表单
+            document.getElementById('applyEmailAddress').value = '';
+            document.getElementById('applyReason').value = '';
+            // 刷新申请列表
+            await MailboxManager.loadUserApplications();
+        } else {
+            UI.showMessage('申请失败: ' + response.error, 'error');
+        }
+    } catch (error) {
+        console.error('申请失败:', error);
+        UI.showMessage('申请失败', 'error');
+    }
+};
+
+window.createMailbox = async function() {
+    const userId = document.getElementById('createMailboxUserId').value;
+    const emailAddress = document.getElementById('createMailboxAddress').value;
+
+    if (!userId || !emailAddress) {
+        UI.showMessage('请填写所有字段', 'error');
+        return;
+    }
+
+    try {
+        const response = await API.post('/api/mailbox/admin/mailboxes', {
+            user_id: parseInt(userId),
+            email_address: emailAddress
+        });
+
+        if (response.success) {
+            UI.showMessage(response.message, 'success');
+            window.closeModal('createMailboxModal');
+            // 清空表单
+            document.getElementById('createMailboxUserId').value = '';
+            document.getElementById('createMailboxAddress').value = '';
+            // 刷新邮箱列表
+            await MailboxManager.loadAdminMailboxes();
+        } else {
+            UI.showMessage('创建失败: ' + response.error, 'error');
+        }
+    } catch (error) {
+        console.error('创建失败:', error);
+        UI.showMessage('创建失败', 'error');
+    }
+};
+
+window.deleteUserMailbox = async function(mailboxId) {
+    if (!confirm('确定要删除这个邮箱吗？')) {
+        return;
+    }
+
+    try {
+        const response = await API.delete('/api/mailbox/user/mailboxes/' + mailboxId);
+        if (response.success) {
+            UI.showMessage(response.message, 'success');
+            await MailboxManager.loadUserMailboxes();
+        } else {
+            UI.showMessage('删除失败: ' + response.error, 'error');
+        }
+    } catch (error) {
+        console.error('删除失败:', error);
+        UI.showMessage('删除失败', 'error');
+    }
+};
+
+window.deleteAdminMailbox = async function(mailboxId) {
+    if (!confirm('确定要删除这个邮箱吗？')) {
+        return;
+    }
+
+    try {
+        const response = await API.delete('/api/mailbox/admin/mailboxes/' + mailboxId);
+        if (response.success) {
+            UI.showMessage(response.message, 'success');
+            await MailboxManager.loadAdminMailboxes();
+        } else {
+            UI.showMessage('删除失败: ' + response.error, 'error');
+        }
+    } catch (error) {
+        console.error('删除失败:', error);
+        UI.showMessage('删除失败', 'error');
+    }
+};
+
+let currentApplicationId = null;
+
+window.showProcessApplicationModal = function(applicationId, emailAddress, userPrefix) {
+    currentApplicationId = applicationId;
+    const details = document.getElementById('applicationDetails');
+    details.innerHTML = 
+        '<div class="application-details">' +
+            '<p><strong>邮箱地址:</strong> ' + emailAddress + '</p>' +
+            '<p><strong>申请用户:</strong> ' + userPrefix + '</p>' +
+        '</div>';
+    document.getElementById('adminComment').value = '';
+    UI.showModal('processApplicationModal');
+};
+
+window.processApplication = async function(action) {
+    if (!currentApplicationId) {
+        UI.showMessage('无效的申请ID', 'error');
+        return;
+    }
+
+    const adminComment = document.getElementById('adminComment').value;
+
+    try {
+        const response = await API.post('/api/mailbox/admin/applications/' + currentApplicationId + '/process', {
+            action: action,
+            admin_comment: adminComment
+        });
+
+        if (response.success) {
+            UI.showMessage(response.message, 'success');
+            window.closeModal('processApplicationModal');
+            currentApplicationId = null;
+            // 刷新申请列表
+            await MailboxManager.loadAdminApplications();
+        } else {
+            UI.showMessage('处理失败: ' + response.error, 'error');
+        }
+    } catch (error) {
+        console.error('处理失败:', error);
+        UI.showMessage('处理失败', 'error');
+    }
+};
 
 // 调试功能绑定
 window.simulateEmailReceive = DebugManager.simulateEmailReceive.bind(DebugManager);
@@ -1471,7 +2364,7 @@ window.refreshData = async function() {
 // 应用初始化
 async function initApp() {
     try {
-        console.log('开始初始化应用...');
+        FrontendDebug.info('开始初始化应用...');
 
         // 初始化侧边栏状态（确保类名正确）
         const sidebar = document.getElementById('sidebar');
@@ -1510,7 +2403,7 @@ async function initApp() {
         // 绑定事件监听器
         bindEventListeners();
 
-        console.log('应用初始化完成');
+        FrontendDebug.info('应用初始化完成');
     } catch (error) {
         console.error('应用初始化失败:', error);
         UI.showMessage('应用初始化失败', 'error');
@@ -1566,7 +2459,7 @@ function bindEventListeners() {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(function() {
                 // TODO: 实现搜索功能
-                console.log('搜索:', e.target.value);
+                FrontendDebug.debug('搜索:', e.target.value);
             }, 500);
         });
     }

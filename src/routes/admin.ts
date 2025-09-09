@@ -12,6 +12,7 @@ import {
     createUser,
     deleteUser,
     findUserById,
+    findUserByPrefix,
     updateUserSettings
 } from '../services/user';
 import {
@@ -76,7 +77,7 @@ admin.get('/users', async (c) => {
  */
 admin.post('/users', async (c) => {
     try {
-        const { email_password, user_type = 'user' } = await c.req.json();
+        const { email_password, user_type = 'user', email_prefix } = await c.req.json();
 
         const passwordValidation = validatePassword(email_password);
         if (!passwordValidation.valid) {
@@ -93,25 +94,48 @@ admin.post('/users', async (c) => {
             }, 400);
         }
 
-        // 生成随机邮件前缀
         let emailPrefix: string;
-        let attempts = 0;
-        const maxAttempts = 10;
 
-        do {
-            emailPrefix = generateRandomString(8);
-            attempts++;
-
-            // 检查前缀是否已存在
-            const existingUser = await findUserById(c.env.DB, parseInt(emailPrefix));
-            if (!existingUser) {
-                break;
+        if (email_prefix) {
+            // 验证用户名格式（只允许英文、数字、下划线、连字符）
+            const usernameRegex = /^[a-zA-Z0-9_-]+$/;
+            if (!usernameRegex.test(email_prefix)) {
+                return c.json<ApiResponse>({
+                    success: false,
+                    error: '用户名只能包含英文字母、数字、下划线和连字符'
+                }, 400);
             }
 
-            if (attempts >= maxAttempts) {
-                throw new Error('无法生成唯一的邮件前缀');
+            // 检查用户名是否已存在
+            const existingUser = await findUserByPrefix(c.env.DB, email_prefix);
+            if (existingUser) {
+                return c.json<ApiResponse>({
+                    success: false,
+                    error: '用户名已存在'
+                }, 400);
             }
-        } while (true);
+
+            emailPrefix = email_prefix;
+        } else {
+            // 生成随机邮件前缀
+            let attempts = 0;
+            const maxAttempts = 10;
+
+            do {
+                emailPrefix = generateRandomString(8);
+                attempts++;
+
+                // 检查前缀是否已存在
+                const existingUser = await findUserById(c.env.DB, parseInt(emailPrefix));
+                if (!existingUser) {
+                    break;
+                }
+
+                if (attempts >= maxAttempts) {
+                    throw new Error('无法生成唯一的邮件前缀');
+                }
+            } while (true);
+        }
 
         // 哈希密码
         const hashedPassword = await hashPassword(email_password);

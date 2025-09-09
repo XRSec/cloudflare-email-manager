@@ -10,6 +10,8 @@
 DROP TABLE IF EXISTS forward_logs;
 DROP TABLE IF EXISTS attachments;
 DROP TABLE IF EXISTS emails;
+DROP TABLE IF EXISTS mailbox_applications;
+DROP TABLE IF EXISTS mailboxes;
 DROP TABLE IF EXISTS forward_rules;
 DROP TABLE IF EXISTS system_settings;
 DROP TABLE IF EXISTS users;
@@ -18,7 +20,7 @@ DROP TABLE IF EXISTS _cf_METADATA;
 -- ===================
 -- 重置自增序列
 -- ===================
-DELETE FROM sqlite_sequence WHERE name IN ('users', 'emails', 'attachments', 'forward_rules', 'forward_logs');
+DELETE FROM sqlite_sequence WHERE name IN ('users', 'emails', 'attachments', 'forward_rules', 'forward_logs', 'mailboxes', 'mailbox_applications');
 
 -- ===================
 -- 用户表
@@ -36,6 +38,48 @@ CREATE TABLE users (
 
 CREATE INDEX idx_users_email_prefix ON users(email_prefix);
 CREATE INDEX idx_users_user_type ON users(user_type);
+
+-- ===================
+-- 邮箱表
+-- ===================
+CREATE TABLE mailboxes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,               -- 关联用户ID
+    email_address TEXT UNIQUE NOT NULL,     -- 完整邮箱地址
+    is_default INTEGER DEFAULT 0 CHECK(is_default IN (0,1)), -- 是否为默认邮箱
+    is_active INTEGER DEFAULT 1 CHECK(is_active IN (0,1)),   -- 是否启用
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_mailboxes_user_id ON mailboxes(user_id);
+CREATE INDEX idx_mailboxes_email_address ON mailboxes(email_address);
+CREATE INDEX idx_mailboxes_is_active ON mailboxes(is_active);
+
+-- ===================
+-- 邮箱申请表
+-- ===================
+CREATE TABLE mailbox_applications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,               -- 申请用户ID
+    email_address TEXT NOT NULL,            -- 申请的邮箱地址
+    status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), -- 申请状态
+    reason TEXT,                            -- 申请理由
+    admin_comment TEXT,                     -- 管理员备注
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    processed_at DATETIME,                  -- 处理时间
+    processed_by INTEGER,                   -- 处理人（管理员ID）
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (processed_by) REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(user_id, email_address) -- 同一用户不能重复申请同一邮箱
+);
+
+CREATE INDEX idx_mailbox_applications_user_id ON mailbox_applications(user_id);
+CREATE INDEX idx_mailbox_applications_status ON mailbox_applications(status);
+CREATE INDEX idx_mailbox_applications_applied_at ON mailbox_applications(applied_at);
 
 -- ===================
 -- 邮件表
@@ -177,6 +221,20 @@ BEGIN
     UPDATE forward_logs SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
+CREATE TRIGGER update_mailboxes_updated_at
+    AFTER UPDATE ON mailboxes
+    FOR EACH ROW
+BEGIN
+    UPDATE mailboxes SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER update_mailbox_applications_updated_at
+    AFTER UPDATE ON mailbox_applications
+    FOR EACH ROW
+BEGIN
+    UPDATE mailbox_applications SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
 -- ===================
 -- 初始化默认数据
 -- ===================
@@ -192,11 +250,18 @@ INSERT INTO system_settings (key, value, description) VALUES
     ('primary_domain', 'example.com', '主域名'),
     ('cookie_max_age', '604800', 'Cookie过期时间（秒）'),
     ('debug_mode', 'false', '调试模式开关'),
-    ('domains', '["example.com"]', '支持的域名列表（JSON格式）');
+    ('domains', '["example.com"]', '支持的域名列表（JSON格式）'),
+    ('auto_approve_mailbox', 'false', '是否自动批准邮箱申请'),
+    ('reserved_mailboxes', '["admin","administrator","root","postmaster","abuse","noreply","no-reply","support","info","contact","webmaster","mail","email","help","security","privacy","legal","billing","sales","marketing","news","newsletter","updates","alerts","notifications"]', '保留邮箱列表（JSON格式）'),
+    ('max_mailboxes_per_user', '5', '每个用户最大邮箱数量');
 
 -- 插入默认管理员账号（密码: 123456）
 INSERT INTO users (email_prefix, email_password, user_type) VALUES 
     ('admin', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 'admin');
+
+-- 插入默认管理员邮箱
+INSERT INTO mailboxes (user_id, email_address, is_default, is_active) VALUES 
+    (1, 'admin@example.com', 1, 1);
 
 -- ===================
 -- 重置自增序列到正确的值

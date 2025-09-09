@@ -17,6 +17,7 @@ import { user } from './routes/user';
 import { admin } from './routes/admin';
 import { system } from './routes/system';
 import { adminSecurityRoutes } from './routes/admin-security';
+import { mailbox } from './routes/mailbox';
 
 // 处理器模块
 import emailHandler from './handlers/email';
@@ -65,6 +66,7 @@ app.route('/api/protected', user); // 用户功能: /api/protected/...
 app.route('/api/admin', admin);    // 管理员功能: /api/admin/...
 app.route('/api/admin/security', adminSecurityRoutes); // 管理员安全功能: /api/admin/security/...
 app.route('/api/system', system);  // 系统配置: /api/system/...
+app.route('/api/mailbox', mailbox); // 邮箱管理: /api/mailbox/...
 
 // 调试接口（仅在调试模式下启用）
 app.get('/api/debug', async (c: any) => {
@@ -99,7 +101,7 @@ app.post('/api/debug/simulate-email', async (c: any) => {
     }
 
     try {
-        const { to, from, subject, text } = await c.req.json();
+        const { to, from, subject, text, html } = await c.req.json();
 
         if (!to || !from) {
             return c.json({
@@ -107,6 +109,9 @@ app.post('/api/debug/simulate-email', async (c: any) => {
                 error: '收件人和发件人不能为空'
             }, 400);
         }
+
+        const textContent = text || '这是一封测试邮件';
+        const htmlContent = html || `<p>${textContent}</p>`;
 
         // 构造模拟邮件对象
         const mockMessage = {
@@ -116,9 +121,9 @@ app.post('/api/debug/simulate-email', async (c: any) => {
                 ['Subject', subject || '测试邮件'],
                 ['Message-ID', `test-${Date.now()}@debug.local`]
             ]),
-            text: () => Promise.resolve(text || '这是一封测试邮件'),
-            html: () => Promise.resolve(`<p>${text || '这是一封测试邮件'}</p>`),
-            raw: () => Promise.resolve(`From: ${from}\nTo: ${to}\nSubject: ${subject || '测试邮件'}\n\n${text || '这是一封测试邮件'}`)
+            text: () => Promise.resolve(textContent),
+            html: () => Promise.resolve(htmlContent),
+            raw: () => Promise.resolve(`From: ${from}\nTo: ${to}\nSubject: ${subject || '测试邮件'}\n\n${textContent}`)
         };
 
         await emailHandler.email(mockMessage, c.env, {});

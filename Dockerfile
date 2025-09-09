@@ -4,7 +4,7 @@ RUN npm config set registry https://registry.npmmirror.com \
     && npm i -g wrangler
 
 RUN apt-get -qq update \
-    && apt-get -qq install zsh curl git -y \
+    && apt-get -qq install zsh curl git procps net-tools -y \
     && apt-get -qq autoclean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -18,6 +18,7 @@ EXPOSE 8787
 CMD []
 ENTRYPOINT ["/usr/bin/zsh"]
 
-# docker build -t node:cem .
-# docker run -it --name node -v "${PWD}/:/app" -p 8787:8787 node:cem
-# docker run -it --name node -v "${PWD}/:/app" -w /app --entrypoint /usr/bin/bash -p 8787:8787 node:latest
+# docker build -t node:cem --progress=plain .
+# docker run -itd --name node -v "${PWD}/:/app" --net=host node:cem
+# docker run -itd --name node -v "${PWD}/:/app" -p 8787:8787 node:cem
+# docker run -itd --name node -v "${PWD}/:/app" -w /app --entrypoint /usr/bin/bash -p 8787:8787 node:latest

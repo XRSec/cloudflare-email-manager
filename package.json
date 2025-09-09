@@ -4,14 +4,18 @@
   "description": "基于Cloudflare的简洁邮箱管理系统",
   "main": "src/main.ts",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "docker exec -it node bash -c 'wrangler dev'",
+    "dev:docker": "wrangler dev",
     "build": "tsc",
     "init": "node deploy.js",
     "clean": "node deploy.js deleteAll",
     "deploy": "wrangler deploy",
-    "db:init": "wrangler d1 execute cem-db --file=./db/schema.sql --remote",
-    "db:init:dev": "wrangler d1 execute cem-db --file=./db/schema.sql",
-    "db:migrate": "wrangler d1 migrations apply cem-db"
+    "db:init": "docker exec -it node bash -c 'wrangler d1 execute cem-db --file=./db/schema.sql --remote'",
+    "db:init:docker": "wrangler d1 execute cem-db --file=./db/schema.sql --remote",
+    "db:migrate": "wrangler d1 migrations apply cem-db",
+
+    "predev": "docker exec node bash -c 'kill -9 $(pidof node) || true'",
+    "predev:docker": "kill -9 $(pidof node) || true"
   },
   "keywords": [
     "cloudflare",
@@ -23,7 +27,7 @@
     "webhook",
     "临时邮箱"
   ],
-  "author": "Your Name",
+  "author": "XRSec",
   "license": "MIT",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250909.0",

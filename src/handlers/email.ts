@@ -7,6 +7,7 @@ import { findUserByPrefix } from '../services/user';
 import { createEmail, createAttachment, parseEmailAttachments } from '../services/email';
 import { handleEmailForwarding } from '../services/webhook';
 import { matchDomainForEmail } from '../services/settings';
+import { findUserByEmail } from '../services/mailbox';
 import type { Env, Email } from '../types';
 
 /**
@@ -51,10 +52,10 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
 
         debugLog('[邮件处理] 域名匹配成功:', matchedDomain);
 
-        // 查找对应的用户
-        const user = await findUserByPrefix(env.DB, emailPrefix);
+        // 根据完整邮箱地址查找对应的用户
+        const user = await findUserByEmail(env.DB, recipientEmail);
         if (!user) {
-            debugLog('[邮件处理] 未找到对应用户:', emailPrefix);
+            debugLog('[邮件处理] 未找到邮箱对应的用户:', recipientEmail);
             return;
         }
 
