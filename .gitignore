@@ -141,3 +141,6 @@ pnpm-lock.yaml
 
 test_improvements.md
 identifier.sqlite
+
+# 编译后的模板文件
+src/templates/compiled.ts
