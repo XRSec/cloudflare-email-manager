@@ -1403,5 +1403,12 @@ function bindEventListeners() {
 
 // 页面加载完成后初始化应用
 document.addEventListener('DOMContentLoaded', initApp);
+
+// 导出到全局作用域供模板使用
+window.AuthManager = AuthManager;
+window.UI = UI;
+window.EmailManager = EmailManager;
+window.UserManager = UserManager;
+window.AdminManager = AdminManager;
 `;
 }

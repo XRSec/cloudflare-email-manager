@@ -293,7 +293,17 @@ export async function getHTMLTemplate(): Promise<string> {
             const token = localStorage.getItem('cem_persist_token') || localStorage.getItem('token'); // 兼容旧版本
             if (token) {
                 // 验证 token 并显示主界面
-                checkAuth();
+                // 等待 AuthManager 初始化完成后再检查认证
+                if (window.AuthManager) {
+                    await window.AuthManager.checkAuth();
+                } else {
+                    // 如果 AuthManager 还未初始化，等待一下再尝试
+                    setTimeout(async () => {
+                        if (window.AuthManager) {
+                            await window.AuthManager.checkAuth();
+                        }
+                    }, 100);
+                }
             }
         });
     </script>
