@@ -117,7 +117,12 @@ const State = {
 
     // 更新用户界面
     updateUserUI() {
-        if (!this.currentUser) return;
+        if (!this.currentUser) {
+            console.log('updateUserUI: 没有当前用户');
+            return;
+        }
+
+        console.log('updateUserUI: 当前用户', this.currentUser);
 
         const userEmail = document.getElementById('userEmail');
         const userType = document.getElementById('userType');
@@ -145,11 +150,15 @@ const State = {
 
         // 显示/隐藏管理员菜单
         const adminMenuItems = document.getElementById('adminMenuItems');
+        console.log('管理员菜单元素:', adminMenuItems, '用户类型:', this.currentUser.user_type);
+        
         if (adminMenuItems) {
             if (this.currentUser.user_type === 'admin') {
                 adminMenuItems.classList.remove('hidden');
+                console.log('已显示管理员菜单');
             } else {
                 adminMenuItems.classList.add('hidden');
+                console.log('已隐藏管理员菜单');
             }
         }
     },
@@ -281,6 +290,30 @@ const UI = {
         }
     },
 
+    // 确保侧边栏打开
+    openSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.querySelector('.main-content');
+
+        if (sidebar && mainContent && !State.sidebarOpen) {
+            State.sidebarOpen = true;
+            sidebar.classList.add('open');
+            mainContent.classList.add('sidebar-open');
+        }
+    },
+
+    // 确保侧边栏关闭
+    closeSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.querySelector('.main-content');
+
+        if (sidebar && mainContent && State.sidebarOpen) {
+            State.sidebarOpen = false;
+            sidebar.classList.remove('open');
+            mainContent.classList.remove('sidebar-open');
+        }
+    },
+
     // 显示页面部分
     showSection(sectionName) {
         // ID 映射
@@ -403,7 +436,7 @@ const AuthManager = {
                 await this.loadSystemConfig();
 
                 // 默认打开侧边栏并显示邮件列表
-                UI.toggleSidebar();
+                UI.openSidebar();
                 UI.showSection('emails');
             }
         } catch (error) {
@@ -460,9 +493,7 @@ const AuthManager = {
         State.setCurrentUser(null);
 
         // 关闭侧边栏
-        if (State.sidebarOpen) {
-            UI.toggleSidebar();
-        }
+        UI.closeSidebar();
 
         // 显示登录界面
         document.getElementById('mainSection')?.classList.add('hidden');
@@ -1268,6 +1299,14 @@ async function initApp() {
     try {
         console.log('开始初始化应用...');
 
+        // 初始化侧边栏状态（确保类名正确）
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.querySelector('.main-content');
+        if (sidebar && mainContent) {
+            sidebar.classList.add('open');
+            mainContent.classList.add('sidebar-open');
+        }
+
         // 检查认证状态
         const isAuthenticated = await AuthManager.checkAuth();
 
@@ -1279,8 +1318,8 @@ async function initApp() {
             if (loginSection) loginSection.classList.add('hidden');
             if (mainSection) mainSection.classList.remove('hidden');
 
-            // 默认打开侧边栏
-            UI.toggleSidebar();
+            // 确保侧边栏打开
+            UI.openSidebar();
             UI.showSection('emails');
         } else {
             // 未登录，显示登录界面
