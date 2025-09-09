@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { generateRandomString, hashPassword } from '../utils/crypto';
 import { debugLog, errorLog } from '../utils/debug';
+import { getPaginationParams, validatePassword } from '../config/constants';
 import {
     getAllUsers,
     createUser,
@@ -50,8 +51,7 @@ admin.use('*', adminAuthMiddleware);
  */
 admin.get('/users', async (c) => {
     try {
-        const page = parseInt(c.req.query('page') || '1');
-        const limit = parseInt(c.req.query('limit') || '20');
+        const { page, limit } = getPaginationParams(c.req.query());
 
         const result = await getAllUsers(c.env.DB, page, limit);
 
@@ -78,10 +78,11 @@ admin.post('/users', async (c) => {
     try {
         const { email_password, user_type = 'user' } = await c.req.json();
 
-        if (!email_password || email_password.length < 6) {
+        const passwordValidation = validatePassword(email_password);
+        if (!passwordValidation.valid) {
             return c.json<ApiResponse>({
                 success: false,
-                error: '密码长度至少为6位'
+                error: passwordValidation.error!
             }, 400);
         }
 
@@ -228,8 +229,7 @@ admin.get('/emails', async (c) => {
     try {
         // 解析查询参数
         const queryParams: EmailQueryParams = {
-            page: parseInt(c.req.query('page') || '1'),
-            limit: parseInt(c.req.query('limit') || '20'),
+            ...getPaginationParams(c.req.query()),
             search: c.req.query('search'),
             sender: c.req.query('sender'),
             subject: c.req.query('subject'),
@@ -404,7 +404,9 @@ admin.delete('/forward-rules/:id', async (c) => {
  */
 admin.get('/settings', async (c) => {
     try {
+        debugLog('[管理员-系统设置] 开始获取系统配置');
         const config = await getSystemConfig(c.env.DB);
+        debugLog('[管理员-系统设置] 配置获取成功:', config);
 
         return c.json<ApiResponse>({
             success: true,
@@ -412,7 +414,11 @@ admin.get('/settings', async (c) => {
         });
     } catch (error) {
         errorLog('[管理员-系统设置] 获取失败:', error);
-        throw new HTTPException(500, { message: '获取系统设置失败' });
+        // 返回更详细的错误信息
+        return c.json<ApiResponse>({
+            success: false,
+            error: error instanceof Error ? error.message : '获取系统设置失败'
+        }, 500);
     }
 });
 

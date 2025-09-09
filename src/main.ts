@@ -9,13 +9,14 @@ import { HTTPException } from 'hono/http-exception';
 
 // 工具和中间件
 import { initDebugMode } from './utils/debug';
-import { initializeSystemSettings } from './services/settings';
+import { initializeSystemSettings, getSystemConfig } from './services/settings';
 
 // 路由模块
 import { auth } from './routes/auth';
 import { user } from './routes/user';
 import { admin } from './routes/admin';
 import { system } from './routes/system';
+import { adminSecurityRoutes } from './routes/admin-security';
 
 // 处理器模块
 import emailHandler from './handlers/email';
@@ -62,11 +63,15 @@ app.notFound((c: any) => {
 app.route('/api', auth);           // 认证相关: /api/register, /api/login, /api/logout
 app.route('/api/protected', user); // 用户功能: /api/protected/...
 app.route('/api/admin', admin);    // 管理员功能: /api/admin/...
+app.route('/api/admin/security', adminSecurityRoutes); // 管理员安全功能: /api/admin/security/...
 app.route('/api/system', system);  // 系统配置: /api/system/...
 
 // 调试接口（仅在调试模式下启用）
 app.get('/api/debug', async (c: any) => {
-    if (!c.env.cem_debug) {
+    // 从系统设置获取调试模式状态
+    const config = await getSystemConfig(c.env.DB);
+
+    if (!config.debug_mode && c.env.cem_debug !== 'true') {
         throw new HTTPException(404, { message: '接口不存在' });
     }
 
@@ -76,7 +81,8 @@ app.get('/api/debug', async (c: any) => {
             message: '调试模式已启用',
             timestamp: new Date().toISOString(),
             environment: {
-                debug: !!c.env.cem_debug,
+                debug_mode: config.debug_mode,
+                env_debug: c.env.cem_debug === 'true',
                 domain: c.env.DOMAIN,
             }
         }
@@ -85,7 +91,10 @@ app.get('/api/debug', async (c: any) => {
 
 // 模拟邮件接收接口（仅在调试模式下启用）
 app.post('/api/debug/simulate-email', async (c: any) => {
-    if (!c.env.cem_debug) {
+    // 从系统设置获取调试模式状态
+    const config = await getSystemConfig(c.env.DB);
+
+    if (!config.debug_mode && c.env.cem_debug !== 'true') {
         throw new HTTPException(404, { message: '接口不存在' });
     }
 
@@ -137,6 +146,11 @@ app.get('/', async (c: any) => {
         console.error('获取模板失败:', error);
         return c.text('服务器错误', 500);
     }
+});
+
+// favicon.ico 处理（返回空响应避免404）
+app.get('/favicon.ico', (c: any) => {
+    return c.body('', 204);
 });
 
 // 静态资源路由

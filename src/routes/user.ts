@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { hashPassword } from '../utils/crypto';
 import { debugLog, errorLog } from '../utils/debug';
+import { getPaginationParams } from '../config/constants';
 import { findUserById, updateUserSettings } from '../services/user';
 import { getUserEmails, getEmailById, deleteEmail, getEmailAttachments, getAttachmentById } from '../services/email';
 import { jwtAuthMiddleware } from '../middleware/auth';
@@ -150,8 +151,7 @@ user.get('/emails', async (c) => {
 
         // 解析查询参数
         const queryParams: EmailQueryParams = {
-            page: parseInt(c.req.query('page') || '1'),
-            limit: parseInt(c.req.query('limit') || '20'),
+            ...getPaginationParams(c.req.query()),
             search: c.req.query('search'),
             sender: c.req.query('sender'),
             subject: c.req.query('subject'),

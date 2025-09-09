@@ -8,6 +8,7 @@ import { generateRandomString, hashPassword, verifyPassword, generateJWT } from 
 import { debugLog, errorLog } from '../utils/debug';
 import { findUserByPrefix, createUser } from '../services/user';
 import { getSystemSetting, getJWTSecret } from '../services/settings';
+import { validatePassword } from '../config/constants';
 import type { Env, ApiResponse } from '../types';
 
 const auth = new Hono<{ Bindings: Env }>();
@@ -31,10 +32,11 @@ auth.post('/register', async (c) => {
 
         const { email_password } = await c.req.json();
 
-        if (!email_password || email_password.length < 6) {
+        const passwordValidation = validatePassword(email_password);
+        if (!passwordValidation.valid) {
             return c.json<ApiResponse>({
                 success: false,
-                error: '密码长度至少为6位'
+                error: passwordValidation.error!
             }, 400);
         }
 
@@ -134,7 +136,11 @@ auth.post('/login', async (c) => {
         debugLog('[登录] 登录成功:', email_prefix, '类型:', user.user_type);
 
         // 获取 Cookie 过期时间设置
-        const cookieMaxAge = parseInt(await getSystemSetting(c.env.DB, 'cookie_max_age') || '604800');
+        const cookieMaxAgeSetting = await getSystemSetting(c.env.DB, 'cookie_max_age');
+        if (!cookieMaxAgeSetting) {
+            throw new Error('Cookie 过期时间未配置');
+        }
+        const cookieMaxAge = parseInt(cookieMaxAgeSetting);
 
         // 设置Cookie和返回响应
         const response = c.json<ApiResponse>({

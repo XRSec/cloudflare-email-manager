@@ -81,15 +81,18 @@ const API = {
     setToken(token) {
         this.token = token;
         if (token) {
-            localStorage.setItem('auth_token', token);
-        } else {
+            localStorage.setItem('cem_persist_auth_token', token);
+            // 清理旧的 token 键
             localStorage.removeItem('auth_token');
+        } else {
+            localStorage.removeItem('cem_persist_auth_token');
+            localStorage.removeItem('auth_token'); // 同时清理旧的键
         }
     },
 
     // 从存储中恢复令牌
     restoreToken() {
-        const token = localStorage.getItem('auth_token');
+        const token = localStorage.getItem('cem_persist_auth_token') || localStorage.getItem('auth_token'); // 兼容旧版本
         if (token) {
             this.token = token;
         }
@@ -117,7 +120,12 @@ const State = {
 
     // 更新用户界面
     updateUserUI() {
-        if (!this.currentUser) return;
+        if (!this.currentUser) {
+            console.log('updateUserUI: 没有当前用户');
+            return;
+        }
+
+        console.log('updateUserUI: 当前用户', this.currentUser);
 
         const userEmail = document.getElementById('userEmail');
         const userType = document.getElementById('userType');
@@ -145,11 +153,15 @@ const State = {
 
         // 显示/隐藏管理员菜单
         const adminMenuItems = document.getElementById('adminMenuItems');
+        console.log('管理员菜单元素:', adminMenuItems, '用户类型:', this.currentUser.user_type);
+        
         if (adminMenuItems) {
             if (this.currentUser.user_type === 'admin') {
                 adminMenuItems.classList.remove('hidden');
+                console.log('已显示管理员菜单');
             } else {
                 adminMenuItems.classList.add('hidden');
+                console.log('已隐藏管理员菜单');
             }
         }
     },
@@ -281,8 +293,54 @@ const UI = {
         }
     },
 
+    // 确保侧边栏打开
+    openSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.querySelector('.main-content');
+
+        if (sidebar && mainContent) {
+            // 显示侧边栏（移除 hidden 类）
+            sidebar.classList.remove('hidden');
+            
+            if (!State.sidebarOpen) {
+                State.sidebarOpen = true;
+                sidebar.classList.add('open');
+                mainContent.classList.add('sidebar-open');
+            }
+        }
+    },
+
+    // 确保侧边栏关闭
+    closeSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.querySelector('.main-content');
+
+        if (sidebar && mainContent) {
+            // 隐藏侧边栏（添加 hidden 类）
+            sidebar.classList.add('hidden');
+            
+            if (State.sidebarOpen) {
+                State.sidebarOpen = false;
+                sidebar.classList.remove('open');
+                mainContent.classList.remove('sidebar-open');
+            }
+        }
+    },
+
     // 显示页面部分
     showSection(sectionName) {
+        // ID 映射
+        const sectionIdMap = {
+            'emails': 'emailsSection',
+            'settings': 'settingsSection',
+            'admin-users': 'adminUsersSection',
+            'admin-rules': 'adminRulesSection',
+            'admin-emails': 'adminEmailsSection',
+            'admin-settings': 'adminSettingsSection'
+        };
+
+        const targetSectionId = sectionIdMap[sectionName] || (sectionName + 'Section');
+
         // 隐藏所有部分
         const sections = document.querySelectorAll('.card');
         sections.forEach(section => {
@@ -292,7 +350,7 @@ const UI = {
         });
 
         // 显示指定部分
-        const targetSection = document.getElementById(sectionName + 'Section');
+        const targetSection = document.getElementById(targetSectionId);
         if (targetSection) {
             targetSection.classList.remove('hidden');
         }
@@ -352,7 +410,7 @@ const UI = {
                 break;
             case 'debug':
                 if (State.systemConfig?.debug_mode) {
-                    await DebugManager.loadDebugInfo();
+                    await DebugManager.initializeDebugSection();
                 }
                 break;
         }
@@ -391,7 +449,7 @@ const AuthManager = {
                 await this.loadSystemConfig();
 
                 // 默认打开侧边栏并显示邮件列表
-                UI.toggleSidebar();
+                UI.openSidebar();
                 UI.showSection('emails');
             }
         } catch (error) {
@@ -448,9 +506,7 @@ const AuthManager = {
         State.setCurrentUser(null);
 
         // 关闭侧边栏
-        if (State.sidebarOpen) {
-            UI.toggleSidebar();
-        }
+        UI.closeSidebar();
 
         // 显示登录界面
         document.getElementById('mainSection')?.classList.add('hidden');
@@ -760,7 +816,7 @@ const UserManager = {
     // 加载用户设置
     async loadSettings() {
         try {
-            const response = await API.get('/api/protected/user/settings');
+            const response = await API.get('/api/protected/settings');
 
             if (response.success) {
                 const settings = response.data;
@@ -817,7 +873,7 @@ const UserManager = {
         }
 
         try {
-            const response = await API.put('/api/protected/user/settings', updates);
+            const response = await API.put('/api/protected/settings', updates);
 
             if (response.success) {
                 UI.showMessage('设置更新成功', 'success');
@@ -1009,7 +1065,7 @@ const AdminManager = {
                 '<div class="form-col">' +
                     '<div class="form-group">' +
                         '<label for="allowRegistration">允许用户注册</label>' +
-                        '<select id="allowRegistration" class="form-control">' +
+                        '<select id="allowRegistration" name="allow_registration" class="form-control">' +
                             '<option value="true"' + (config.allow_registration ? ' selected' : '') + '>是</option>' +
                             '<option value="false"' + (!config.allow_registration ? ' selected' : '') + '>否</option>' +
                         '</select>' +
@@ -1018,7 +1074,7 @@ const AdminManager = {
                 '<div class="form-col">' +
                     '<div class="form-group">' +
                         '<label for="debugMode">调试模式</label>' +
-                        '<select id="debugMode" class="form-control">' +
+                        '<select id="debugMode" name="debug_mode" class="form-control">' +
                             '<option value="true"' + (config.debug_mode ? ' selected' : '') + '>开启</option>' +
                             '<option value="false"' + (!config.debug_mode ? ' selected' : '') + '>关闭</option>' +
                         '</select>' +
@@ -1029,19 +1085,27 @@ const AdminManager = {
                 '<div class="form-col">' +
                     '<div class="form-group">' +
                         '<label for="cleanupDays">邮件清理天数</label>' +
-                        '<input type="number" id="cleanupDays" class="form-control" value="' + config.cleanup_days + '" min="1" max="365">' +
+                        '<input type="number" id="cleanupDays" name="cleanup_days" class="form-control" value="' + config.cleanup_days + '" min="1" max="365">' +
                     '</div>' +
                 '</div>' +
                 '<div class="form-col">' +
                     '<div class="form-group">' +
                         '<label for="maxAttachmentSize">最大附件大小 (MB)</label>' +
-                        '<input type="number" id="maxAttachmentSize" class="form-control" value="' + Math.round(config.max_attachment_size / 1024 / 1024) + '" min="1" max="100">' +
+                        '<input type="number" id="maxAttachmentSize" name="max_attachment_size_mb" class="form-control" value="' + Math.round(config.max_attachment_size / 1024 / 1024) + '" min="1" max="100">' +
                     '</div>' +
                 '</div>' +
             '</div>' +
             '<div class="form-group">' +
                 '<label for="domains">支持的域名（每行一个）</label>' +
-                '<textarea id="domains" class="form-control" rows="4" placeholder="example.com">' + config.domains.join('\\n') + '</textarea>' +
+                '<textarea id="domains" name="domains" class="form-control" rows="4" placeholder="example.com">' + config.domains.join('\\n') + '</textarea>' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label for="jwtSecret">JWT 密钥</label>' +
+                '<input type="text" id="jwtSecret" name="jwt_secret" class="form-control" value="' + (config.jwt_secret || '') + '" placeholder="输入新的JWT密钥">' +
+            '</div>' +
+            '<div class="form-group">' +
+                '<label for="adminEmail">管理员邮箱</label>' +
+                '<input type="email" id="adminEmail" name="admin_email" class="form-control" value="' + (config.admin_email || '') + '" placeholder="admin@example.com">' +
             '</div>' +
             '<button type="button" class="btn btn-primary" onclick="AdminManager.saveSystemSettings()">保存设置</button>' +
         '</form>';
@@ -1124,6 +1188,76 @@ const AdminManager = {
         }
     },
 
+    // 删除用户
+    async deleteUser(userId) {
+        if (!confirm('确定要删除此用户吗？')) {
+            return;
+        }
+
+        try {
+            const response = await API.delete('/api/admin/users/' + userId);
+            if (response.success) {
+                UI.showMessage('用户删除成功', 'success');
+                await this.loadUsers();
+            }
+        } catch (error) {
+            UI.showMessage(error.message || '删除用户失败', 'error');
+        }
+    },
+
+    // 发送用户信息
+    async sendUserInfo(userId) {
+        if (!confirm('确定要发送用户信息到其邮箱吗？')) {
+            return;
+        }
+
+        try {
+            const response = await API.post('/api/admin/users/' + userId + '/send-info', {});
+            if (response.success) {
+                UI.showMessage('用户信息已发送', 'success');
+            }
+        } catch (error) {
+            UI.showMessage(error.message || '发送用户信息失败', 'error');
+        }
+    },
+
+    // 保存系统设置
+    async saveSystemSettings() {
+        const form = document.getElementById('systemConfigForm');
+        if (!form) return;
+
+        const formData = new FormData(form);
+        const settings = {};
+        
+        for (const [key, value] of formData.entries()) {
+            // 特殊处理某些字段
+            if (key === 'max_attachment_size_mb') {
+                settings['max_attachment_size'] = parseInt(value) * 1024 * 1024; // 转换为字节
+            } else if (key === 'domains') {
+                // 将换行分隔的域名转换为数组
+                settings[key] = value.split('\\n').filter(d => d.trim()).map(d => d.trim());
+            } else if (key === 'allow_registration' || key === 'debug_mode') {
+                // 布尔值转换
+                settings[key] = value === 'true';
+            } else if (key === 'cleanup_days') {
+                // 数字转换
+                settings[key] = parseInt(value);
+            } else {
+                settings[key] = value;
+            }
+        }
+
+        try {
+            const response = await API.put('/api/admin/settings', settings);
+            if (response.success) {
+                UI.showMessage('系统设置保存成功', 'success');
+                await this.loadSystemSettings();
+            }
+        } catch (error) {
+            UI.showMessage(error.message || '保存系统设置失败', 'error');
+        }
+    },
+
     // 工具函数
     escapeHtml(text) {
         const div = document.createElement('div');
@@ -1138,10 +1272,165 @@ const AdminManager = {
     }
 };
 
-// 调试管理模块（占位符）
+// 调试管理模块
 const DebugManager = {
-    async loadDebugInfo() {
-        console.log('TODO: 实现调试信息');
+    // 初始化调试部分
+    async initializeDebugSection() {
+        console.log('[Debug] 初始化调试部分');
+        
+        // 更新调试信息
+        await this.refreshDebugInfo();
+        
+        // 设置默认的收件人邮箱
+        const toEmailInput = document.getElementById('simToEmail');
+        const currentUser = State.getCurrentUser();
+        if (toEmailInput && currentUser) {
+            // 获取系统配置中的域名
+            try {
+                const response = await API.get('/api/system/config');
+                if (response.success && response.data.domains && response.data.domains.length > 0) {
+                    toEmailInput.value = currentUser.email_prefix + '@' + response.data.domains[0];
+                } else {
+                    toEmailInput.value = currentUser.email_prefix + '@example.com';
+                }
+            } catch (error) {
+                toEmailInput.value = currentUser.email_prefix + '@example.com';
+            }
+        }
+    },
+
+    // 刷新调试信息
+    async refreshDebugInfo() {
+        try {
+            // 更新调试模式状态
+            const debugModeStatus = document.getElementById('debugModeStatus');
+            const debugCurrentUser = document.getElementById('debugCurrentUser');
+            const debugSystemConfig = document.getElementById('debugSystemConfig');
+            
+            if (debugModeStatus) {
+                debugModeStatus.textContent = '✅ 已启用';
+                debugModeStatus.style.color = '#28a745';
+            }
+            
+            // 显示当前用户信息
+            if (debugCurrentUser) {
+                const currentUser = State.getCurrentUser();
+                if (currentUser) {
+                    debugCurrentUser.textContent = currentUser.email_prefix + ' (' + currentUser.user_type + ')';
+                    debugCurrentUser.style.color = '#28a745';
+                } else {
+                    debugCurrentUser.textContent = '未登录';
+                    debugCurrentUser.style.color = '#dc3545';
+                }
+            }
+            
+            // 显示系统配置
+            if (debugSystemConfig) {
+                try {
+                    const response = await API.get('/api/system/config');
+                    if (response.success) {
+                        const config = response.data;
+                        debugSystemConfig.innerHTML = 
+                            '注册: ' + (config.allow_registration ? '开启' : '关闭') + ', ' +
+                            '清理: ' + config.cleanup_days + '天, ' + 
+                            '域名: ' + (config.domains ? config.domains.join(', ') : '未配置');
+                        debugSystemConfig.style.color = '#28a745';
+                    } else {
+                        debugSystemConfig.textContent = '获取失败';
+                        debugSystemConfig.style.color = '#dc3545';
+                    }
+                } catch (error) {
+                    debugSystemConfig.textContent = '错误: ' + error.message;
+                    debugSystemConfig.style.color = '#dc3545';
+                }
+            }
+        } catch (error) {
+            console.error('[Debug] 刷新调试信息失败:', error);
+        }
+    },
+
+    // 模拟邮件接收
+    async simulateEmailReceive() {
+        try {
+            const fromEmail = document.getElementById('simFromEmail').value;
+            const toEmail = document.getElementById('simToEmail').value;
+            const subject = document.getElementById('simSubject').value;
+            const textContent = document.getElementById('simTextContent').value;
+            const htmlContent = document.getElementById('simHtmlContent').value;
+
+            if (!fromEmail || !toEmail || !subject) {
+                UI.showMessage('请填写必填字段：发件人、收件人和主题', 'error');
+                return;
+            }
+
+            UI.showMessage('正在模拟邮件接收...', 'info');
+
+            // 调用调试 API
+            const response = await API.post('/api/debug/simulate-email', {
+                from: fromEmail,
+                to: toEmail,
+                subject: subject,
+                text: textContent || '这是一封模拟邮件',
+                html: htmlContent || '<p>' + (textContent || '这是一封模拟邮件') + '</p>'
+            });
+
+            if (response.success) {
+                UI.showMessage('模拟邮件接收成功', 'success');
+                
+                // 更新最近模拟邮件信息
+                const lastSimulatedEmail = document.getElementById('lastSimulatedEmail');
+                if (lastSimulatedEmail) {
+                    const now = new Date().toLocaleString();
+                    lastSimulatedEmail.textContent = subject + ' (' + now + ')';
+                }
+                
+                // 清空表单
+                this.clearSimulateForm();
+                
+                // 刷新邮件列表
+                if (EmailManager && EmailManager.loadEmails) {
+                    await EmailManager.loadEmails();
+                }
+            } else {
+                UI.showMessage('模拟邮件失败: ' + response.error, 'error');
+            }
+        } catch (error) {
+            console.error('[Debug] 模拟邮件失败:', error);
+            UI.showMessage('模拟邮件失败: ' + error.message, 'error');
+        }
+    },
+
+    // 清空模拟表单
+    clearSimulateForm() {
+        const fromEmailInput = document.getElementById('simFromEmail');
+        const subjectInput = document.getElementById('simSubject');
+        const textContentInput = document.getElementById('simTextContent');
+        const htmlContentInput = document.getElementById('simHtmlContent');
+        
+        if (fromEmailInput) fromEmailInput.value = '';
+        if (subjectInput) subjectInput.value = '';
+        if (textContentInput) textContentInput.value = '';
+        if (htmlContentInput) htmlContentInput.value = '';
+        
+        UI.showMessage('表单已清空', 'info');
+    },
+
+    // 清空调试日志
+    clearDebugLogs() {
+        if (confirm('确定要清空调试日志吗？')) {
+            // 清空控制台（如果可能）
+            if (console.clear) {
+                console.clear();
+            }
+            
+            // 重置最近模拟邮件
+            const lastSimulatedEmail = document.getElementById('lastSimulatedEmail');
+            if (lastSimulatedEmail) {
+                lastSimulatedEmail.textContent = '无';
+            }
+            
+            UI.showMessage('调试日志已清空', 'info');
+        }
     }
 };
 
@@ -1156,9 +1445,17 @@ window.updateSettings = UserManager.updateSettings.bind(UserManager);
 window.closeModal = UI.hideModal.bind(UI);
 
 // 管理员功能绑定
+window.AdminManager = AdminManager;  // 直接暴露 AdminManager 对象
 window.loadSystemSettings = AdminManager.loadSystemSettings.bind(AdminManager);
+window.saveSystemSettings = AdminManager.saveSystemSettings.bind(AdminManager);
 window.showCreateUserModal = function() { UI.showModal('createUserModal'); };
 window.showCreateRuleModal = function() { UI.showModal('createRuleModal'); };
+
+// 调试功能绑定
+window.simulateEmailReceive = DebugManager.simulateEmailReceive.bind(DebugManager);
+window.clearSimulateForm = DebugManager.clearSimulateForm.bind(DebugManager);
+window.refreshDebugInfo = DebugManager.refreshDebugInfo.bind(DebugManager);
+window.clearDebugLogs = DebugManager.clearDebugLogs.bind(DebugManager);
 
 // 刷新数据函数
 window.refreshData = async function() {
@@ -1176,6 +1473,14 @@ async function initApp() {
     try {
         console.log('开始初始化应用...');
 
+        // 初始化侧边栏状态（确保类名正确）
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.querySelector('.main-content');
+        if (sidebar && mainContent) {
+            sidebar.classList.add('open');
+            mainContent.classList.add('sidebar-open');
+        }
+
         // 检查认证状态
         const isAuthenticated = await AuthManager.checkAuth();
 
@@ -1187,8 +1492,8 @@ async function initApp() {
             if (loginSection) loginSection.classList.add('hidden');
             if (mainSection) mainSection.classList.remove('hidden');
 
-            // 默认打开侧边栏
-            UI.toggleSidebar();
+            // 确保侧边栏打开
+            UI.openSidebar();
             UI.showSection('emails');
         } else {
             // 未登录，显示登录界面
@@ -1269,5 +1574,13 @@ function bindEventListeners() {
 
 // 页面加载完成后初始化应用
 document.addEventListener('DOMContentLoaded', initApp);
+
+// 导出到全局作用域供模板使用
+window.AuthManager = AuthManager;
+window.UI = UI;
+window.EmailManager = EmailManager;
+window.UserManager = UserManager;
+window.AdminManager = AdminManager;
+window.DebugManager = DebugManager;
 `;
 }

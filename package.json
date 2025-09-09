@@ -5,6 +5,7 @@
   "main": "src/main.ts",
   "scripts": {
     "dev": "wrangler dev",
+    "build": "tsc",
     "init": "node deploy.js",
     "clean": "node deploy.js deleteAll",
     "deploy": "wrangler deploy",
