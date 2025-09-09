@@ -5,7 +5,7 @@
 -- =====================================================
 
 -- ===================
--- 删除所有现有表（保留 sqlite_sequence）
+-- 删除所有现有表（保留 sqlite_sequence 和 sqlite_master 系统表）
 -- ===================
 DROP TABLE IF EXISTS forward_logs;
 DROP TABLE IF EXISTS attachments;
@@ -200,17 +200,11 @@ INSERT INTO users (email_prefix, email_password, user_type) VALUES
 
 -- ===================
 -- 重置自增序列到正确的值
+-- SQLite 的 sqlite_sequence 表会在使用 AUTOINCREMENT 时自动创建和管理
+-- 我们只需要确保删除旧记录，新的会自动生成
 -- ===================
-INSERT INTO sqlite_sequence (name, seq) VALUES ('users', 1) 
-    ON CONFLICT(name) DO UPDATE SET seq = 1;
-INSERT INTO sqlite_sequence (name, seq) VALUES ('emails', 0) 
-    ON CONFLICT(name) DO UPDATE SET seq = 0;
-INSERT INTO sqlite_sequence (name, seq) VALUES ('attachments', 0) 
-    ON CONFLICT(name) DO UPDATE SET seq = 0;
-INSERT INTO sqlite_sequence (name, seq) VALUES ('forward_rules', 0) 
-    ON CONFLICT(name) DO UPDATE SET seq = 0;
-INSERT INTO sqlite_sequence (name, seq) VALUES ('forward_logs', 0) 
-    ON CONFLICT(name) DO UPDATE SET seq = 0;
+-- 注意：sqlite_sequence 会在第一次插入带 AUTOINCREMENT 的表时自动更新
+-- 不需要手动插入，SQLite 会自动管理
 
 -- =====================================================
 -- 初始化完成
