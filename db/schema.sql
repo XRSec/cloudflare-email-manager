@@ -36,8 +36,7 @@ CREATE TABLE IF NOT EXISTS emails (
                                       has_attachments INTEGER DEFAULT 0,  -- 是否有附件
                                       received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                                       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
+                                      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
@@ -56,8 +55,7 @@ CREATE TABLE IF NOT EXISTS attachments (
                                            size_bytes INTEGER NOT NULL,        -- 文件大小（字节）
                                            r2_key TEXT NOT NULL,               -- R2存储的key
                                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                           FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE ON UPDATE CASCADE
+                                           FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_attachments_email_id ON attachments(email_id);
@@ -118,10 +116,8 @@ CREATE TABLE IF NOT EXISTS forward_logs (
                                             response_code INTEGER,              -- HTTP响应码
                                             error_message TEXT,                 -- 错误信息
                                             sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                                            FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                            FOREIGN KEY (rule_id) REFERENCES forward_rules(id) ON DELETE SET NULL ON UPDATE CASCADE
+                                            FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE,
+                                            FOREIGN KEY (rule_id) REFERENCES forward_rules(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_forward_logs_email_id ON forward_logs(email_id);
@@ -143,17 +139,7 @@ BEGIN
     UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS update_emails_updated_at
-    AFTER UPDATE ON emails
-BEGIN
-    UPDATE emails SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS update_attachments_updated_at
-    AFTER UPDATE ON attachments
-BEGIN
-    UPDATE attachments SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END;
+-- emails 和 attachments 表不再需要 updated_at 触发器
 
 CREATE TRIGGER IF NOT EXISTS update_forward_rules_updated_at
     AFTER UPDATE ON forward_rules
@@ -167,11 +153,7 @@ BEGIN
     UPDATE system_settings SET updated_at = CURRENT_TIMESTAMP WHERE key = NEW.key;
 END;
 
-CREATE TRIGGER IF NOT EXISTS update_forward_logs_updated_at
-    AFTER UPDATE ON forward_logs
-BEGIN
-    UPDATE forward_logs SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END;
+-- forward_logs 表不再需要 updated_at 触发器
 
 -- =====================================================
 -- 结束
