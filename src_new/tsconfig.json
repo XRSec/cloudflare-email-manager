@@ -1,0 +1,25 @@
+{
+  "extends": "@vue/tsconfig/tsconfig.dom.json",
+  "include": [
+    "src/**/*",
+    "src/**/*.vue",
+    "types/**/*"
+  ],
+  "exclude": [
+    "src/**/__tests__/*"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "types": [
+      "node",
+      "@types/node"
+    ],
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  }
+}
