@@ -298,10 +298,15 @@ const UI = {
         const sidebar = document.getElementById('sidebar');
         const mainContent = document.querySelector('.main-content');
 
-        if (sidebar && mainContent && !State.sidebarOpen) {
-            State.sidebarOpen = true;
-            sidebar.classList.add('open');
-            mainContent.classList.add('sidebar-open');
+        if (sidebar && mainContent) {
+            // 显示侧边栏（移除 hidden 类）
+            sidebar.classList.remove('hidden');
+            
+            if (!State.sidebarOpen) {
+                State.sidebarOpen = true;
+                sidebar.classList.add('open');
+                mainContent.classList.add('sidebar-open');
+            }
         }
     },
 
@@ -310,10 +315,15 @@ const UI = {
         const sidebar = document.getElementById('sidebar');
         const mainContent = document.querySelector('.main-content');
 
-        if (sidebar && mainContent && State.sidebarOpen) {
-            State.sidebarOpen = false;
-            sidebar.classList.remove('open');
-            mainContent.classList.remove('sidebar-open');
+        if (sidebar && mainContent) {
+            // 隐藏侧边栏（添加 hidden 类）
+            sidebar.classList.add('hidden');
+            
+            if (State.sidebarOpen) {
+                State.sidebarOpen = false;
+                sidebar.classList.remove('open');
+                mainContent.classList.remove('sidebar-open');
+            }
         }
     },
 

@@ -25,7 +25,7 @@ function getHTMLHead(): string {
  */
 function getSidebar(): string {
     return `
-    <div id="sidebar" class="sidebar">
+    <div id="sidebar" class="sidebar hidden">
         <div class="sidebar-header">
             <h3>邮箱管理</h3>
             <p id="sidebarUserInfo">用户面板</p>
@@ -303,6 +303,12 @@ export async function getHTMLTemplate(): Promise<string> {
                             await window.AuthManager.checkAuth();
                         }
                     }, 100);
+                }
+            } else {
+                // 没有 token，确保侧边栏隐藏
+                const sidebar = document.getElementById('sidebar');
+                if (sidebar) {
+                    sidebar.classList.add('hidden');
                 }
             }
         });
