@@ -3,9 +3,9 @@
     <router-view />
     
     <!-- 全局消息提示 -->
-    <Teleport to="body">
+    <!-- <Teleport to="body">
       <MessageNotification />
-    </Teleport>
+    </Teleport> -->
   </div>
 </template>
 
@@ -13,7 +13,7 @@
 import { onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSystemStore } from '@/stores/system'
-import MessageNotification from '@/components/common/MessageNotification.vue'
+// import MessageNotification from '@/components/common/MessageNotification.vue'
 
 const authStore = useAuthStore()
 const systemStore = useSystemStore()

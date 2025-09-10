@@ -54,7 +54,7 @@ export interface ForwardRule {
   webhook_url: string
   webhook_secret?: string
   webhook_type: 'dingtalk' | 'feishu' | 'custom'
-  enabled: number
+  enabled: boolean
   created_at?: string
   updated_at?: string
 }

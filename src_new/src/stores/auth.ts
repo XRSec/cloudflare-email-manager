@@ -2,7 +2,7 @@
  * 认证状态管理
  */
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, readonly } from 'vue'
 import type { User, LoginForm, RegisterForm } from '@/types'
 import { apiService } from '@/services/api'
 

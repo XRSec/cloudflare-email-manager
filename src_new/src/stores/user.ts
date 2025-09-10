@@ -2,7 +2,7 @@
  * 用户设置状态管理
  */
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, readonly } from 'vue'
 import type { UserSettingsUpdate } from '@/types'
 import { apiService } from '@/services/api'
 

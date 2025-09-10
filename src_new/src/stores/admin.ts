@@ -2,7 +2,7 @@
  * 管理员状态管理
  */
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, readonly } from 'vue'
 import type { User, Email, ForwardRule, SystemConfig } from '@/types'
 import { apiService } from '@/services/api'
 

@@ -1,22 +1,42 @@
 <template>
-  <div class="emails-page">
+  <div class="admin-emails-page">
     <!-- 页面头部 -->
     <div class="page-header">
       <div class="header-content">
-        <h2 class="page-title">邮件列表</h2>
+        <h2 class="page-title">📬 所有邮件</h2>
         <p class="page-description">
-          管理您收到的邮件，支持查看详情、下载附件和删除操作
+          查看和管理系统中所有用户的邮件
         </p>
       </div>
       <div class="header-actions">
         <button
           class="btn btn-primary"
           @click="refreshEmails"
-          :disabled="emailStore.loading"
+          :disabled="adminStore.loading"
         >
-          <span v-if="emailStore.loading">刷新中...</span>
+          <span v-if="adminStore.loading">刷新中...</span>
           <span v-else>🔄 刷新</span>
         </button>
+      </div>
+    </div>
+
+    <!-- 邮件统计 -->
+    <div class="stats-section">
+      <div class="stat-card">
+        <div class="stat-number">{{ adminStore.allEmails.length }}</div>
+        <div class="stat-label">总邮件数</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">{{ emailsWithAttachments }}</div>
+        <div class="stat-label">有附件邮件</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">{{ uniqueSenders }}</div>
+        <div class="stat-label">发件人数量</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number">{{ todayEmails }}</div>
+        <div class="stat-label">今日邮件</div>
       </div>
     </div>
 
@@ -27,7 +47,7 @@
           v-model="searchQuery"
           type="text"
           class="form-control"
-          placeholder="搜索邮件（发件人、主题、内容）"
+          placeholder="搜索邮件（发件人、收件人、主题、内容）"
           @input="handleSearch"
         >
       </div>
@@ -40,6 +60,17 @@
             type="text"
             class="form-control"
             placeholder="输入发件人邮箱"
+            @input="handleFilterChange"
+          >
+        </div>
+        
+        <div class="filter-group">
+          <label class="form-label">按收件人过滤</label>
+          <input
+            v-model="recipientFilter"
+            type="text"
+            class="form-control"
+            placeholder="输入收件人邮箱"
             @input="handleFilterChange"
           >
         </div>
@@ -68,52 +99,32 @@
       </div>
     </div>
 
-    <!-- 邮件统计 -->
-    <div class="stats-section">
-      <div class="stat-card">
-        <div class="stat-number">{{ emailStore.pagination.total }}</div>
-        <div class="stat-label">总邮件数</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-number">{{ emailsWithAttachments }}</div>
-        <div class="stat-label">有附件邮件</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-number">{{ emailStore.pagination.page }}</div>
-        <div class="stat-label">当前页</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-number">{{ emailStore.totalPages }}</div>
-        <div class="stat-label">总页数</div>
-      </div>
-    </div>
-
     <!-- 邮件列表 -->
     <div class="emails-section card">
       <!-- 加载状态 -->
-      <div v-if="emailStore.loading" class="loading">
+      <div v-if="adminStore.loading" class="loading">
         正在加载邮件...
       </div>
 
       <!-- 错误状态 -->
-      <div v-else-if="emailStore.error" class="error-message">
-        <p>{{ emailStore.error }}</p>
+      <div v-else-if="adminStore.error" class="error-message">
+        <p>{{ adminStore.error }}</p>
         <button class="btn btn-primary" @click="refreshEmails">
           重试
         </button>
       </div>
 
       <!-- 空状态 -->
-      <div v-else-if="!emailStore.hasEmails" class="empty-state">
+      <div v-else-if="filteredEmails.length === 0" class="empty-state">
         <div class="empty-icon">📭</div>
         <h3>暂无邮件</h3>
-        <p>您还没有收到任何邮件，或者当前筛选条件下没有匹配的邮件。</p>
+        <p>当前筛选条件下没有找到匹配的邮件。</p>
       </div>
 
       <!-- 邮件列表 -->
       <div v-else class="email-list">
         <div
-          v-for="email in emailStore.emails"
+          v-for="email in paginatedEmails"
           :key="email.id"
           class="email-item"
           @click="showEmailDetail(email)"
@@ -121,9 +132,11 @@
           <div class="email-header">
             <div class="email-sender">
               <strong>{{ email.sender_email }}</strong>
+              <span class="arrow">→</span>
+              <strong>{{ email.recipient_email }}</strong>
             </div>
             <div class="email-time">
-              {{ systemStore.formatDate(email.received_at) }}
+              {{ formatDate(email.received_at) }}
             </div>
           </div>
           
@@ -135,19 +148,24 @@
             {{ getEmailPreview(email) }}
           </div>
           
-          <div v-if="email.has_attachments" class="email-attachments">
-            📎 有附件
+          <div class="email-meta">
+            <span v-if="email.has_attachments" class="email-attachments">
+              📎 有附件
+            </span>
+            <span class="email-user">
+              用户: {{ getUserPrefix(email.recipient_email) }}
+            </span>
           </div>
         </div>
       </div>
 
       <!-- 分页 -->
-      <div v-if="emailStore.totalPages > 1" class="pagination-section">
+      <div v-if="totalPages > 1" class="pagination-section">
         <div class="pagination">
           <button
             class="btn btn-light"
-            :disabled="emailStore.pagination.page <= 1"
-            @click="emailStore.previousPage()"
+            :disabled="currentPage <= 1"
+            @click="goToPage(currentPage - 1)"
           >
             上一页
           </button>
@@ -156,8 +174,8 @@
             <button
               v-for="page in visiblePages"
               :key="page"
-              :class="['btn', page === emailStore.pagination.page ? 'btn-primary' : 'btn-light']"
-              @click="emailStore.goToPage(page)"
+              :class="['btn', page === currentPage ? 'btn-primary' : 'btn-light']"
+              @click="goToPage(page)"
             >
               {{ page }}
             </button>
@@ -165,17 +183,17 @@
           
           <button
             class="btn btn-light"
-            :disabled="emailStore.pagination.page >= emailStore.totalPages"
-            @click="emailStore.nextPage()"
+            :disabled="currentPage >= totalPages"
+            @click="goToPage(currentPage + 1)"
           >
             下一页
           </button>
         </div>
         
         <div class="pagination-info">
-          共 {{ emailStore.pagination.total }} 封邮件，
-          第 {{ emailStore.pagination.page }} 页，
-          共 {{ emailStore.totalPages }} 页
+          共 {{ filteredEmails.length }} 封邮件，
+          第 {{ currentPage }} 页，
+          共 {{ totalPages }} 页
         </div>
       </div>
     </div>
@@ -192,33 +210,94 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useEmailStore } from '@/stores/emails'
+import { useAdminStore } from '@/stores/admin'
 import { useSystemStore } from '@/stores/system'
 import type { Email } from '@/types'
 import EmailDetailModal from '@/components/EmailDetailModal.vue'
 
 // Composables
-const emailStore = useEmailStore()
+const adminStore = useAdminStore()
 const systemStore = useSystemStore()
 
 // State
 const searchQuery = ref('')
 const senderFilter = ref('')
+const recipientFilter = ref('')
 const attachmentFilter = ref('')
 const selectedEmail = ref<Email | null>(null)
+const currentPage = ref(1)
+const pageSize = 20
 let searchTimeout: NodeJS.Timeout | null = null
 
 // Computed
 const emailsWithAttachments = computed(() => {
-  return emailStore.emails.filter(email => email.has_attachments).length
+  return adminStore.allEmails.filter(email => email.has_attachments).length
+})
+
+const uniqueSenders = computed(() => {
+  const senders = new Set(adminStore.allEmails.map(email => email.sender_email))
+  return senders.size
+})
+
+const todayEmails = computed(() => {
+  const today = new Date().toDateString()
+  return adminStore.allEmails.filter(email => 
+    new Date(email.received_at).toDateString() === today
+  ).length
+})
+
+const filteredEmails = computed(() => {
+  let emails = adminStore.allEmails
+
+  // 按搜索关键词过滤
+  if (searchQuery.value.trim()) {
+    const query = searchQuery.value.toLowerCase()
+    emails = emails.filter(email =>
+      email.sender_email.toLowerCase().includes(query) ||
+      email.recipient_email.toLowerCase().includes(query) ||
+      (email.subject && email.subject.toLowerCase().includes(query)) ||
+      (email.text_content && email.text_content.toLowerCase().includes(query))
+    )
+  }
+
+  // 按发件人过滤
+  if (senderFilter.value.trim()) {
+    const sender = senderFilter.value.toLowerCase()
+    emails = emails.filter(email =>
+      email.sender_email.toLowerCase().includes(sender)
+    )
+  }
+
+  // 按收件人过滤
+  if (recipientFilter.value.trim()) {
+    const recipient = recipientFilter.value.toLowerCase()
+    emails = emails.filter(email =>
+      email.recipient_email.toLowerCase().includes(recipient)
+    )
+  }
+
+  // 按附件过滤
+  if (attachmentFilter.value !== '') {
+    const hasAttachments = attachmentFilter.value === 'true'
+    emails = emails.filter(email => !!email.has_attachments === hasAttachments)
+  }
+
+  return emails
+})
+
+const totalPages = computed(() => Math.ceil(filteredEmails.value.length / pageSize))
+
+const paginatedEmails = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  const end = start + pageSize
+  return filteredEmails.value.slice(start, end)
 })
 
 const visiblePages = computed(() => {
-  const current = emailStore.pagination.page
-  const total = emailStore.totalPages
+  const current = currentPage.value
+  const total = totalPages.value
   const pages: number[] = []
   
-  // 显示当前页前后2页
   const start = Math.max(1, current - 2)
   const end = Math.min(total, current + 2)
   
@@ -231,7 +310,7 @@ const visiblePages = computed(() => {
 
 // Methods
 const refreshEmails = async () => {
-  await emailStore.loadEmails()
+  await adminStore.loadAllEmails()
 }
 
 const handleSearch = () => {
@@ -239,30 +318,27 @@ const handleSearch = () => {
     clearTimeout(searchTimeout)
   }
   
-  searchTimeout = setTimeout(async () => {
-    await emailStore.searchEmails(searchQuery.value)
+  searchTimeout = setTimeout(() => {
+    currentPage.value = 1 // 重置到第一页
   }, 500)
 }
 
-const handleFilterChange = async () => {
-  const filters: any = {}
-  
-  if (senderFilter.value) {
-    filters.sender = senderFilter.value
-  }
-  
-  if (attachmentFilter.value !== '') {
-    filters.has_attachments = attachmentFilter.value === 'true'
-  }
-  
-  await emailStore.loadEmails(filters)
+const handleFilterChange = () => {
+  currentPage.value = 1 // 重置到第一页
 }
 
-const clearFilters = async () => {
+const clearFilters = () => {
   searchQuery.value = ''
   senderFilter.value = ''
+  recipientFilter.value = ''
   attachmentFilter.value = ''
-  await emailStore.loadEmails()
+  currentPage.value = 1
+}
+
+const goToPage = (page: number) => {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page
+  }
 }
 
 const showEmailDetail = (email: any) => {
@@ -270,15 +346,25 @@ const showEmailDetail = (email: any) => {
 }
 
 const handleDeleteEmail = async (emailId: number) => {
-  const success = await emailStore.deleteEmail(emailId)
-  if (success) {
-    selectedEmail.value = null
-  }
+  // 管理员可以删除任何邮件
+  // 这里需要调用相应的 API
+  console.log('删除邮件:', emailId)
+  selectedEmail.value = null
+  await refreshEmails()
 }
 
 const getEmailPreview = (email: any): string => {
   const content = email.text_content || email.html_content || '(无内容)'
   return content.length > 100 ? content.substring(0, 100) + '...' : content
+}
+
+const getUserPrefix = (recipientEmail: string): string => {
+  const atIndex = recipientEmail.indexOf('@')
+  return atIndex > 0 ? recipientEmail.substring(0, atIndex) : recipientEmail
+}
+
+const formatDate = (dateString: string): string => {
+  return systemStore.formatDate(dateString)
 }
 
 // Lifecycle
@@ -290,12 +376,11 @@ onUnmounted(() => {
   if (searchTimeout) {
     clearTimeout(searchTimeout)
   }
-  emailStore.reset()
 })
 </script>
 
 <style scoped>
-.emails-page {
+.admin-emails-page {
   max-width: 1200px;
   margin: 0 auto;
 }
@@ -330,26 +415,6 @@ onUnmounted(() => {
   gap: var(--spacing-3);
 }
 
-.filters-section {
-  margin-bottom: var(--spacing-6);
-}
-
-.search-box {
-  margin-bottom: var(--spacing-4);
-}
-
-.filter-options {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: var(--spacing-4);
-  align-items: end;
-}
-
-.filter-group {
-  display: flex;
-  flex-direction: column;
-}
-
 .stats-section {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -375,6 +440,26 @@ onUnmounted(() => {
 .stat-label {
   color: var(--gray-600);
   font-size: var(--font-size-sm);
+}
+
+.filters-section {
+  margin-bottom: var(--spacing-6);
+}
+
+.search-box {
+  margin-bottom: var(--spacing-4);
+}
+
+.filter-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: var(--spacing-4);
+  align-items: end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
 }
 
 .emails-section {
@@ -440,6 +525,14 @@ onUnmounted(() => {
 .email-sender {
   color: var(--gray-800);
   font-size: var(--font-size-base);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.arrow {
+  color: var(--gray-500);
+  font-weight: normal;
 }
 
 .email-time {
@@ -459,13 +552,25 @@ onUnmounted(() => {
   color: var(--gray-600);
   font-size: var(--font-size-sm);
   line-height: 1.5;
-  margin-bottom: var(--spacing-2);
+  margin-bottom: var(--spacing-3);
+}
+
+.email-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-3);
 }
 
 .email-attachments {
   color: var(--info-color);
   font-size: var(--font-size-sm);
   font-weight: 500;
+}
+
+.email-user {
+  color: var(--gray-500);
+  font-size: var(--font-size-sm);
 }
 
 .pagination-section {
@@ -515,8 +620,20 @@ onUnmounted(() => {
     gap: var(--spacing-2);
   }
   
+  .email-sender {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-1);
+  }
+  
   .email-time {
     white-space: normal;
+  }
+  
+  .email-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-1);
   }
   
   .pagination {

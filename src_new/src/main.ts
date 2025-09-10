@@ -25,7 +25,7 @@ app.config.errorHandler = (err, vm, info) => {
 app.mount('#app')
 
 // 开发环境下的调试信息
-if (import.meta.env.DEV) {
+if (import.meta.env?.DEV) {
   console.log('🚀 Vue 3 临时邮箱管理系统已启动')
   console.log('📧 基于 Cloudflare Workers + D1 + R2')
   console.log('⚡ Vue 3 + TypeScript + Pinia + Vue Router')
