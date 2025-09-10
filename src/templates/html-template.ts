@@ -171,8 +171,71 @@ function getMainSection(): string {
 
         <!-- 调试信息 -->
         <div id="debugSection" class="card hidden">
-            <h2>调试信息</h2>
-            <div id="debugInfo" class="loading">加载中</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>🐛 调试模式</h2>
+                <span class="badge" style="background-color: #dc3545; color: white;">仅调试模式可用</span>
+            </div>
+            
+            <div class="card" style="background-color: #fff3cd; border: 1px solid #ffeaa7; margin-bottom: 20px;">
+                <h3 style="color: #856404;">📧 模拟邮件接收</h3>
+                <p style="color: #856404; margin-bottom: 15px;">在调试模式下，您可以模拟接收邮件来测试系统功能。</p>
+                
+                <form id="simulateEmailForm" style="margin-bottom: 0;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                        <div class="form-group">
+                            <label for="simFromEmail" class="form-label">发件人邮箱</label>
+                            <input type="email" id="simFromEmail" class="form-control" placeholder="sender@example.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="simToEmail" class="form-label">收件人邮箱</label>
+                            <input type="email" id="simToEmail" class="form-control" placeholder="user@your-domain.com" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="simSubject" class="form-label">邮件主题</label>
+                        <input type="text" id="simSubject" class="form-control" placeholder="测试邮件主题" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="simTextContent" class="form-label">纯文本内容</label>
+                        <textarea id="simTextContent" class="form-control" rows="4" placeholder="这是一封测试邮件的纯文本内容..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="simHtmlContent" class="form-label">HTML内容（可选）</label>
+                        <textarea id="simHtmlContent" class="form-control" rows="4" placeholder="<p>这是一封<strong>测试邮件</strong>的HTML内容...</p>"></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <button type="button" class="btn btn-primary" onclick="simulateEmailReceive()">
+                            📨 模拟接收邮件
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="clearSimulateForm()">
+                            🗑️ 清空表单
+                        </button>
+                    </div>
+                </form>
+            </div>
+            
+            <div class="card" style="background-color: #d1ecf1; border: 1px solid #bee5eb;">
+                <h3 style="color: #0c5460;">📊 调试信息</h3>
+                <div id="debugInfo">
+                    <p style="color: #0c5460;">调试模式状态: <span id="debugModeStatus">检测中...</span></p>
+                    <p style="color: #0c5460;">当前用户: <span id="debugCurrentUser">加载中...</span></p>
+                    <p style="color: #0c5460;">系统配置: <span id="debugSystemConfig">加载中...</span></p>
+                    <p style="color: #0c5460;">最近模拟邮件: <span id="lastSimulatedEmail">无</span></p>
+                </div>
+                
+                <div class="form-group" style="margin-top: 15px;">
+                    <button type="button" class="btn btn-info btn-sm" onclick="refreshDebugInfo()">
+                        🔄 刷新调试信息
+                    </button>
+                    <button type="button" class="btn btn-warning btn-sm" onclick="clearDebugLogs()">
+                        🗑️ 清空调试日志
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
     `;

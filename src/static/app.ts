@@ -410,7 +410,7 @@ const UI = {
                 break;
             case 'debug':
                 if (State.systemConfig?.debug_mode) {
-                    await DebugManager.loadDebugInfo();
+                    await DebugManager.initializeDebugSection();
                 }
                 break;
         }
@@ -1272,10 +1272,165 @@ const AdminManager = {
     }
 };
 
-// 调试管理模块（占位符）
+// 调试管理模块
 const DebugManager = {
-    async loadDebugInfo() {
-        console.log('TODO: 实现调试信息');
+    // 初始化调试部分
+    async initializeDebugSection() {
+        console.log('[Debug] 初始化调试部分');
+        
+        // 更新调试信息
+        await this.refreshDebugInfo();
+        
+        // 设置默认的收件人邮箱
+        const toEmailInput = document.getElementById('simToEmail');
+        const currentUser = State.getCurrentUser();
+        if (toEmailInput && currentUser) {
+            // 获取系统配置中的域名
+            try {
+                const response = await API.get('/api/system/config');
+                if (response.success && response.data.domains && response.data.domains.length > 0) {
+                    toEmailInput.value = currentUser.email_prefix + '@' + response.data.domains[0];
+                } else {
+                    toEmailInput.value = currentUser.email_prefix + '@example.com';
+                }
+            } catch (error) {
+                toEmailInput.value = currentUser.email_prefix + '@example.com';
+            }
+        }
+    },
+
+    // 刷新调试信息
+    async refreshDebugInfo() {
+        try {
+            // 更新调试模式状态
+            const debugModeStatus = document.getElementById('debugModeStatus');
+            const debugCurrentUser = document.getElementById('debugCurrentUser');
+            const debugSystemConfig = document.getElementById('debugSystemConfig');
+            
+            if (debugModeStatus) {
+                debugModeStatus.textContent = '✅ 已启用';
+                debugModeStatus.style.color = '#28a745';
+            }
+            
+            // 显示当前用户信息
+            if (debugCurrentUser) {
+                const currentUser = State.getCurrentUser();
+                if (currentUser) {
+                    debugCurrentUser.textContent = currentUser.email_prefix + ' (' + currentUser.user_type + ')';
+                    debugCurrentUser.style.color = '#28a745';
+                } else {
+                    debugCurrentUser.textContent = '未登录';
+                    debugCurrentUser.style.color = '#dc3545';
+                }
+            }
+            
+            // 显示系统配置
+            if (debugSystemConfig) {
+                try {
+                    const response = await API.get('/api/system/config');
+                    if (response.success) {
+                        const config = response.data;
+                        debugSystemConfig.innerHTML = 
+                            '注册: ' + (config.allow_registration ? '开启' : '关闭') + ', ' +
+                            '清理: ' + config.cleanup_days + '天, ' + 
+                            '域名: ' + (config.domains ? config.domains.join(', ') : '未配置');
+                        debugSystemConfig.style.color = '#28a745';
+                    } else {
+                        debugSystemConfig.textContent = '获取失败';
+                        debugSystemConfig.style.color = '#dc3545';
+                    }
+                } catch (error) {
+                    debugSystemConfig.textContent = '错误: ' + error.message;
+                    debugSystemConfig.style.color = '#dc3545';
+                }
+            }
+        } catch (error) {
+            console.error('[Debug] 刷新调试信息失败:', error);
+        }
+    },
+
+    // 模拟邮件接收
+    async simulateEmailReceive() {
+        try {
+            const fromEmail = document.getElementById('simFromEmail').value;
+            const toEmail = document.getElementById('simToEmail').value;
+            const subject = document.getElementById('simSubject').value;
+            const textContent = document.getElementById('simTextContent').value;
+            const htmlContent = document.getElementById('simHtmlContent').value;
+
+            if (!fromEmail || !toEmail || !subject) {
+                UI.showMessage('请填写必填字段：发件人、收件人和主题', 'error');
+                return;
+            }
+
+            UI.showMessage('正在模拟邮件接收...', 'info');
+
+            // 调用调试 API
+            const response = await API.post('/api/debug/simulate-email', {
+                from: fromEmail,
+                to: toEmail,
+                subject: subject,
+                text: textContent || '这是一封模拟邮件',
+                html: htmlContent || '<p>' + (textContent || '这是一封模拟邮件') + '</p>'
+            });
+
+            if (response.success) {
+                UI.showMessage('模拟邮件接收成功', 'success');
+                
+                // 更新最近模拟邮件信息
+                const lastSimulatedEmail = document.getElementById('lastSimulatedEmail');
+                if (lastSimulatedEmail) {
+                    const now = new Date().toLocaleString();
+                    lastSimulatedEmail.textContent = subject + ' (' + now + ')';
+                }
+                
+                // 清空表单
+                this.clearSimulateForm();
+                
+                // 刷新邮件列表
+                if (EmailManager && EmailManager.loadEmails) {
+                    await EmailManager.loadEmails();
+                }
+            } else {
+                UI.showMessage('模拟邮件失败: ' + response.error, 'error');
+            }
+        } catch (error) {
+            console.error('[Debug] 模拟邮件失败:', error);
+            UI.showMessage('模拟邮件失败: ' + error.message, 'error');
+        }
+    },
+
+    // 清空模拟表单
+    clearSimulateForm() {
+        const fromEmailInput = document.getElementById('simFromEmail');
+        const subjectInput = document.getElementById('simSubject');
+        const textContentInput = document.getElementById('simTextContent');
+        const htmlContentInput = document.getElementById('simHtmlContent');
+        
+        if (fromEmailInput) fromEmailInput.value = '';
+        if (subjectInput) subjectInput.value = '';
+        if (textContentInput) textContentInput.value = '';
+        if (htmlContentInput) htmlContentInput.value = '';
+        
+        UI.showMessage('表单已清空', 'info');
+    },
+
+    // 清空调试日志
+    clearDebugLogs() {
+        if (confirm('确定要清空调试日志吗？')) {
+            // 清空控制台（如果可能）
+            if (console.clear) {
+                console.clear();
+            }
+            
+            // 重置最近模拟邮件
+            const lastSimulatedEmail = document.getElementById('lastSimulatedEmail');
+            if (lastSimulatedEmail) {
+                lastSimulatedEmail.textContent = '无';
+            }
+            
+            UI.showMessage('调试日志已清空', 'info');
+        }
     }
 };
 
@@ -1295,6 +1450,12 @@ window.loadSystemSettings = AdminManager.loadSystemSettings.bind(AdminManager);
 window.saveSystemSettings = AdminManager.saveSystemSettings.bind(AdminManager);
 window.showCreateUserModal = function() { UI.showModal('createUserModal'); };
 window.showCreateRuleModal = function() { UI.showModal('createRuleModal'); };
+
+// 调试功能绑定
+window.simulateEmailReceive = DebugManager.simulateEmailReceive.bind(DebugManager);
+window.clearSimulateForm = DebugManager.clearSimulateForm.bind(DebugManager);
+window.refreshDebugInfo = DebugManager.refreshDebugInfo.bind(DebugManager);
+window.clearDebugLogs = DebugManager.clearDebugLogs.bind(DebugManager);
 
 // 刷新数据函数
 window.refreshData = async function() {
@@ -1420,5 +1581,6 @@ window.UI = UI;
 window.EmailManager = EmailManager;
 window.UserManager = UserManager;
 window.AdminManager = AdminManager;
+window.DebugManager = DebugManager;
 `;
 }
