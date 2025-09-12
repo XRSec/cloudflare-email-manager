@@ -23,8 +23,8 @@ import { mailbox } from './routes/mailbox';
 import emailHandler from './handlers/email';
 import scheduledHandler from './handlers/scheduled';
 
-// 静态资源
-import { getTemplate } from './utils/template';
+// 静态资源服务
+import { staticAssetService } from './services/static';
 
 import type { Env, ExecutionContext, ScheduledEvent } from './types';
 
@@ -142,29 +142,35 @@ app.post('/api/debug/simulate-email', async (c: any) => {
     }
 });
 
-// 主页 - 返回前端应用
-app.get('/', async (c: any) => {
+// 静态资源路由 - 处理所有前端资源
+app.get('*', async (c: any) => {
+    const path = c.req.path;
+    
+    // 如果是API路径，跳过静态资源处理
+    if (path.startsWith('/api/')) {
+        return c.notFound();
+    }
+
     try {
-        const html = await getTemplate();
-        return c.html(html);
+        // 尝试获取静态资源
+        const assetResponse = await staticAssetService.getAsset(path, c.env);
+        
+        if (assetResponse) {
+            return assetResponse;
+        }
+
+        // 如果找不到具体资源，返回默认HTML（SPA路由支持）
+        const defaultHTML = await staticAssetService.getDefaultHTML(c.env);
+        if (defaultHTML) {
+            return defaultHTML;
+        }
+
+        // 如果连默认HTML都没有，返回404
+        return c.text('页面不存在', 404);
     } catch (error) {
-        console.error('获取模板失败:', error);
+        console.error('静态资源处理失败:', error);
         return c.text('服务器错误', 500);
     }
-});
-
-// favicon.ico 处理（返回空响应避免404）
-app.get('/favicon.ico', (c: any) => {
-    return c.body('', 204);
-});
-
-// 静态资源路由
-app.get('/static/*', async (c: any) => {
-    const path = c.req.path.replace('/static/', '');
-
-    // 这里可以从 KV 或其他存储中获取静态资源
-    // 目前返回 404
-    return c.text('静态资源不存在', 404);
 });
 
 /**

@@ -8,12 +8,14 @@ export type ScheduledEvent = import('@cloudflare/workers-types').ScheduledEvent;
 export type D1Database = import('@cloudflare/workers-types').D1Database;
 export type R2Bucket = import('@cloudflare/workers-types').R2Bucket;
 export type KVNamespace = import('@cloudflare/workers-types').KVNamespace;
+export type Fetcher = import('@cloudflare/workers-types').Fetcher;
 
 // 环境变量接口
 export interface Env {
     DB: D1Database;
     R2: R2Bucket;
     KV: KVNamespace;
+    ASSETS: Fetcher;
     DOMAIN: string;
     JWT_SECRET: string;
     cem_debug?: string;

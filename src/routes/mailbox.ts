@@ -4,7 +4,7 @@
 
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { requireAuth, requireAdmin } from '../middleware/auth';
+import { jwtAuthMiddleware, adminAuthMiddleware } from '../middleware/auth';
 import { debugLog, errorLog } from '../utils/debug';
 import { 
     findMailboxesByUserId,
@@ -31,10 +31,10 @@ const mailbox = new Hono<{ Bindings: Env }>();
 /**
  * 获取当前用户的邮箱列表
  */
-mailbox.get('/user/mailboxes', requireAuth, async (c) => {
+mailbox.get('/user/mailboxes', jwtAuthMiddleware, async (c) => {
     try {
-        const user = c.get('user');
-        const mailboxes = await findMailboxesByUserId(c.env.DB, user.id);
+        const payload = c.get('jwtPayload');
+        const mailboxes = await findMailboxesByUserId(c.env.DB, payload.user_id);
 
         return c.json<ApiResponse>({
             success: true,
@@ -52,9 +52,9 @@ mailbox.get('/user/mailboxes', requireAuth, async (c) => {
 /**
  * 申请新邮箱
  */
-mailbox.post('/user/applications', requireAuth, async (c) => {
+mailbox.post('/user/applications', jwtAuthMiddleware, async (c) => {
     try {
-        const user = c.get('user');
+        const payload = c.get('jwtPayload');
         const { email_address, reason } = await c.req.json();
 
         if (!email_address) {
@@ -82,7 +82,7 @@ mailbox.post('/user/applications', requireAuth, async (c) => {
         }
 
         // 检查用户邮箱数量限制
-        if (!(await checkUserMailboxLimit(c.env.DB, user.id))) {
+        if (!(await checkUserMailboxLimit(c.env.DB, payload.user_id))) {
             return c.json<ApiResponse>({
                 success: false,
                 error: '已达到邮箱数量上限'
@@ -103,7 +103,7 @@ mailbox.post('/user/applications', requireAuth, async (c) => {
         
         if (autoApprove === 'true') {
             // 自动批准，直接创建邮箱
-            const mailbox = await createMailbox(c.env.DB, user.id, email_address);
+            const mailbox = await createMailbox(c.env.DB, payload.user_id, email_address);
             
             return c.json<ApiResponse>({
                 success: true,
@@ -112,7 +112,7 @@ mailbox.post('/user/applications', requireAuth, async (c) => {
             });
         } else {
             // 创建申请
-            const application = await createMailboxApplication(c.env.DB, user.id, email_address, reason);
+            const application = await createMailboxApplication(c.env.DB, payload.user_id, email_address, reason);
             
             return c.json<ApiResponse>({
                 success: true,
@@ -132,10 +132,10 @@ mailbox.post('/user/applications', requireAuth, async (c) => {
 /**
  * 获取当前用户的申请列表
  */
-mailbox.get('/user/applications', requireAuth, async (c) => {
+mailbox.get('/user/applications', jwtAuthMiddleware, async (c) => {
     try {
-        const user = c.get('user');
-        const applications = await getUserMailboxApplications(c.env.DB, user.id);
+        const payload = c.get('jwtPayload');
+        const applications = await getUserMailboxApplications(c.env.DB, payload.user_id);
 
         return c.json<ApiResponse>({
             success: true,
@@ -153,9 +153,9 @@ mailbox.get('/user/applications', requireAuth, async (c) => {
 /**
  * 删除用户邮箱
  */
-mailbox.delete('/user/mailboxes/:id', requireAuth, async (c) => {
+mailbox.delete('/user/mailboxes/:id', jwtAuthMiddleware, async (c) => {
     try {
-        const user = c.get('user');
+        const payload = c.get('jwtPayload');
         const mailboxId = parseInt(c.req.param('id'));
 
         if (isNaN(mailboxId)) {
@@ -166,7 +166,7 @@ mailbox.delete('/user/mailboxes/:id', requireAuth, async (c) => {
         }
 
         // 验证邮箱是否属于当前用户
-        const userMailboxes = await findMailboxesByUserId(c.env.DB, user.id);
+        const userMailboxes = await findMailboxesByUserId(c.env.DB, payload.user_id);
         const mailbox = userMailboxes.find(m => m.id === mailboxId);
         
         if (!mailbox) {
@@ -206,7 +206,7 @@ mailbox.delete('/user/mailboxes/:id', requireAuth, async (c) => {
 /**
  * 获取所有邮箱（管理员）
  */
-mailbox.get('/admin/mailboxes', requireAdmin, async (c) => {
+mailbox.get('/admin/mailboxes', jwtAuthMiddleware, adminAuthMiddleware, async (c) => {
     try {
         const page = parseInt(c.req.query('page') || '1');
         const pageSize = parseInt(c.req.query('page_size') || '20');
@@ -229,7 +229,7 @@ mailbox.get('/admin/mailboxes', requireAdmin, async (c) => {
 /**
  * 管理员创建邮箱
  */
-mailbox.post('/admin/mailboxes', requireAdmin, async (c) => {
+mailbox.post('/admin/mailboxes', jwtAuthMiddleware, adminAuthMiddleware, async (c) => {
     try {
         const { user_id, email_address } = await c.req.json();
 
@@ -259,7 +259,7 @@ mailbox.post('/admin/mailboxes', requireAdmin, async (c) => {
 /**
  * 管理员删除邮箱
  */
-mailbox.delete('/admin/mailboxes/:id', requireAdmin, async (c) => {
+mailbox.delete('/admin/mailboxes/:id', jwtAuthMiddleware, adminAuthMiddleware, async (c) => {
     try {
         const mailboxId = parseInt(c.req.param('id'));
 
@@ -292,7 +292,7 @@ mailbox.delete('/admin/mailboxes/:id', requireAdmin, async (c) => {
 /**
  * 获取所有申请（管理员）
  */
-mailbox.get('/admin/applications', requireAdmin, async (c) => {
+mailbox.get('/admin/applications', jwtAuthMiddleware, adminAuthMiddleware, async (c) => {
     try {
         const page = parseInt(c.req.query('page') || '1');
         const pageSize = parseInt(c.req.query('page_size') || '20');
@@ -315,9 +315,9 @@ mailbox.get('/admin/applications', requireAdmin, async (c) => {
 /**
  * 处理申请（批准/拒绝）
  */
-mailbox.post('/admin/applications/:id/process', requireAdmin, async (c) => {
+mailbox.post('/admin/applications/:id/process', jwtAuthMiddleware, adminAuthMiddleware, async (c) => {
     try {
-        const admin = c.get('user');
+        const admin = c.get('jwtPayload');
         const applicationId = parseInt(c.req.param('id'));
         const { action, admin_comment } = await c.req.json();
 
@@ -335,7 +335,7 @@ mailbox.post('/admin/applications/:id/process', requireAdmin, async (c) => {
             }, 400);
         }
 
-        await processMailboxApplication(c.env.DB, applicationId, admin.id, action, admin_comment);
+        await processMailboxApplication(c.env.DB, applicationId, admin.user_id, action, admin_comment);
 
         return c.json<ApiResponse>({
             success: true,
