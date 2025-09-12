@@ -1,0 +1,1243 @@
+openapi: 3.0.3
+info:
+  title: Cloudflare 邮箱管理系统 API
+  description: |
+    基于 Cloudflare Workers 的邮箱管理系统，提供完整的邮件接收、存储、发送、转发和管理功能。
+
+    ## 核心设计
+    - 所有资源接口保持统一路径
+    - 管理员与普通用户通过后端鉴权区分，不再分叉路径
+    - 错误响应、分页参数统一复用
+    - 邮件发送接口统一 `/api/emails/send`
+    - 邮件查询支持 `scope` 参数控制（mine/all）
+
+    ### 邮件
+    ```http
+    GET    /api/emails             # 获取邮件（scope=mine/all）
+    GET    /api/emails/{id}        # 获取详情
+    DELETE /api/emails/{id}        # 删除邮件
+    GET    /api/emails/{id}/attachments/{attachmentId}  # 下载附件
+    POST   /api/emails/send        # 发送邮件（管理员/用户都能用）
+    ```
+
+    ## 核心逻辑
+
+    资源路径不区分角色 → 统一 /api/emails
+
+    角色差异用参数控制 → scope=all
+
+    业务差异前端封装 → send-info 只是 send 的一层包装
+
+  version: 2.0.0
+  contact:
+    name: XRSec
+    email: admin@example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8787
+    description: 开发环境
+  - url: https://cem.xrsec.workers.dev
+    description: 生产环境
+
+tags:
+  - name: 认证
+    description: 用户登录、注册、登出等认证相关操作
+  - name: 用户
+    description: 用户信息管理
+  - name: 邮件
+    description: 邮件查看、发送、删除、附件下载等操作
+  - name: 邮箱
+    description: 邮箱申请、管理、审核等功能
+  - name: 转发规则
+    description: 邮件转发与 Webhook 管理
+  - name: 系统
+    description: 系统配置与健康检查
+  - name: 调试
+    description: 调试和开发相关功能
+
+paths:
+  # ==================== 认证 ====================
+  /api/auth/login:
+    post:
+      tags:
+        - 认证
+      summary: 用户登录
+      description: 使用用户名和密码进行登录，返回 JWT token。登录成功后需要调用 `/api/users/me` 获取用户详细信息。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  example: admin
+                  description: 用户名
+                password:
+                  type: string
+                  minLength: 6
+                  description: 邮箱密码
+                  example: 1S*Etuh1pjM$7g
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/logout:
+    post:
+      tags:
+        - 认证
+      summary: 用户登出
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: 登出成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/register:
+    post:
+      tags:
+        - 认证
+      summary: 用户注册
+      description: 注册新用户
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+                - email
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  example: admin
+                  description: 用户名
+                password:
+                  type: string
+                  minLength: 6
+                  description: 邮箱密码
+                  example: 1S*Etuh1pjM$7g
+                email:
+                  type: string
+                  format: email
+      responses:
+        '201':
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 请求参数错误
+        '403':
+          description: 系统不允许注册
+        '409':
+          description: 用户已存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==================== 用户 ====================
+  /api/users/me:
+    get:
+      tags:
+        - 用户
+      summary: 获取当前用户信息
+      description: 获取当前用户信息 以及设置信息
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    put:
+      tags:
+        - 用户
+      summary: 更新当前用户信息
+      description: 包含密码更新、Webhook 设置等
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserSettingsUpdate'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/users:
+    get:
+      tags:
+        - 用户
+      summary: 获取用户列表（仅管理员）
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: query
+          in: query
+          schema:
+            type: string
+          description: 搜索关键词（用户名、邮箱）
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+    post:
+      tags:
+        - 用户
+      summary: 管理员创建用户
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserCreateRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /api/users/{id}:
+    get:
+      tags:
+        - 用户
+      summary: 获取指定用户信息（仅管理员）
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+    delete:
+      tags:
+        - 用户
+      summary: 删除用户（仅管理员）
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+  # ==================== 邮件 ====================
+  /api/emails:
+    get:
+      tags:
+        - 邮件
+      summary: 获取邮件列表
+      description: |
+        - 普通用户：默认只能获取自己的邮件
+        - 管理员：可以使用 scope=all 获取全部邮件
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [all]
+          description: 查询范围（仅管理员可用，获取全部邮件）
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: 搜索关键词
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [received, processed, forwarded, failed]
+          description: 邮件状态
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/emails/{id}:
+    get:
+      tags:
+        - 邮件
+      summary: 获取邮件详情
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailDetail'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    delete:
+      tags:
+        - 邮件
+      summary: 删除邮件
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/emails/{id}/attachments/{attachmentId}:
+    get:
+      tags:
+        - 邮件
+      summary: 下载邮件附件
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: attachmentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 下载成功
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/emails/send:
+    post:
+      tags:
+        - 邮件
+      summary: 发送邮件
+      description: |
+        通用发送接口：
+        - 普通用户：可以发邮件（如果系统允许）
+        - 管理员：可用来向用户发送账户信息（前端封装即可）
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - to
+                - subject
+                - content
+              properties:
+                to:
+                  type: string
+                  format: email
+                  description: 收件人邮箱
+                from:
+                  type: string
+                  format: email
+                  description: 发件人邮箱（不传默认使用系统邮箱）
+                subject:
+                  type: string
+                  description: 邮件主题
+                content:
+                  type: string
+                  description: 邮件正文
+                content_type:
+                  type: string
+                  enum: [text, html, markdown]
+                  default: markdown
+      responses:
+        '200':
+          description: 发送成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  # ==================== 邮箱 ====================
+  /api/mailboxes:
+    get:
+      tags:
+        - 邮箱
+      summary: 获取邮箱列表
+      description: |
+        - 普通用户：仅返回自己的邮箱
+        - 管理员：可返回所有邮箱（支持分页）
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailboxListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - 邮箱
+      summary: 创建邮箱
+      description: |
+        - 普通用户：提交申请
+        - 管理员：直接创建邮箱
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/MailboxApplicationRequest'
+                - $ref: '#/components/schemas/AdminMailboxCreateRequest'
+      responses:
+        '201':
+          description: 创建/申请成功
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/MailboxApplicationResponse'
+                  - $ref: '#/components/schemas/MailboxResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/mailboxes/{id}:
+    get:
+      tags:
+        - 邮箱
+      summary: 获取邮箱详情
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Mailbox'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    delete:
+      tags:
+        - 邮箱
+      summary: 删除邮箱
+      description: |
+        - 普通用户：只能删除自己的邮箱（不能删除默认邮箱）
+        - 管理员：可以删除任意邮箱
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 不能删除默认邮箱
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/mailboxes/applications:
+    get:
+      tags:
+        - 邮箱
+      summary: 获取邮箱申请列表
+      description: |
+        - 普通用户：查看自己的申请记录
+        - 管理员：查看所有申请（可分页）
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailboxApplicationListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/mailboxes/applications/{id}/process:
+    post:
+      tags:
+        - 邮箱
+      summary: 处理邮箱申请（仅管理员）
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplicationProcessRequest'
+      responses:
+        '200':
+          description: 处理成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+  # ==================== 转发规则 ====================
+  /api/forward-rules:
+    get:
+      tags:
+        - 转发规则
+      summary: 获取转发规则列表
+      description: |
+        - 普通用户：仅返回自己的规则
+        - 管理员：可以返回全部规则（支持分页）
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForwardRuleListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - 转发规则
+      summary: 创建转发规则
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForwardRuleCreateRequest'
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForwardRuleResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/forward-rules/{id}:
+    get:
+      tags:
+        - 转发规则
+      summary: 获取转发规则详情
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForwardRuleResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    put:
+      tags:
+        - 转发规则
+      summary: 更新转发规则
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForwardRuleUpdateRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    delete:
+      tags:
+        - 转发规则
+      summary: 删除转发规则
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  # ==================== 系统 ====================
+  /api/system/config:
+    get:
+      tags:
+        - 系统
+      summary: 获取系统配置
+      description: 普通用户只能获取公共配置，管理员可以获取完整配置
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemConfig'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    put:
+      tags:
+        - 系统
+      summary: 更新系统配置（仅管理员）
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemConfigUpdate'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /api/system/health:
+    get:
+      tags:
+        - 系统
+      summary: 健康检查
+      description: 检查服务运行状态
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session_token
+
+  responses:
+    UnauthorizedError:
+      description: 未授权
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ForbiddenError:
+      description: 权限不足
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFoundError:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      description: 页码
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+      description: 每页数量
+  schemas:
+    # ==================== 通用 ====================
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: 操作成功
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: 错误信息
+
+    # ==================== 认证 ====================
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT token
+        message:
+          type: string
+          example: 登录成功
+
+    # ==================== 用户 ====================
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [user, admin]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        settings:
+          $ref: '#/components/schemas/UserSettings'
+
+    UserSettings:
+      type: object
+      properties:
+        webhook_url:
+          type: string
+          format: uri
+          nullable: true
+        webhook_secret:
+          type: string
+          nullable: true
+
+    UserSettingsUpdate:
+      type: object
+      properties:
+        password:
+          type: string
+        webhook_url:
+          type: string
+          format: uri
+        webhook_secret:
+          type: string
+
+    UserListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserProfile'
+
+    UserResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserProfile'
+
+    AdminUserCreateRequest:
+      type: object
+      required:
+        - username
+        - password
+        - email
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [user, admin]
+          default: user
+
+    # ==================== 邮件 ====================
+    EmailListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailSummary'
+
+    EmailSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        subject:
+          type: string
+        from:
+          type: string
+        to:
+          type: string
+        status:
+          type: string
+          enum: [received, processed, forwarded, failed]
+        received_at:
+          type: string
+          format: date-time
+
+    EmailDetail:
+      allOf:
+        - $ref: '#/components/schemas/EmailSummary'
+        - type: object
+          properties:
+            content:
+              type: string
+            attachments:
+              type: array
+              items:
+                $ref: '#/components/schemas/Attachment'
+
+    Attachment:
+      type: object
+      properties:
+        id:
+          type: string
+        filename:
+          type: string
+        size:
+          type: integer
+
+    # ==================== 邮箱 ====================
+    Mailbox:
+      type: object
+      properties:
+        id:
+          type: integer
+        address:
+          type: string
+        owner_id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, disabled, pending]
+
+    MailboxResponse:
+      type: object
+      properties:
+        mailbox:
+          $ref: '#/components/schemas/Mailbox'
+
+    MailboxListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Mailbox'
+
+    MailboxApplicationRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: 申请理由
+
+    MailboxApplicationResponse:
+      type: object
+      properties:
+        application_id:
+          type: integer
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+
+    MailboxApplicationListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailboxApplicationResponse'
+
+    ApplicationProcessRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum: [approve, reject]
+
+    AdminMailboxCreateRequest:
+      type: object
+      required:
+        - address
+        - owner_id
+      properties:
+        address:
+          type: string
+        owner_id:
+          type: integer
+
+    # ==================== 转发规则 ====================
+    ForwardRuleBase:
+      type: object
+      properties:
+        rule_name:
+          type: string
+        sender_filter:
+          type: string
+          nullable: true
+        keyword_filter:
+          type: string
+          nullable: true
+        recipient_filter:
+          type: string
+          nullable: true
+        webhook_url:
+          type: string
+          format: uri
+        webhook_secret:
+          type: string
+          nullable: true
+        webhook_type:
+          type: string
+          enum: [dingtalk, feishu, custom]
+        enabled:
+          type: boolean
+
+    ForwardRuleCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/ForwardRuleBase'
+        - type: object
+          required:
+            - rule_name
+            - webhook_url
+
+    ForwardRuleUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/ForwardRuleBase'
+
+    ForwardRuleResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        rule:
+          $ref: '#/components/schemas/ForwardRuleBase'
+        created_at:
+          type: string
+          format: date-time
+
+    ForwardRuleListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ForwardRuleResponse'
+
+    # ==================== 系统 ====================
+    SystemConfig:
+      type: object
+      properties:
+        allow_user_send:
+          type: boolean
+          description: 是否允许普通用户发送邮件
+        max_mailboxes_per_user:
+          type: integer
+        storage_provider:
+          type: string
+          enum: [r2, s3, local]
+
+    SystemConfigUpdate:
+      type: object
+      properties:
+        allow_user_send:
+          type: boolean
+        max_mailboxes_per_user:
+          type: integer
+        storage_provider:
+          type: string

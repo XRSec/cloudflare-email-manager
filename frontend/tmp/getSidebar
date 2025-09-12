@@ -1,0 +1,28 @@
+    <div id="sidebar" class="sidebar hidden">
+        <div class="sidebar-header">
+            <h3>邮箱管理</h3>
+            <p id="sidebarUserInfo">用户面板</p>
+        </div>
+
+        <div class="sidebar-menu">
+            <a href="#emails" class="sidebar-item" onclick="showSection('${FRONTEND_ROUTES.EMAILS}')">📧 我的邮件</a>
+            <a href="#mailboxes" class="sidebar-item" onclick="showSection('${FRONTEND_ROUTES.MAILBOXES}')">📮 我的邮箱</a>
+            <a href="#mailbox-applications" class="sidebar-item" onclick="showSection('${FRONTEND_ROUTES.MAILBOX_APPLICATIONS}')">📝 邮箱申请</a>
+            <a href="#settings" class="sidebar-item" onclick="showSection('${FRONTEND_ROUTES.SETTINGS}')">⚙️ 账户设置</a>
+            <a href="#debug" id="debugMenuItem" class="sidebar-item hidden" onclick="showSection('${FRONTEND_ROUTES.DEBUG}')">🐛 调试模式</a>
+            <div id="adminMenuItems" class="hidden">
+                <a href="#admin-users" class="sidebar-item" onclick="showSection('${FRONTEND_ROUTES.ADMIN_USERS}')">👥 用户管理</a>
+                <a href="#admin-rules" class="sidebar-item" onclick="showSection('${FRONTEND_ROUTES.ADMIN_RULES}')">🔄 转发规则</a>
+                <a href="#admin-emails" class="sidebar-item" onclick="showSection('${FRONTEND_ROUTES.ADMIN_EMAILS}')">📨 全部邮件</a>
+                <a href="#admin-mailboxes" class="sidebar-item" onclick="showSection('${FRONTEND_ROUTES.ADMIN_MAILBOXES}')">📮 邮箱管理</a>
+                <a href="#admin-mailbox-applications" class="sidebar-item" onclick="showSection('${FRONTEND_ROUTES.ADMIN_MAILBOX_APPLICATIONS}')">📋 申请审核</a>
+                <a href="#admin-settings" class="sidebar-item" onclick="showSection('${FRONTEND_ROUTES.ADMIN_SETTINGS}')">🛠️ 系统设置</a>
+            </div>
+        </div>
+
+        <!-- 手机端底部按钮区域 -->
+        <div class="sidebar-footer">
+            <div class="btn-secondary" onclick="toggleSidebar()">☰ 关闭菜单</div>
+            <div class="sidebar-item" onclick="logout()" style="color: #dc3545; padding: 8px 20px;">🚪 退出登录</div>
+        </div>
+    </div>

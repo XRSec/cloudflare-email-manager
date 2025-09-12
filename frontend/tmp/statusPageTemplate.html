@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>邮件系统调试信息</title>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+
+    .error {
+      background: #ffe6e6;
+      padding: 10px;
+      margin: 5px 0;
+      border-left: 4px solid #ff0000;
+    }
+
+    .success {
+      background: #e6ffe6;
+      padding: 10px;
+      margin: 5px 0;
+      border-left: 4px solid #00ff00;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>邮件系统调试信息</h1>
+  <h2>错误日志 ({{errorCount}} 条)</h2>
+  {{errorList}}
+  <h2>系统状态</h2>
+  <div class="success">
+    <p>R2存储桶: {{r2Status}}</p>
+    <p>当前时间: {{currentTime}}</p>
+    <p>Worker运行正常</p>
+  </div>
+  <h2>操作</h2>
+  <p><a href="/emails">查看邮件列表</a></p>
+</body>
+
+</html>

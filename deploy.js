@@ -239,7 +239,7 @@ async function main() {
     log("info", "📝 更新 wrangler.toml ...");
     updateWranglerToml(dbId, kvId, JWT_SECRET);
 
-    const ADMIN_PREFIX = (await question('请输入管理员邮箱前缀 (例如: admin) [admin]: ')).trim() || 'admin';
+    const ADMIN_PREFIX = (await question('请输入管理员账号 (例如: admin) [admin]: ')).trim() || 'admin';
     const ADMIN_PASSWORD = (await askPassword()) || '123456';
     const ADMIN_PASSWORD_HASH = crypto
         .createHash("sha256")
@@ -257,7 +257,7 @@ async function main() {
 
     log("info", "👤 初始化管理员账户...");
     const {err: error} = run(
-        `wrangler d1 execute ${DB_NAME} --command="INSERT OR IGNORE INTO users (email_prefix, email_password, user_type) VALUES ('${ADMIN_PREFIX}', '${ADMIN_PASSWORD_HASH}', 'admin')"`);
+        `wrangler d1 execute ${DB_NAME} --command="INSERT OR IGNORE INTO users (username, password, user_type) VALUES ('${ADMIN_PREFIX}', '${ADMIN_PASSWORD_HASH}', 'admin')"`);
     log("success", "✅ 管理员账户已创建");
     if (error?.stderr?.includes("UNIQUE constraint failed") || error?.stdout?.includes("UNIQUE constraint failed")) {
         log("warn", "⚠️  管理员账户已存在");

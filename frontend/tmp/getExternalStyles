@@ -1,0 +1,5 @@
+/**
+* 获取外部样式链接（如果使用 CDN）
+*/
+<!-- 外部样式（可选） -->
+<!-- <link rel="stylesheet" href="https://cdn.example.com/styles.css"> -->

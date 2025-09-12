@@ -1,0 +1,29 @@
+/**
+* 获取通用邮件列表组件
+*/
+function getEmailListSection(
+sectionId: string,
+title: string,
+listId: string,
+paginationId: string,
+managerName: string = 'EmailManager'
+): string {
+return .card({
+title: title,
+className: 'email-section',
+actions: `
+<div class="email-controls">
+    <button class="btn btn-primary btn-sm" onclick="showInternalEmailModal()">📤 发送站内邮件</button>
+    <button class="btn btn-secondary btn-sm" onclick="${managerName}.expandAllEmails()">📖 展开全部</button>
+    <button class="btn btn-secondary btn-sm" onclick="${managerName}.collapseAllEmails()">📕 收起全部</button>
+</div>
+`,
+content: `
+<div class="search-box">
+    <input type="text" class="search-input" placeholder="搜索邮件..." id="${sectionId}Search">
+    <span class="search-icon">🔍</span>
+</div>
+<div id="${listId}" class="loading">加载中</div>
+<div id="${paginationId}"></div>
+`
+}, { escapeHtml: false });

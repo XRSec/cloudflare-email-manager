@@ -1,0 +1,7 @@
+    <div id="loadingSection" class="card">
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+            <h2>正在加载...</h2>
+            <p>请稍候，系统正在初始化</p>
+        </div>
+    </div>

@@ -139,5 +139,4 @@ wrangler.toml.backup
 .dev.vars
 pnpm-lock.yaml
 
-test_improvements.md
-identifier.sqlite
+.yarn
