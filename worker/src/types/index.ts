@@ -14,7 +14,7 @@ export type Fetcher = import('@cloudflare/workers-types').Fetcher;
 export interface Env {
     DB: D1Database;
     R2: R2Bucket;
-    KV: KVNamespace;
+    KV: KVNamespace; // Workers KV 存储
     ASSETS: Fetcher;
     DOMAIN: string;
     JWT_SECRET: string;
@@ -27,6 +27,8 @@ export interface User {
     username: string;
     password: string;
     user_type: 'admin' | 'user';
+    status: 1 | 2 | 3; // 1=激活, 2=停用, 3=删除
+    deleted_at?: string;
     webhook_url?: string;
     webhook_secret?: string;
     created_at?: string;
@@ -36,12 +38,27 @@ export interface User {
 // 邮箱接口
 export interface Mailbox {
     id: number;
-    user_id: number;
-    email_address: string;
-    is_default: number;
-    is_active: number;
+    owner_id: number;
+    address: string;
+    status: 1 | 2 | 3; // 1=激活, 2=停用, 3=删除
+    deleted_at?: string;
     created_at?: string;
     updated_at?: string;
+}
+
+// 邮箱接口（包含用户信息）
+export interface MailboxWithUser extends Mailbox {
+    owner_username: string;
+}
+
+// 邮箱历史记录接口
+export interface MailboxHistory {
+    id: number;
+    mailbox_id: number;
+    user_id: number;              // 操作人用户ID
+    owner_id: number;             // 邮箱所有者ID
+    action_type: 1 | 2 | 3;       // 1=创建, 2=删除, 3=停用
+    created_at: string;
 }
 
 // 邮箱申请接口
@@ -49,7 +66,7 @@ export interface MailboxApplication {
     id: number;
     user_id: number;
     email_address: string;
-    status: 'pending' | 'approved' | 'rejected';
+    status: 1 | 2 | 3; // 1=待审核, 2=已批准, 3=已拒绝
     reason?: string;
     admin_comment?: string;
     applied_at: string;
@@ -172,6 +189,8 @@ export interface EmailQueryParams extends PaginationParams {
     start_date?: string;
     end_date?: string;
     has_attachments?: boolean;
+    status?: string;
+    scope?: string;
 }
 
 // 用户设置更新接口
@@ -183,16 +202,15 @@ export interface UserSettingsUpdate {
 
 // 系统配置接口
 export interface SystemConfig {
-    allow_registration: boolean;
-    cleanup_days: number;
-    max_attachment_size: number;
     debug_mode: boolean;
+    allow_registration: boolean;
     auto_approve_mailbox: boolean;
-    domains: string[];
-    cookie_max_age: number;
-    jwt_secret?: string;
-    admin_email?: string;
-    primary_domain?: string;
+    supported_domains: string[];
+    mail_retention_days: number;
+    attachment_max_size: number;
+    allow_user_send?: boolean;
+    max_mailboxes_per_user?: number;
+    storage_provider?: 'r2' | 's3' | 'local';
 }
 
 // 扩展 Hono 上下文类型

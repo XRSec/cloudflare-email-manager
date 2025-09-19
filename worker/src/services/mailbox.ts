@@ -4,15 +4,17 @@
 
 import { debugLog, errorLog } from '../utils/debug';
 import type { Mailbox, MailboxApplication, User } from '../types';
+import { recordMailboxAction } from './mailbox-history';
+import { validateMailboxOperationPermission, validateUserExists } from './permission';
 
 /**
  * 根据邮箱地址查找邮箱记录
  */
 export async function findMailboxByEmail(db: D1Database, email: string): Promise<Mailbox | null> {
     const result = await db.prepare(`
-        SELECT id, user_id, email_address, is_active, created_at, updated_at
+        SELECT id, owner_id, address, status, created_at, updated_at
         FROM mailboxes
-        WHERE email_address = ? AND is_active = 1
+        WHERE address = ? AND status = 'active'
     `).bind(email).first();
 
     return result as Mailbox | null;
@@ -23,13 +25,26 @@ export async function findMailboxByEmail(db: D1Database, email: string): Promise
  */
 export async function findMailboxesByUserId(db: D1Database, userId: number): Promise<Mailbox[]> {
     const result = await db.prepare(`
-        SELECT id, user_id, email_address, is_active, created_at, updated_at
+        SELECT id, owner_id, address, status, created_at, updated_at
         FROM mailboxes
-        WHERE user_id = ? AND is_active = 1
+        WHERE owner_id = ? AND status = 'active'
         ORDER BY created_at ASC
     `).bind(userId).all();
 
     return result.results as unknown as Mailbox[];
+}
+
+/**
+ * 根据ID获取邮箱
+ */
+export async function getMailboxById(db: D1Database, mailboxId: number): Promise<Mailbox | null> {
+    const result = await db.prepare(`
+        SELECT id, owner_id, address, status, created_at, updated_at
+        FROM mailboxes
+        WHERE id = ?
+    `).bind(mailboxId).first();
+
+    return result as Mailbox | null;
 }
 
 /**
@@ -41,41 +56,106 @@ export async function createMailbox(
     emailAddress: string
 ): Promise<Mailbox> {
     // 检查邮箱是否已存在
-    const existing = await findMailboxByEmail(db, emailAddress);
+    const existing = await db.prepare(`
+        SELECT id, status FROM mailboxes WHERE address = ?
+    `).bind(emailAddress).first();
+
     if (existing) {
-        throw new Error('邮箱地址已存在');
+        const existingStatus = (existing as any).status;
+        if (existingStatus === 'active' || existingStatus === 'disabled') {
+            throw new Error('邮箱地址已被使用');
+        } else if (existingStatus === 'deleted') {
+            // 如果邮箱被删除，重新激活
+            const result = await db.prepare(`
+                UPDATE mailboxes 
+                SET owner_id = ?, status = 'active', updated_at = CURRENT_TIMESTAMP
+                WHERE address = ?
+            `).bind(userId, emailAddress).run();
+
+            if (!result.success) {
+                throw new Error('重新激活邮箱失败');
+            }
+
+            const mailbox = await db.prepare(`
+                SELECT id, owner_id, address, status, created_at, updated_at
+                FROM mailboxes
+                WHERE address = ?
+            `).bind(emailAddress).first();
+
+            debugLog('[邮箱服务] 邮箱重新激活成功:', emailAddress, '用户ID:', userId);
+
+            // 记录重新分配历史
+            await recordMailboxAction(
+                db,
+                (mailbox as any).id,
+                userId,
+                userId,
+                'created'
+            );
+
+            return mailbox as unknown as Mailbox;
+        }
+    } else {
+        // 创建新邮箱
+        const result = await db.prepare(`
+            INSERT INTO mailboxes (owner_id, address, status, created_at, updated_at)
+            VALUES (?, ?, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).bind(userId, emailAddress).run();
+
+        if (!result.success) {
+            throw new Error('创建邮箱失败');
+        }
+
+        const mailbox = await db.prepare(`
+            SELECT id, owner_id, address, status, created_at, updated_at
+            FROM mailboxes
+            WHERE id = ?
+        `).bind(result.meta.last_row_id).first();
+
+        if (!mailbox) {
+            throw new Error('获取创建的邮箱失败');
+        }
+
+        debugLog('[邮箱服务] 邮箱创建成功:', emailAddress, '用户ID:', userId);
+
+        // 记录创建历史
+        await recordMailboxAction(
+            db,
+            (mailbox as any).id,
+            userId,
+            userId,
+            'created'
+        );
+
+        return mailbox as unknown as Mailbox;
     }
-
-    const result = await db.prepare(`
-        INSERT INTO mailboxes (user_id, email_address, is_default, is_active, created_at, updated_at)
-        VALUES (?, ?, 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).bind(userId, emailAddress).run();
-
-    if (!result.success) {
-        throw new Error('创建邮箱失败');
-    }
-
-    const mailbox = await db.prepare(`
-        SELECT id, user_id, email_address, is_default, is_active, created_at, updated_at
-        FROM mailboxes
-        WHERE id = ?
-    `).bind(result.meta.last_row_id).first();
-
-    if (!mailbox) {
-        throw new Error('获取创建的邮箱失败');
-    }
-
-    debugLog('[邮箱服务] 邮箱创建成功:', emailAddress, '用户ID:', userId);
-    return mailbox as unknown as Mailbox;
 }
 
 /**
  * 删除邮箱（软删除）
  */
-export async function deleteMailbox(db: D1Database, mailboxId: number): Promise<void> {
+export async function deleteMailbox(
+    db: D1Database,
+    mailboxId: number,
+    userId: number,
+    userType: string,
+    requestInfo?: { ip?: string; userAgent?: string }
+): Promise<void> {
+    // 验证权限
+    const permissionCheck = await validateMailboxOperationPermission(db, mailboxId, userId, userType, requestInfo);
+    if (!permissionCheck.hasPermission) {
+        throw new Error(permissionCheck.reason || '权限验证失败');
+    }
+
+    // 验证用户存在
+    const userValidation = await validateUserExists(db, userId);
+    if (!userValidation.exists) {
+        throw new Error('用户不存在');
+    }
+
     const result = await db.prepare(`
         UPDATE mailboxes 
-        SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+        SET status = 'deleted', updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     `).bind(mailboxId).run();
 
@@ -83,26 +163,44 @@ export async function deleteMailbox(db: D1Database, mailboxId: number): Promise<
         throw new Error('删除邮箱失败');
     }
 
-    debugLog('[邮箱服务] 邮箱已删除:', mailboxId);
+    debugLog('[邮箱服务] 邮箱已删除:', mailboxId, '操作人:', userId);
+
+    // 记录删除历史
+    await recordMailboxAction(
+        db,
+        mailboxId,
+        userId,
+        permissionCheck.mailbox!.owner_id,
+        'deleted'
+    );
 }
 
 /**
- * 获取所有邮箱（管理员用）
+ * 获取邮箱列表
+ * @param db 数据库实例
+ * @param page 页码
+ * @param pageSize 每页数量
+ * @param userId 用户ID，如果提供则只返回该用户的邮箱，否则返回所有邮箱
  */
 export async function getAllMailboxes(
-    db: D1Database, 
-    page: number = 1, 
-    pageSize: number = 20
-): Promise<{ mailboxes: (Mailbox & { user_username: string; user_type: string })[], total: number }> {
+    db: D1Database,
+    page: number = 1,
+    pageSize: number = 20,
+    userId?: number
+): Promise<{ mailboxes: (Mailbox & { owner_username: string })[], total: number }> {
     const offset = (page - 1) * pageSize;
+
+    // 构建查询条件 - 只显示 active 状态的邮箱
+    const whereClause = userId ? 'WHERE m.status = \'active\' AND m.owner_id = ?' : 'WHERE m.status = \'active\'';
+    const bindValues = userId ? [userId] : [];
 
     // 获取总数
     const countResult = await db.prepare(`
         SELECT COUNT(*) as total 
         FROM mailboxes m
-        JOIN users u ON m.user_id = u.id
-        WHERE m.is_active = 1
-    `).first();
+        JOIN users u ON m.owner_id = u.id
+        ${whereClause}
+    `).bind(...bindValues).first();
 
     const total = (countResult as any)?.total || 0;
 
@@ -110,22 +208,21 @@ export async function getAllMailboxes(
     const result = await db.prepare(`
         SELECT 
             m.id,
-            m.user_id,
-            m.email_address,
-            m.is_active,
+            m.owner_id,
+            m.address,
+            m.status,
             m.created_at,
             m.updated_at,
-            u.username as user_username,
-            u.user_type
+            u.username as owner_username
         FROM mailboxes m
-        JOIN users u ON m.user_id = u.id
-        WHERE m.is_active = 1
+        JOIN users u ON m.owner_id = u.id
+        ${whereClause}
         ORDER BY m.created_at DESC
         LIMIT ? OFFSET ?
-    `).bind(pageSize, offset).all();
+    `).bind(...bindValues, pageSize, offset).all();
 
     return {
-        mailboxes: result.results as unknown as (Mailbox & { user_username: string; user_type: string })[],
+        mailboxes: result.results as unknown as (Mailbox & { owner_username: string })[],
         total
     };
 }
@@ -161,8 +258,12 @@ export async function createMailboxApplication(
     emailAddress: string,
     reason?: string
 ): Promise<MailboxApplication> {
-    // 检查邮箱是否已存在
-    const existing = await findMailboxByEmail(db, emailAddress);
+    // 检查邮箱是否已被使用（排除 deleted 状态）
+    const existing = await db.prepare(`
+        SELECT id FROM mailboxes 
+        WHERE address = ? AND status IN ('active', 'disabled')
+    `).bind(emailAddress).first();
+
     if (existing) {
         throw new Error('邮箱地址已被使用');
     }
@@ -341,9 +442,123 @@ export async function checkUserMailboxLimit(db: D1Database, userId: number): Pro
     const maxMailboxes = setting ? parseInt((setting as any).value) : 5;
 
     const countResult = await db.prepare(`
-        SELECT COUNT(*) as count FROM mailboxes WHERE user_id = ? AND is_active = 1
+        SELECT COUNT(*) as count FROM mailboxes WHERE owner_id = ? AND status = 'active'
     `).bind(userId).first();
 
     const currentCount = (countResult as any)?.count || 0;
     return currentCount < maxMailboxes;
+}
+
+/**
+ * 获取邮箱申请列表（支持用户过滤）
+ */
+export async function getMailboxApplications(
+    db: D1Database,
+    userId?: number,
+    paginationParams: { page: number; limit: number } = { page: 1, limit: 20 }
+): Promise<MailboxApplication[]> {
+    const { page, limit } = paginationParams;
+    const offset = (page - 1) * limit;
+
+    let whereClause = '';
+    let bindValues: any[] = [];
+
+    if (userId !== undefined) {
+        whereClause = 'WHERE user_id = ?';
+        bindValues = [userId];
+    }
+
+    const result = await db.prepare(`
+        SELECT id, user_id, email_address, status, reason, admin_comment,
+               applied_at, processed_at, processed_by, created_at, updated_at
+        FROM mailbox_applications
+        ${whereClause}
+        ORDER BY applied_at DESC
+        LIMIT ? OFFSET ?
+    `).bind(...bindValues, limit, offset).all();
+
+    return result.results as unknown as MailboxApplication[];
+}
+
+/**
+ * 根据邮箱地址获取用户ID
+ */
+export async function getUserIdByEmail(db: D1Database, email: string): Promise<number | null> {
+    const result = await db.prepare(`
+        SELECT u.id
+        FROM users u
+        JOIN mailboxes m ON u.id = m.owner_id
+        WHERE m.address = ? AND m.status = 'active'
+    `).bind(email).first();
+
+    return (result as any)?.id || null;
+}
+
+/**
+ * 根据邮箱地址获取邮箱ID和用户ID
+ */
+export async function getMailboxInfoByEmail(db: D1Database, email: string): Promise<{ mailboxId: number; userId: number } | null> {
+    const result = await db.prepare(`
+        SELECT m.id as mailbox_id, u.id as user_id
+        FROM users u
+        JOIN mailboxes m ON u.id = m.owner_id
+        WHERE m.address = ? AND m.status = 'active'
+    `).bind(email).first();
+
+    if (!result) return null;
+
+    return {
+        mailboxId: (result as any).mailbox_id,
+        userId: (result as any).user_id
+    };
+}
+
+/**
+ * 切换邮箱状态
+ */
+export async function toggleMailboxStatus(
+    db: D1Database,
+    mailboxId: number,
+    status: 'active' | 'disabled',
+    adminId: number
+): Promise<void> {
+    // 验证管理员权限
+    const userValidation = await validateUserExists(db, adminId);
+    if (!userValidation.exists) {
+        throw new Error('用户不存在');
+    }
+
+    if (userValidation.user!.user_type !== 'admin') {
+        throw new Error('需要管理员权限');
+    }
+
+    // 获取邮箱信息
+    const mailbox = await db.prepare(`
+        SELECT id, owner_id, address, status FROM mailboxes WHERE id = ?
+    `).bind(mailboxId).first();
+
+    if (!mailbox) {
+        throw new Error('邮箱不存在');
+    }
+
+    const result = await db.prepare(`
+        UPDATE mailboxes 
+        SET status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).bind(status, mailboxId).run();
+
+    if (!result.success) {
+        throw new Error('Failed to update mailbox status');
+    }
+
+    // 记录状态变更历史
+    const actionType = status === 'active' ? 'created' : 'disabled';
+
+    await recordMailboxAction(
+        db,
+        mailboxId,
+        adminId,
+        (mailbox as any).owner_id,
+        actionType
+    );
 }

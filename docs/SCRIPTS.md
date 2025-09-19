@@ -9,63 +9,79 @@
 ```
 scripts/
 ├── env-detector.js  # 环境检测模块（可复用）
-├── docker.js       # Docker 容器管理脚本
-├── dev.js          # 开发环境启动脚本
 ├── deploy.js       # 部署脚本
 └── db.js           # 数据库操作脚本（包含初始化、清理、迁移、导入功能）
 ```
 
 ## 🚀 使用方法
 
-### 开发
+### 开发环境
 ```bash
-# 启动开发环境（前端 + 后端）
-npm run dev
+# 启动 Docker 容器（前端 + 后端）
+docker-compose up -d
+
+# 查看容器状态
+docker-compose ps
+
+# 停止容器
+docker-compose down
 ```
 
 ### 部署
 ```bash
-# 构建并部署
+# 完整部署（包含资源创建、构建、部署）
 npm run deploy
+
+# 初始化部署（同 deploy）
+npm run init
+
+# 清理所有 Cloudflare 资源
+npm run clean
 ```
 
 ### 数据库操作
 ```bash
-# 初始化数据库
+# 通过 npm 脚本（在宿主机运行）
 npm run db:init
-
-# 初始化远程数据库
 npm run db:init:remote
-
-# 执行数据库迁移
 npm run db:migrate
-
-# 导入邮件数据
 npm run db:import
 
-# 查看帮助
-npm run db
+# 直接在 Docker 容器内运行
+docker exec -it worker zsh -c "node scripts/db.js init"
+docker exec -it worker zsh -c "node scripts/db.js init --remote"
+docker exec -it worker zsh -c "node scripts/db.js migrate"
+docker exec -it worker zsh -c "node scripts/db.js import"
+
+# 执行 SQL 命令
+docker exec -it worker zsh -c "node scripts/db.js 'SELECT * FROM users'"
+docker exec -it worker zsh -c "node scripts/db.js 'SELECT * FROM users' --remote"
+
+# 执行 base64 编码的 SQL
+docker exec -it worker zsh -c "node scripts/db.js U0VMRUNUICogRlJPTSB1c2Vycwo="
 ```
 
 ### Docker 管理
 ```bash
-# 启动容器（如果不存在则创建）
-npm run docker:start
+# 启动所有服务
+docker-compose up -d
 
-# 停止容器
-npm run docker:stop
+# 查看服务状态
+docker-compose ps
 
-# 重启容器
-npm run docker:restart
+# 查看日志
+docker-compose logs vue
+docker-compose logs worker
 
-# 查看容器状态
-npm run docker:status
+# 停止所有服务
+docker-compose down
 
-# 构建镜像
-npm run docker:build
+# 重启服务
+docker-compose restart
 
-# 删除容器
-npm run docker:remove
+# 进入容器
+docker exec -it vue zsh  # 前端容器
+docker exec -it worker zsh    # 后端容器
 ```
 
 ## 🔧 脚本特性
@@ -101,7 +117,9 @@ npm run docker:remove
 |------|------|------|
 | 开发 | `npm run dev` | 启动前端和后端 |
 | 构建 | `npm run build` | 构建前端和后端 |
-| 部署 | `npm run deploy` | 构建并部署到 Cloudflare |
+| 部署 | `npm run deploy` | 完整部署（资源创建+构建+部署） |
+| 初始化 | `npm run init` | 同 deploy 命令 |
+| 清理 | `npm run clean` | 删除所有 Cloudflare 资源 |
 | 数据库初始化 | `npm run db:init` | 初始化本地数据库 |
 | 远程数据库初始化 | `npm run db:init:remote` | 初始化远程数据库 |
 | 数据库迁移 | `npm run db:migrate` | 执行数据库迁移 |

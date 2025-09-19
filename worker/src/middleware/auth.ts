@@ -36,11 +36,11 @@ export async function jwtAuthMiddleware(c: Context<{ Bindings: Env }>, next: Nex
                 return acc;
             }, {});
             debugLog('[JWT中间件] 解析的 cookies:', JSON.stringify(cookies));
-            token = cookies.auth_token;
+            token = cookies.session_cookies;
             if (token) {
                 debugLog('[JWT中间件] 从 Cookie 获取到 token，长度:', token.length);
             } else {
-                debugLog('[JWT中间件] Cookie 中未找到 auth_token，可用的键:', Object.keys(cookies));
+                debugLog('[JWT中间件] Cookie 中未找到 session_cookies，可用的键:', Object.keys(cookies));
             }
         }
     }
@@ -57,7 +57,7 @@ export async function jwtAuthMiddleware(c: Context<{ Bindings: Env }>, next: Nex
 
         // 将解码的payload存储在上下文中
         c.set('jwtPayload', payload);
-        
+
         // 同时设置user对象以保持兼容性
         c.set('user' as any, {
             id: payload.user_id,

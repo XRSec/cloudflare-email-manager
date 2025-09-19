@@ -138,27 +138,23 @@ export async function getUserEmails(
     const whereClause = conditions.join(' AND ');
     const orderClause = `ORDER BY ${sort} ${order.toUpperCase()}`;
 
-    // 获取邮件列表 - 只显示邮箱创建日期之后的邮件
+    // 获取邮件列表
     const emailsResult = await db.prepare(`
-        SELECT e.id, e.message_id, e.user_id, e.sender_email, e.recipient_email, e.subject,
-               e.content, e.content_type, e.has_attachments, e.received_at,
-               e.created_at, e.updated_at
-        FROM emails e
-        INNER JOIN mailboxes m ON e.recipient_email = m.email_address
-        WHERE e.user_id = ? AND e.received_at >= m.created_at
-        ${conditions.length > 1 ? 'AND ' + conditions.slice(1).join(' AND ') : ''}
-        ${orderClause}
-        LIMIT ? OFFSET ?
-    `).bind(userId, ...values.slice(1), limit, offset).all();
+            SELECT id, message_id, user_id, sender_email, recipient_email, subject,
+                   content, content_type, has_attachments, received_at,
+                   created_at, updated_at
+            FROM emails
+            WHERE ${whereClause}
+            ${orderClause}
+            LIMIT ? OFFSET ?
+        `).bind(...values, limit, offset).all();
 
-    // 获取总数 - 只统计邮箱创建日期之后的邮件
+    // 获取总数
     const countResult = await db.prepare(`
-        SELECT COUNT(*) as total
-        FROM emails e
-        INNER JOIN mailboxes m ON e.recipient_email = m.email_address
-        WHERE e.user_id = ? AND e.received_at >= m.created_at
-        ${conditions.length > 1 ? 'AND ' + conditions.slice(1).join(' AND ') : ''}
-    `).bind(userId, ...values.slice(1)).first();
+            SELECT COUNT(*) as total
+            FROM emails
+            WHERE ${whereClause}
+        `).bind(...values).first();
 
     const emails = emailsResult.results.map(result => ({
         id: result.id as number,
@@ -187,11 +183,12 @@ export async function getUserEmails(
  */
 export async function getAllEmails(
     db: D1Database,
+    userId?: number,
     params: EmailQueryParams = {}
 ): Promise<{ emails: Email[]; total: number }> {
     try {
         console.log('[getAllEmails] 开始执行，参数:', params);
-        
+
         const {
             page = 1,
             limit = 20,
@@ -208,6 +205,12 @@ export async function getAllEmails(
         const offset = (page - 1) * limit;
         const conditions: string[] = [];
         const values: any[] = [];
+
+        // 如果指定了 userId，只查询该用户的邮件
+        if (userId !== undefined) {
+            conditions.push('user_id = ?');
+            values.push(userId);
+        }
 
         // 构建查询条件
         if (search) {
@@ -579,4 +582,33 @@ export async function cleanupOldEmails(env: Env): Promise<{ deletedEmails: numbe
     console.log(`清理完成: 删除了 ${deletedEmails} 封邮件和 ${deletedAttachments} 个附件`);
 
     return { deletedEmails, deletedAttachments };
+}
+
+/**
+ * 发送邮件
+ */
+export async function sendEmail(
+    env: Env,
+    emailData: {
+        to: string;
+        from: string;
+        subject: string;
+        content: string;
+        content_type: 'text' | 'html' | 'markdown';
+    }
+): Promise<void> {
+    // 这里应该实现实际的邮件发送逻辑
+    // 由于 Cloudflare Workers 的限制，可能需要使用第三方邮件服务
+    // 或者通过其他 Worker 的 RPC 调用
+
+    console.log('发送邮件:', {
+        to: emailData.to,
+        from: emailData.from,
+        subject: emailData.subject,
+        content_type: emailData.content_type
+    });
+
+    // 模拟邮件发送成功
+    // 在实际实现中，这里应该调用邮件发送服务
+    throw new Error('邮件发送功能尚未实现，需要集成邮件发送服务');
 }

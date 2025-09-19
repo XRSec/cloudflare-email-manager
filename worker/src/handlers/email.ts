@@ -6,7 +6,7 @@ import { debugLog, errorLog, infoLog } from '../utils/debug';
 import { createEmail, createAttachment, parseEmailAttachments } from '../services/email';
 import { handleEmailForwarding } from '../services/webhook';
 import { matchDomainForEmail } from '../services/settings';
-import { findUserByEmail } from '../services/mailbox';
+import { getUserIdByEmail } from '../services/mailbox';
 import type { Env, Email } from '../types';
 
 /**
@@ -51,14 +51,14 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
 
         debugLog('[邮件处理] 域名匹配成功:', matchedDomain);
 
-        // 根据完整邮箱地址查找对应的用户
-        const user = await findUserByEmail(env.DB, recipientEmail);
-        if (!user) {
+        // 根据邮箱地址获取用户ID
+        const userId = await getUserIdByEmail(env.DB, recipientEmail);
+        if (!userId) {
             debugLog('[邮件处理] 未找到邮箱对应的用户:', recipientEmail);
             return;
         }
 
-        debugLog('[邮件处理] 找到用户:', user.username, '类型:', user.user_type);
+        debugLog('[邮件处理] 找到用户ID:', userId);
 
         // 获取原始邮件内容
         const rawEmail = await message.raw();
@@ -98,7 +98,7 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
         // 创建邮件记录
         const emailRecord: Omit<Email, 'id' | 'created_at' | 'updated_at'> = {
             message_id: messageId,
-            user_id: user.id,
+            user_id: userId,
             sender_email: senderEmail,
             recipient_email: recipientEmail,
             subject: subject || undefined,
@@ -127,7 +127,7 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
 
         // 处理邮件转发
         try {
-            await handleEmailForwarding(savedEmail, user, env.DB);
+            await handleEmailForwarding(savedEmail, userId, env.DB);
             debugLog('[邮件处理] 邮件转发处理完成');
         } catch (forwardError) {
             errorLog('[邮件处理] 邮件转发失败:', forwardError);

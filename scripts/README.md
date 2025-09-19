@@ -1,166 +1,113 @@
-# 智能环境检测脚本
+# 脚本说明
 
-## 概述
+## 📁 脚本结构
 
-这套脚本可以自动检测运行环境，并选择合适的执行方式（本地或 Docker 容器）。
-
-## 脚本说明
-
-### 1. `detect-env.sh` - 环境检测
-自动检测当前环境类型：
-- **local**: 本地环境，已安装 wrangler
-- **docker**: Docker 环境，需要在容器中运行
-
-检测逻辑：
-1. 检查是否在 Docker 容器内（`/.dockerenv` 文件）
-2. 检查本地是否安装了 wrangler
-3. 检查是否有 node 容器运行
-4. 默认选择 docker（保守策略）
-
-### 2. `run-worker.sh` - 智能 Worker 运行
-根据环境检测结果运行 Worker：
-```bash
-# 自动检测环境并运行
-./scripts/run-worker.sh
-
-# 或者通过 npm
-npm run dev:worker
+```
+scripts/
+├── env-detector.js  # 环境检测模块（可复用）
+├── deploy.js       # 部署脚本
+└── db.js           # 数据库操作脚本
 ```
 
-### 3. `run-deploy.sh` - 智能部署
-根据环境检测结果部署 Worker：
-```bash
-# 自动检测环境并部署
-./scripts/run-deploy.sh
+## 🚀 使用方法
 
-# 或者通过 npm
+### 开发环境
+```bash
+# 启动 Docker 容器（前端 + 后端）
+docker-compose up -d
+
+# 查看容器状态
+docker-compose ps
+
+# 停止容器
+docker-compose down
+```
+
+### 部署
+```bash
+# 完整部署（包含资源创建、构建、部署）
 npm run deploy
+
+# 初始化部署（同 deploy）
+npm run init
+
+# 清理所有 Cloudflare 资源
+npm run clean
 ```
 
-### 4. `run-db.sh` - 智能数据库操作
-根据环境检测结果执行数据库操作：
+### 数据库操作
 ```bash
-# 初始化数据库
-./scripts/run-db.sh init
-
-# 初始化远程数据库
-./scripts/run-db.sh init:remote
-
-# 或者通过 npm
+# 通过 npm 脚本（在宿主机运行）
 npm run db:init
 npm run db:init:remote
+npm run db:migrate
+npm run db:import
+
+# 直接在 Docker 容器内运行
+docker exec -it worker zsh -c "node scripts/db.js init"
+docker exec -it worker zsh -c "node scripts/db.js init --remote"
+docker exec -it worker zsh -c "node scripts/db.js migrate"
+docker exec -it worker zsh -c "node scripts/db.js import"
+
+# 执行 SQL 命令
+docker exec -it worker zsh -c "node scripts/db.js 'SELECT * FROM users'"
+docker exec -it worker zsh -c "node scripts/db.js 'SELECT * FROM users' --remote"
+
+# 执行 base64 编码的 SQL
+docker exec -it worker zsh -c "node scripts/db.js U0VMRUNUICogRlJPTSB1c2Vycwo="
 ```
 
-## 使用方式
-
-### 自动模式（推荐）
+### 构建
 ```bash
-# 开发
-npm run dev
+# 构建前端
+npm run build:vue
 
-# 部署
-npm run deploy
+# 构建后端
+npm run build:worker
 
-# 数据库操作
-npm run db:init
+# 构建所有
+npm run build
 ```
 
-### 手动模式
-```bash
-# 强制本地运行
-npm run dev:worker:local
-npm run deploy:local
-npm run db:init:local
+## 🔧 脚本特性
 
-# 强制 Docker 运行
-npm run dev:worker:docker
-npm run deploy:docker
-npm run db:init:docker
-```
+### 1. 环境检测
+- `env-detector.js` 提供统一的环境检测功能
+- 自动检测本地或 Docker 环境
+- 所有脚本共享环境检测逻辑
 
-## 环境要求
+### 2. 部署脚本
+- `deploy.js` 包含完整的部署流程
+- 资源创建（D1、KV、R2）
+- 用户交互（域名输入、管理员密码等）
+- 数据库初始化和管理员账户创建
+- 配置文件更新（wrangler.toml）
+- 前后端构建和部署
 
-### 本地环境
-- Node.js >= 18
-- 已安装 wrangler: `npm install -g wrangler`
+### 3. 数据库脚本
+- `db.js` 支持多种数据库操作
+- 直接在 Docker 容器内运行
+- 支持 base64 编码的 SQL 命令
+- 自动创建和清理临时脚本文件
 
-### Docker 环境
-- Docker 已安装
-- 构建镜像: `docker build -t node:cem --progress=plain .`
-- 运行 node 容器: `docker run -itd --name node -v "${PWD}/:${PWD}" -w "${PWD}" --net=host node:cem`
+## 📋 命令对照表
 
-## 故障排除
+| 功能 | 命令 | 说明 |
+|------|------|------|
+| 开发 | `docker-compose up -d` | 启动前端和后端 |
+| 构建 | `npm run build` | 构建前端和后端 |
+| 部署 | `npm run deploy` | 完整部署（资源创建+构建+部署） |
+| 初始化 | `npm run init` | 同 deploy 命令 |
+| 清理 | `npm run clean` | 删除所有 Cloudflare 资源 |
+| 数据库初始化 | `npm run db:init` | 初始化本地数据库 |
+| 远程数据库初始化 | `npm run db:init:remote` | 初始化远程数据库 |
+| 数据库迁移 | `npm run db:migrate` | 执行数据库迁移 |
+| 导入数据 | `npm run db:import` | 导入邮件数据 |
 
-### 检测失败
-如果环境检测失败，可以手动指定：
-```bash
-# 查看检测结果
-./scripts/detect-env.sh
+## 🎉 优势
 
-# 手动运行
-npm run dev:worker:local  # 或 :docker
-```
-
-### 容器问题
-```bash
-# 检查容器状态
-docker ps | grep node
-
-# 如果容器不存在，先构建镜像再启动
-docker build -t node:cem --progress=plain .
-docker run -itd --name node -v "${PWD}/:${PWD}" -w "${PWD}" --net=host node:cem
-
-# 如果容器已存在但未运行，启动它
-docker start node
-
-# 进入容器
-docker exec -it node bash
-```
-
-### wrangler 问题
-```bash
-# 安装 wrangler
-npm install -g wrangler
-
-# 检查版本
-wrangler --version
-
-# 登录 Cloudflare
-wrangler login
-```
-
-## 环境变量配置
-
-### 解决路径冲突
-为了避免 Docker 容器和本地环境的 `node_modules` 冲突，支持通过环境变量配置：
-
-```bash
-# 设置环境变量
-export NODE_MODULES_PATH=./node_modules
-export NPX_PATH=npx
-
-# 运行脚本
-npm run dev
-npm run deploy
-npm run db:init
-```
-
-### 环境变量说明
-- `NODE_MODULES_PATH`: 指定 node_modules 路径（默认: ./node_modules）
-- `NODE_PATH`: Docker 容器内的 node_modules 路径（默认: /app/node_modules）
-- `NPX_PATH`: 指定 npx 命令路径（默认: npx）
-- `DOCKER_CONTAINER`: 标识是否在 Docker 容器内（默认: false）
-
-### npx 包管理器方案
-- **全局使用 npx**: 不需要本地 node_modules，使用全局缓存
-- **避免路径冲突**: 不需要复杂的 prefix 和 NODE_PATH 配置
-- **更简洁**: 直接运行，无需安装到本地
-- **Docker 环境**: 使用容器内的 npx 运行所有工具
-
-### 包管理器
-- 统一使用 npm 作为包管理器
-- 本地环境：使用本地 npm
-- Docker 环境：使用容器内的 npm
-
-### 自动检测
-脚本会自动检测环境并选择合适的路径，无需手动配置。
+1. **简洁**：只需记住几个简单的命令
+2. **智能**：自动检测环境，无需手动配置
+3. **易维护**：JavaScript 脚本，易于理解和修改
+4. **统一**：所有操作通过 npm 脚本调用
+5. **灵活**：支持参数传递和命令组合

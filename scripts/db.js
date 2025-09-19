@@ -2,18 +2,19 @@
 
 /**
  * 数据库操作脚本
- * 支持参数和命令语句
+ * 在 Docker 容器内运行，直接使用 wrangler d1 execute 命令
  * 
  * 用法:
  *   node scripts/db.js init [--remote]
  *   node scripts/db.js migrate
  *   node scripts/db.js import
+ *   node scripts/db.js "SELECT * FROM users"
+ *   node scripts/db.js U0VMRUNUICogRlJPTSB1c2Vycwo=  # base64 编码的 SQL
  */
 
-import { spawn } from 'child_process';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { getEnvironmentInfo, isEnvironmentAvailable } from './env-detector.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -22,237 +23,225 @@ const projectRoot = join(__dirname, '..');
 // 解析命令行参数
 function parseArgs() {
   const args = process.argv.slice(2);
-  const command = args[0];
+
+  // 如果没有参数，显示帮助
+  if (args.length === 0) {
+    return { command: 'help' };
+  }
+
+  const firstArg = args[0];
   const isRemote = args.includes('--remote');
 
-  return { command, isRemote };
+  // 检查是否是预定义命令
+  const predefinedCommands = ['init', 'migrate', 'import', 'help'];
+  if (predefinedCommands.includes(firstArg)) {
+    return { command: firstArg, isRemote };
+  }
+
+  // 检查是否是 base64 编码的 SQL
+  if (isBase64(firstArg)) {
+    return { command: 'sql', sql: decodeBase64(firstArg), isRemote };
+  }
+
+  // 否则当作直接的 SQL 命令
+  return { command: 'sql', sql: firstArg, isRemote };
+}
+
+// 检查是否是 base64 编码
+function isBase64(str) {
+  try {
+    // 检查字符串是否只包含 base64 字符
+    const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+    if (!base64Regex.test(str)) {
+      return false;
+    }
+
+    // 尝试解码并重新编码，看是否一致
+    const decoded = Buffer.from(str, 'base64').toString('utf-8');
+    const reencoded = Buffer.from(decoded, 'utf-8').toString('base64');
+    return reencoded === str;
+  } catch (err) {
+    return false;
+  }
+}
+
+// 解码 base64
+function decodeBase64(str) {
+  try {
+    return Buffer.from(str, 'base64').toString('utf-8');
+  } catch (err) {
+    return str;
+  }
 }
 
 // 执行数据库清理
 async function executeDbClean(isRemote) {
-  const envInfo = getEnvironmentInfo();
-  console.log(`🧹 清理数据库 (${envInfo.description}${isRemote ? ', 远程' : ''})...`);
+  console.log(`🧹 清理数据库${isRemote ? ' (远程)' : ''}...`);
+  let tablesResult
+  try {
+    console.log('📋 查询数据库中的表...');
+    tablesResult = await executeSQL('SELECT name FROM sqlite_master WHERE type="table" AND name NOT LIKE "sqlite_%"', isRemote);
+  } catch (error) {
+    console.log('⚠️ 查询所有表失败...');
+  }
+  if (tablesResult && tablesResult.results && tablesResult.results.length > 0) {
+    const tables = tablesResult.results.map(row => row.name);
+    console.log(`📋 发现 ${tables.length} 个表:`, tables.join(', '));
 
-  return new Promise((resolve, reject) => {
-    const cleanSQL = `
-      -- 查询所有表
-      SELECT name FROM sqlite_master WHERE type='table';
-    `;
-
-    let cmd, args;
-
-    if (envInfo.isLocal) {
-      cmd = 'npx';
-      args = ['wrangler', 'd1', 'execute', 'cem-db', '--command', cleanSQL];
-      if (isRemote) args.push('--remote');
-      args.push('--json');
-    } else {
-      // Docker 环境（使用 --net=host，路径映射到宿主机）
-
-      cmd = 'docker';
-      args = ['exec', 'node', 'bash', '-c'];
-      const scriptCmd = `cd worker && npx wrangler d1 execute cem-db --command "${cleanSQL}"${isRemote ? ' --remote' : ''} --json`;
-      args.push(scriptCmd);
-    }
-
-    const process = spawn(cmd, args, {
-      cwd: envInfo.isLocal ? projectRoot : projectRoot,
-      stdio: 'pipe',
-      shell: true
-    });
-
-    let output = '';
-    process.stdout.on('data', (data) => {
-      output += data.toString();
-    });
-
-    process.on('exit', async (code) => {
-      if (code === 0) {
+    console.log('🗑️ 删除所有表...');
+    for (const tableName of tables) {
+      if (tableName !== '_cf_METADATA') {
         try {
-          const data = JSON.parse(output);
-          const userTables = data[0].results
-            .map(r => r.name)
-            .filter(name => !name.startsWith("_cf_") && name !== "sqlite_sequence");
-
-          if (userTables.length === 0) {
-            console.log("没有需要删除的用户表。");
-          } else {
-            console.log("用户表列表:", userTables);
-
-            // 删除所有用户表
-            for (const table of userTables) {
-              console.log(`删除表: ${table}`);
-              await executeSQL(`DROP TABLE IF EXISTS "${table}";`, isRemote);
-            }
-
-            // 清空自增序列
-            try {
-              await executeSQL("DELETE FROM sqlite_sequence;", isRemote);
-            } catch (e) {
-              console.log("⚠️ 没有 sqlite_sequence 表，跳过。");
-            }
-          }
-
-          console.log('✅ 数据库清理完成');
-          resolve();
+          await executeSQL(`DROP TABLE IF EXISTS "${tableName}"`, isRemote);
+          console.log(`  删除表: ${tableName} 成功`);
         } catch (error) {
-          reject(new Error(`数据库清理失败: ${error.message}`));
+          console.log(`⚠️ 删除表: ${tableName} 失败...${error}`);
         }
-      } else {
-        reject(new Error(`数据库清理失败，代码: ${code}`));
       }
-    });
-  });
-}
-
-// 执行 SQL 命令
-async function executeSQL(sql, isRemote) {
-  const envInfo = getEnvironmentInfo();
-
-  return new Promise((resolve, reject) => {
-    let cmd, args;
-
-    if (envInfo.isLocal) {
-      cmd = "npx";
-      args = ['wrangler', 'd1', 'execute', 'cem-db', '--command', sql];
-      if (isRemote) args.push('--remote');
-    } else {
-      // Docker 环境（使用 --net=host，路径映射到宿主机）
-
-      cmd = 'docker';
-      args = ['exec', 'node', 'bash', '-c'];
-      const scriptCmd = `cd worker && npx wrangler d1 execute cem-db --command "${sql}"${isRemote ? ' --remote' : ''}`;
-      args.push(scriptCmd);
     }
+  } else {
+    console.log('📋 数据库中没有表');
+  }
 
-    const process = spawn(cmd, args, {
-      cwd: envInfo.isLocal ? projectRoot : projectRoot,
-      stdio: 'inherit',
-      shell: true
-    });
+  // 3. 清空自增序列
+  console.log('🔄 清空自增序列...');
+  try {
+    await executeSQL('DELETE FROM sqlite_sequence', isRemote);
+  } catch (error) {
+    console.log('⚠️ 清空自增序列失败...');
+  }
 
-    process.on('exit', (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`SQL 执行失败，代码: ${code}`));
-      }
-    });
-  });
+
+  console.log('✅ 数据库清理完成');
 }
 
 // 执行数据库初始化
 async function executeDbInit(isRemote) {
-  const envInfo = getEnvironmentInfo();
-  console.log(`🔧 初始化数据库 (${envInfo.description}${isRemote ? ', 远程' : ''})...`);
+  console.log(`🔧 初始化数据库${isRemote ? ' (远程)' : ''}...`);
 
   // 先清理数据库
   await executeDbClean(isRemote);
 
-  // 然后执行 schema.sql
-  return new Promise((resolve, reject) => {
-    let cmd, args;
-
-    if (envInfo.isLocal) {
-
-      cmd = pm;
-      args = ['wrangler', 'd1', 'execute', 'cem-db'];
-      if (isRemote) args.push('--remote');
-      args.push('--file=' + join(projectRoot, 'db', 'schema.sql'));
-    } else {
-      // Docker 环境（使用 --net=host，路径映射到宿主机）
-
-      cmd = 'docker';
-      args = ['exec', 'node', 'bash', '-c'];
-      const scriptCmd = `cd worker && npx wrangler d1 execute cem-db --file=db/schema.sql${isRemote ? ' --remote' : ''}`;
-      args.push(scriptCmd);
-    }
-
-    const process = spawn(cmd, args, {
-      cwd: envInfo.isLocal ? projectRoot : projectRoot,
-      stdio: 'inherit',
-      shell: true
+  // 执行 schema.sql
+  try {
+    execSync(`npx wrangler d1 execute cem-db --file=db/schema.sql${isRemote ? ' --remote' : ''} --json`, {
+      stdio: 'ignore',
+      cwd: projectRoot
     });
-
-    process.on('exit', (code) => {
-      if (code === 0) {
-        console.log('✅ 数据库初始化完成');
-        resolve();
-      } else {
-        reject(new Error(`数据库初始化失败，代码: ${code}`));
-      }
-    });
-  });
+    console.log('✅ 数据库初始化完成');
+  } catch (error) {
+    console.error('❌ 数据库初始化失败:', error.message);
+    process.exit(1);
+  }
 }
 
 // 执行迁移命令
 async function executeMigrate() {
-  const envInfo = getEnvironmentInfo();
-  console.log(`🔧 执行数据库迁移 (${envInfo.description})...`);
+  console.log('🔧 执行数据库迁移...');
 
-  return new Promise((resolve, reject) => {
-    let cmd, args;
-
-    if (envInfo.isLocal) {
-
-      cmd = pm;
-      args = ['wrangler', 'd1', 'migrations', 'apply', 'cem-db'];
-    } else {
-      // Docker 环境（使用 --net=host，路径映射到宿主机）
-
-      cmd = 'docker';
-      args = ['exec', 'node', 'bash', '-c', `cd worker && npx wrangler d1 migrations apply cem-db`];
-    }
-
-    const process = spawn(cmd, args, {
-      cwd: envInfo.isLocal ? join(projectRoot, 'worker') : projectRoot,
+  try {
+    execSync('npx wrangler d1 migrations apply cem-db', {
       stdio: 'inherit',
-      shell: true
+      cwd: join(projectRoot, 'worker')
     });
-
-    process.on('exit', (code) => {
-      if (code === 0) {
-        console.log('✅ 数据库迁移完成');
-        resolve();
-      } else {
-        reject(new Error(`数据库迁移失败，代码: ${code}`));
-      }
-    });
-  });
+    console.log('✅ 数据库迁移完成');
+  } catch (error) {
+    console.error('❌ 数据库迁移失败:', error.message);
+    process.exit(1);
+  }
 }
 
 // 执行导入命令
 async function executeImport() {
-  const envInfo = getEnvironmentInfo();
-  console.log(`🔧 导入邮件数据 (${envInfo.description})...`);
+  console.log('🔧 导入邮件数据...');
 
-  return new Promise((resolve, reject) => {
-    let cmd, args;
-
-    if (envInfo.isLocal) {
-      cmd = 'node';
-      args = ['import-emails-to-db-local.js'];
-    } else {
-      // Docker 环境（使用 --net=host，路径映射到宿主机）
-      cmd = 'docker';
-      args = ['exec', 'node', 'bash', '-c', 'cd worker && node import-emails-to-db-local.js'];
-    }
-
-    const process = spawn(cmd, args, {
-      cwd: envInfo.isLocal ? join(projectRoot, 'worker') : projectRoot,
+  try {
+    execSync('node import-emails-to-db-local.js', {
       stdio: 'inherit',
-      shell: true
+      cwd: join(projectRoot, 'worker')
     });
+    console.log('✅ 邮件数据导入完成');
+  } catch (error) {
+    console.error('❌ 邮件数据导入失败:', error.message);
+    process.exit(1);
+  }
+}
 
-    process.on('exit', (code) => {
-      if (code === 0) {
-        console.log('✅ 邮件数据导入完成');
-        resolve();
-      } else {
-        reject(new Error(`邮件数据导入失败，代码: ${code}`));
-      }
+// 执行自定义 SQL 命令
+async function executeSQL(sql, isRemote) {
+  console.log(`🔧 执行 SQL 命令${isRemote ? ' (远程)' : ''}...`);
+  console.log(`SQL: ${sql}`);
+
+  try {
+    // 使用 spawn 而不是 execSync 来避免 shell 引号问题
+    const { spawn } = await import('child_process');
+
+    return new Promise((resolve, reject) => {
+      const args = ['wrangler', 'd1', 'execute', 'cem-db', '--command', sql, '--json'];
+      if (isRemote) args.push('--remote');
+
+      let stdout = '';
+      let stderr = '';
+
+      const process = spawn('npx', args, {
+        cwd: projectRoot,
+        stdio: ['inherit', 'pipe', 'pipe']
+      });
+
+      process.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      process.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      process.on('close', (code) => {
+        if (code === 0) {
+          console.log('✅ SQL 命令执行完成');
+          try {
+            // 解析 JSON 输出 - wrangler 返回的是数组格式
+            const results = JSON.parse(stdout);
+
+            // 处理数组格式的结果
+            if (Array.isArray(results) && results.length > 0) {
+              const result = results[0]; // 取第一个结果
+
+              // 如果是查询结果，显示数据
+              if (result && result.results && result.results.length > 0) {
+                console.log('📊 查询结果:');
+                console.log(JSON.stringify(result));
+              } else if (result && result.success) {
+                console.log('✅ 命令执行成功');
+              }
+
+              resolve(result);
+            } else {
+              console.log('✅ 命令执行成功');
+              resolve({ success: true });
+            }
+          } catch (parseError) {
+            console.log('⚠️ JSON 解析失败，返回原始输出');
+            console.log('原始输出:', stdout);
+            resolve({ success: true, raw: stdout });
+          }
+        } else {
+          console.error('❌ SQL 命令执行失败');
+          console.error('stderr:', stderr);
+          console.error('stdout:', stdout);
+          reject(new Error(`Command failed with code ${code}`));
+        }
+      });
+
+      process.on('error', (error) => {
+        console.error('❌ SQL 命令执行失败:', error.message);
+        reject(error);
+      });
     });
-  });
+  } catch (error) {
+    console.error('❌ SQL 命令执行失败:', error.message);
+    throw error;
+  }
 }
 
 // 显示帮助信息
@@ -261,43 +250,38 @@ function showHelp() {
 📋 数据库操作脚本
 
 用法:
-  node scripts/db.js <command> [options]
+  node scripts/db.js <command|sql> [options]
 
 命令:
   init     初始化数据库
   migrate  执行数据库迁移
   import   导入邮件数据
+  help     显示帮助信息
+
+SQL 执行:
+  node scripts/db.js "SELECT * FROM users"
+  node scripts/db.js "SELECT * FROM users" --remote
+  node scripts/db.js U0VMRUNUICogRlJPTSB1c2Vycwo=  # base64 编码
 
 选项:
-  --remote 使用远程数据库（仅对 init 命令有效）
+  --remote 使用远程数据库
 
 示例:
   node scripts/db.js init
   node scripts/db.js init --remote
   node scripts/db.js migrate
   node scripts/db.js import
+  node scripts/db.js "SELECT * FROM users"
+  node scripts/db.js "SELECT * FROM users" --remote
+  node scripts/db.js U0VMRUNUICogRlJPTSB1c2Vycwo=  # base64: "SELECT * FROM users"
 `);
 }
 
 // 主函数
 async function main() {
-  const { command, isRemote } = parseArgs();
-
-  if (!command) {
-    showHelp();
-    return;
-  }
+  const { command, isRemote, sql } = parseArgs();
 
   try {
-    // 检查环境是否可用
-    if (!isEnvironmentAvailable()) {
-      console.error('❌ 环境不可用，请检查 wrangler 安装或 Docker 容器状态');
-      process.exit(1);
-    }
-
-    const envInfo = getEnvironmentInfo();
-    console.log(`🔧 检测到环境: ${envInfo.description}`);
-
     switch (command) {
       case 'init':
         await executeDbInit(isRemote);
@@ -308,13 +292,23 @@ async function main() {
       case 'import':
         await executeImport();
         break;
+      case 'sql':
+        if (!sql) {
+          console.error('❌ 需要提供 SQL 命令');
+          showHelp();
+          process.exit(1);
+        }
+        await executeSQL(sql, isRemote);
+        break;
+      case 'help':
       default:
-        console.error(`❌ 未知命令: ${command}`);
         showHelp();
-        process.exit(1);
+        break;
     }
 
-    console.log('🎉 操作成功！');
+    if (command !== 'help') {
+      console.log('🎉 操作成功！');
+    }
   } catch (error) {
     console.error('❌ 操作失败:', error.message);
     process.exit(1);

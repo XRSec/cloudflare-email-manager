@@ -11,23 +11,46 @@ import { HTTPException } from 'hono/http-exception';
 import { initDebugMode } from './utils/debug';
 import { initializeSystemSettings, getSystemConfig } from './services/settings';
 import { jwtAuthMiddleware, adminAuthMiddleware } from './middleware/auth';
+import { generateConfigScript, generateEnvScript } from './utils/dynamic-config';
 
 // 路由模块
-import { auth } from './routes/auth';
-import { user } from './routes/user';
-import { admin } from './routes/admin';
-import { system } from './routes/system';
-import { adminSecurityRoutes } from './routes/admin-security';
-import { mailbox } from './routes/mailbox';
+import { api } from './routes/api';
 
 // 处理器模块
 import emailHandler from './handlers/email';
 import scheduledHandler from './handlers/scheduled';
 
-// 静态资源服务
-import { staticAssetService } from './services/static';
+// 静态资源服务已移除，现在使用 ASSETS 绑定
 
 import type { Env, ExecutionContext, ScheduledEvent } from './types';
+
+/**
+ * 注入动态配置到HTML中
+ */
+async function injectDynamicConfig(html: string, db: D1Database): Promise<string> {
+    try {
+        // 生成配置脚本
+        const configScript = await generateConfigScript(db);
+        const envScript = generateEnvScript();
+
+        // 在</head>标签前注入配置
+        const injectionPoint = '</head>';
+        const scripts = `
+    <script>
+        ${envScript}
+    </script>
+    <script>
+        ${configScript}
+    </script>
+`;
+
+        return html.replace(injectionPoint, scripts + injectionPoint);
+    } catch (error) {
+        console.error('注入动态配置失败:', error);
+        // 如果注入失败，返回原始HTML
+        return html;
+    }
+}
 
 // 创建 Hono 应用
 const app = new Hono<{ Bindings: Env }>();
@@ -39,7 +62,7 @@ app.use('*', cors({
     allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// 静态资源处理中间件
+// 静态资源处理中间件 - 参考 cloudflare_temp_email 实现
 app.use('*', async (c, next) => {
     // 检查是否为静态文件请求
     if (c.env.ASSETS && !c.req.path.startsWith('/api/')) {
@@ -51,7 +74,7 @@ app.use('*', async (c, next) => {
         }
 
         // 通过 ASSETS 绑定获取静态资源
-        return c.env.ASSETS.fetch(url);
+        return c.env.ASSETS.fetch(url.toString());
     }
 
     await next();
@@ -91,13 +114,8 @@ app.notFound((c: any) => {
     }, 404);
 });
 
-// 注册路由模块
-app.route('/api', auth);           // 认证相关: /api/register, /api/login, /api/logout
-app.route('/api/protected', user); // 用户功能: /api/protected/...
-app.route('/api/admin', admin);    // 管理员功能: /api/admin/...
-app.route('/api/admin/security', adminSecurityRoutes); // 管理员安全功能: /api/admin/security/...
-app.route('/api/system', system);  // 系统配置: /api/system/...
-app.route('/api/mailbox', mailbox); // 邮箱管理: /api/mailbox/...
+// 注册统一API路由
+app.route('/api', api);
 
 // 调试接口（仅在调试模式下启用，且仅管理员可访问）
 app.get('/api/debug', async (c: any) => {
@@ -195,7 +213,7 @@ app.post('/api/debug/simulate-email', async (c: any) => {
     }
 });
 
-// 静态资源路由 - 处理所有前端资源
+// 静态资源路由 - 通过 ASSETS 绑定处理所有前端资源
 app.get('*', async (c: any) => {
     const path = c.req.path;
 
@@ -204,34 +222,37 @@ app.get('*', async (c: any) => {
         return c.notFound();
     }
 
-    try {
-        const html = await getTemplate();
-        return new Response(html, {
-            status: 200,
-            headers: {
-                'Content-Type': 'text/html; charset=utf-8',
-                'Cache-Control': 'public, max-age=300' // 缓存5分钟，便于更新
-            }
-        });
-        // 尝试获取静态资源
-        const assetResponse = await staticAssetService.getAsset(path, c.env);
+    // 通过 ASSETS 绑定获取静态资源
+    if (c.env.ASSETS) {
+        const url = new URL(c.req.raw.url);
 
-        if (assetResponse) {
-            return assetResponse;
+        // 如果是 SPA 路由（没有文件扩展名），重定向到根路径
+        if (!url.pathname.includes('.')) {
+            url.pathname = '/';
         }
 
-        // 如果找不到具体资源，返回默认HTML（SPA路由支持）
-        const defaultHTML = await staticAssetService.getDefaultHTML(c.env);
-        if (defaultHTML) {
-            return defaultHTML;
+        const response = await c.env.ASSETS.fetch(url.toString());
+
+        // 如果是HTML文件，注入动态配置
+        if (response && response.headers.get('content-type')?.includes('text/html')) {
+            const html = await response.text();
+            const modifiedHtml = await injectDynamicConfig(html, c.env.DB);
+
+            return new Response(modifiedHtml, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: {
+                    ...Object.fromEntries(response.headers.entries()),
+                    'Content-Type': 'text/html; charset=utf-8'
+                }
+            });
         }
 
-        // 如果连默认HTML都没有，返回404
-        return c.text('页面不存在', 404);
-    } catch (error) {
-        console.error('静态资源处理失败:', error);
-        return c.text('服务器错误', 500);
+        return response;
     }
+
+    // 如果没有 ASSETS 绑定，返回404
+    return c.text('前端资源不可用', 404);
 });
 
 // favicon.ico 处理（返回空响应避免404）
@@ -244,20 +265,7 @@ app.get('/favicon.ico', (c: any) => {
     });
 });
 
-// 静态资源路由
-app.get('/static/*', async (c: any) => {
-    const path = c.req.path.replace('/static/', '');
-
-    // 这里可以从 KV 或其他存储中获取静态资源
-    // 目前返回 404，但添加了缓存头
-    return new Response('静态资源不存在', {
-        status: 404,
-        headers: {
-            'Cache-Control': 'public, max-age=3600', // 缓存1小时
-            'Content-Type': 'text/plain; charset=utf-8'
-        }
-    });
-});
+// 静态资源路由已移除，现在通过 ASSETS 绑定处理
 
 /**
  * Workers 主要导出对象

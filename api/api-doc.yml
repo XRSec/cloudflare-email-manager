@@ -93,8 +93,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoginResponse'
+              examples:
+                success:
+                  summary: 登录成功示例
+                  value:
+                    success: true
+                    message: "登录成功"
+                    data:
+                      token: "xxxxx.xxxx.xxx"
+                      user:
+                        id: 1
+                        username: "admin"
+                        user_type: "admin"
+                        webhook_url: null
+                        created_at: "2025-09-12 18:03:08"
         '401':
-          $ref: '#/components/responses/UnauthorizedError'
+          description: 认证失败
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  message:
+                    type: string
+                    example: 用户不存在或密码错误
+              examples:
+                wrong_password:
+                  summary: 密码错误
+                  value:
+                    success: false
+                    message: "用户不存在或密码错误"
+                user_not_found:
+                  summary: 用户不存在
+                  value:
+                    success: false
+                    message: "用户不存在或密码错误"
 
   /api/auth/logout:
     post:
@@ -110,6 +146,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
+              examples:
+                success:
+                  summary: 登出成功示例
+                  value:
+                    success: true
+                    message: "登出成功"
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
@@ -177,6 +219,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserProfile'
+              examples:
+                admin_user:
+                  summary: 管理员用户信息
+                  value:
+                    id: 1
+                    username: "admin"
+                    email: "admin@example.com"
+                    user_type: "admin"
+                    created_at: "2025-09-12 18:03:08"
+                    updated_at: "2025-09-12 18:09:44"
+                    settings:
+                      webhook_url: null
+                      webhook_secret: null
+                normal_user:
+                  summary: 普通用户信息
+                  value:
+                    id: 2
+                    username: "user1"
+                    email: "user1@example.com"
+                    user_type: "user"
+                    created_at: "2025-09-12 18:05:00"
+                    updated_at: "2025-09-12 18:05:00"
+                    settings:
+                      webhook_url: "https://hooks.slack.com/services/xxx"
+                      webhook_secret: "secret123"
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
@@ -495,13 +562,22 @@ paths:
         - 邮箱
       summary: 获取邮箱列表
       description: |
-        - 普通用户：仅返回自己的邮箱
-        - 管理员：可返回所有邮箱（支持分页）
+        - 默认行为：始终返回当前用户的邮箱
+        - 当 scope=all 时：需要管理员权限，返回所有邮箱
+        - 支持分页查询
       security:
         - cookieAuth: []
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/LimitParam'
+        - name: scope
+          in: query
+          description: 查询范围，all=所有邮箱（需管理员权限），其他值或不传则返回当前用户的邮箱
+          required: false
+          schema:
+            type: string
+            enum: [all]
+          example: all
       responses:
         '200':
           description: 获取成功
@@ -509,8 +585,68 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MailboxListResponse'
+              examples:
+                user_mailboxes:
+                  summary: 普通用户邮箱列表
+                  description: 普通用户只能看到自己的邮箱
+                  value:
+                    total: 2
+                    items:
+                      - id: 1
+                        owner_id: 2
+                        owner_username: "user1"
+                        address: "user1@example.com"
+                        status: "active"
+                        created_at: "2025-09-12 18:05:00"
+                        updated_at: "2025-09-12 18:05:00"
+                      - id: 2
+                        owner_id: 2
+                        owner_username: "user1"
+                        address: "test@example.com"
+                        status: "active"
+                        created_at: "2025-09-12 18:06:00"
+                        updated_at: "2025-09-12 18:06:00"
+                admin_mailboxes:
+                  summary: 管理员查看所有邮箱
+                  description: 管理员需要看到所有用户的邮箱信息
+                  value:
+                    total: 5
+                    items:
+                      - id: 1
+                        owner_id: 1
+                        owner_username: "admin"
+                        address: "admin@example.com"
+                        status: "active"
+                        created_at: "2025-09-12 18:03:08"
+                        updated_at: "2025-09-12 18:03:08"
+                      - id: 2
+                        owner_id: 2
+                        owner_username: "user1"
+                        address: "user1@example.com"
+                        status: "active"
+                        created_at: "2025-09-12 18:05:00"
+                        updated_at: "2025-09-12 18:05:00"
+                      - id: 3
+                        owner_id: 2
+                        owner_username: "user1"
+                        address: "test@example.com"
+                        status: "disabled"
+                        created_at: "2025-09-12 18:06:00"
+                        updated_at: "2025-09-12 18:06:00"
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          description: 权限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                insufficient_permission:
+                  summary: 权限不足
+                  value:
+                    success: false
+                    error: "权限不足，只有管理员可以查看所有邮箱"
 
     post:
       tags:
@@ -802,7 +938,442 @@ paths:
           $ref: '#/components/responses/NotFoundError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+  # ==================== 邮箱历史 ====================
+  /api/mailbox-history/{mailboxId}:
+    get:
+      tags:
+        - 邮箱历史
+      summary: 获取指定邮箱的历史记录
+      description: 获取指定邮箱的所有操作历史记录
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: mailboxId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 邮箱ID
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MailboxHistoryListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/mailbox-history/user/me:
+    get:
+      tags:
+        - 邮箱历史
+      summary: 获取当前用户的邮箱历史记录
+      description: 获取当前用户所有邮箱的操作历史记录
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMailboxHistoryListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/mailbox-history/admin/all:
+    get:
+      tags:
+        - 邮箱历史
+      summary: 获取所有邮箱历史记录（仅管理员）
+      description: 获取系统中所有邮箱的操作历史记录
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserMailboxHistoryListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  # ==================== 用户信息 ====================
+  /api/user-info/username/{userId}:
+    get:
+      tags:
+        - 用户信息
+      summary: 根据用户ID获取用户名
+      description: 根据用户ID获取用户名和用户类型信息
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 用户ID
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      username:
+                        type: string
+                      user_type:
+                        type: string
+        '404':
+          description: 用户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/user-info/usernames:
+    post:
+      tags:
+        - 用户信息
+      summary: 批量获取用户名
+      description: 根据用户ID列表批量获取用户名信息
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: 用户ID列表
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        username:
+                          type: string
+                        user_type:
+                          type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
   # ==================== 系统 ====================
+  /api/system/registration-status:
+    get:
+      tags:
+        - 系统
+      summary: 获取注册状态
+      description: 查询系统是否允许新用户注册
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      allow_registration:
+                        type: boolean
+                        description: 是否允许注册
+                        example: true
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/system/health:
+    get:
+      tags:
+        - 系统
+      summary: 获取系统健康状态
+      description: 获取无需认证的系统健康状态，包括系统状态、健康检查、配置信息等，使用数字格式
+      responses:
+        '200':
+          description: 获取成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      health:
+                        type: object
+                        properties:
+                          status:
+                            type: integer
+                            description: 系统状态 (1=健康, 0=不健康)
+                            example: 1
+                          timestamp:
+                            type: string
+                            format: date-time
+                            description: 检查时间
+                            example: "2024-01-01T00:00:00.000Z"
+                          services:
+                            type: object
+                            properties:
+                              database:
+                                type: object
+                                properties:
+                                  status:
+                                    type: integer
+                                    description: 数据库状态 (1=正常, 0=异常)
+                                    example: 1
+                                  latency_ms:
+                                    type: integer
+                                    description: 数据库响应延迟（毫秒）
+                                    example: 15
+                              storage:
+                                type: object
+                                properties:
+                                  status:
+                                    type: integer
+                                    description: R2存储状态 (1=正常, 0=异常)
+                                    example: 1
+                                  provider:
+                                    type: integer
+                                    description: 存储提供商 (1=R2, 0=其他)
+                                    example: 1
+                              kv:
+                                type: object
+                                properties:
+                                  status:
+                                    type: integer
+                                    description: KV存储状态 (1=正常, 0=异常)
+                                    example: 1
+                                  provider:
+                                    type: integer
+                                    description: KV提供商 (1=KV, 0=其他)
+                                    example: 1
+                          total_latency_ms:
+                            type: integer
+                            description: 总检查延迟（毫秒）
+                            example: 25
+                          config:
+                            type: object
+                            properties:
+                              allow_registration:
+                                type: integer
+                                description: 是否允许注册 (1=是, 0=否)
+                                example: 1
+                              allow_user_send:
+                                type: integer
+                                description: 是否允许用户发送邮件 (1=是, 0=否)
+                                example: 0
+                              debug_mode:
+                                type: integer
+                                description: 调试模式状态 (1=开启, 0=关闭)
+                                example: 0
+                              max_mailboxes_per_user:
+                                type: integer
+                                description: 每用户最大邮箱数
+                                example: 5
+                              storage_provider:
+                                type: integer
+                                description: 存储提供商 (1=R2, 0=其他)
+                                example: 1
+                              max_attachment_size:
+                                type: integer
+                                description: 最大附件大小（字节）
+                                example: 52428800
+                              mail_retention_days:
+                                type: integer
+                                description: 邮件保留天数
+                                example: 30
+                              supported_domains:
+                                type: array
+                                items:
+                                  type: string
+                                description: 支持的域名列表
+                                example: ["example.com", "test.com"]
+                          version:
+                            type: integer
+                            description: 系统版本 (1.0.0 -> 100)
+                            example: 100
+                          uptime:
+                            type: integer
+                            description: 系统运行时间（秒）
+                            example: 0
+        '500':
+          description: 系统不健康
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  data:
+                    type: object
+                    properties:
+                      health:
+                        type: object
+                        properties:
+                          status:
+                            type: integer
+                            example: 0
+                          timestamp:
+                            type: string
+                            format: date-time
+                          services:
+                            type: object
+                            properties:
+                              database:
+                                type: object
+                                properties:
+                                  status:
+                                    type: integer
+                                    example: 0
+                                  latency_ms:
+                                    type: integer
+                                    example: 0
+                              storage:
+                                type: object
+                                properties:
+                                  status:
+                                    type: integer
+                                    example: 0
+                                  provider:
+                                    type: integer
+                                    example: 1
+                              kv:
+                                type: object
+                                properties:
+                                  status:
+                                    type: integer
+                                    example: 0
+                                  provider:
+                                    type: integer
+                                    example: 1
+                          total_latency_ms:
+                            type: integer
+                            example: 0
+                          error:
+                            type: string
+                            example: "系统服务异常"
+                          config:
+                            type: object
+                            properties:
+                              allow_registration:
+                                type: integer
+                                example: 0
+                              allow_user_send:
+                                type: integer
+                                example: 0
+                              debug_mode:
+                                type: integer
+                                example: 0
+                              max_mailboxes_per_user:
+                                type: integer
+                                example: 0
+                              storage_provider:
+                                type: integer
+                                example: 0
+                              max_attachment_size:
+                                type: integer
+                                example: 0
+                              mail_retention_days:
+                                type: integer
+                                example: 0
+                              supported_domains:
+                                type: array
+                                items:
+                                  type: string
+                                example: []
+                          version:
+                            type: integer
+                            example: 0
+                          uptime:
+                            type: integer
+                            example: 0
+
+  /api/system/clear-cache:
+    post:
+      tags:
+        - 系统
+      summary: 清理系统缓存
+      description: 清理系统公开信息缓存（仅管理员）
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: 清理成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "系统缓存已清理"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /api/system/config:
     get:
       tags:
@@ -851,32 +1422,12 @@ paths:
         '403':
           $ref: '#/components/responses/ForbiddenError'
 
-  /api/system/health:
-    get:
-      tags:
-        - 系统
-      summary: 健康检查
-      description: 检查服务运行状态
-      responses:
-        '200':
-          description: 服务正常
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ok
-                  timestamp:
-                    type: string
-                    format: date-time
 components:
   securitySchemes:
     cookieAuth:
       type: apiKey
       in: cookie
-      name: session_token
+      name: session_cookies
 
   responses:
     UnauthorizedError:
@@ -885,18 +1436,61 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            no_token:
+              summary: 未提供认证令牌
+              value:
+                success: false
+                message: "未提供认证令牌"
+            invalid_token:
+              summary: 无效的认证令牌
+              value:
+                success: false
+                message: "无效的认证令牌"
+            expired_token:
+              summary: 认证令牌已过期
+              value:
+                success: false
+                message: "认证令牌已过期"
     ForbiddenError:
       description: 权限不足
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            admin_required:
+              summary: 需要管理员权限
+              value:
+                success: false
+                message: "需要管理员权限"
+            insufficient_permissions:
+              summary: 权限不足
+              value:
+                success: false
+                message: "权限不足"
     NotFoundError:
       description: 资源不存在
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            user_not_found:
+              summary: 用户不存在
+              value:
+                success: false
+                message: "用户不存在"
+            mailbox_not_found:
+              summary: 邮箱不存在
+              value:
+                success: false
+                message: "邮箱不存在"
+            email_not_found:
+              summary: 邮件不存在
+              value:
+                success: false
+                message: "邮件不存在"
 
   parameters:
     PageParam:
@@ -960,9 +1554,13 @@ components:
         email:
           type: string
           format: email
-        role:
+        user_type:
           type: string
           enum: [user, admin]
+        status:
+          type: integer
+          enum: [1, 2, 3]
+          description: 用户状态：1=激活, 2=停用, 3=删除
         created_at:
           type: string
           format: date-time
@@ -1024,7 +1622,7 @@ components:
         email:
           type: string
           format: email
-        role:
+        user_type:
           type: string
           enum: [user, admin]
           default: user
@@ -1086,16 +1684,28 @@ components:
       properties:
         id:
           type: integer
-        address:
-          type: string
         owner_id:
           type: integer
+        owner_username:
+          type: string
+          description: 邮箱所有者用户名
+        address:
+          type: string
+        status:
+          type: integer
+          enum: [1, 2, 3]
+          description: 邮箱状态(1: 正常, 2: 停用(管理员封禁), 3: 已删除(用户删除)
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: 删除时间
         created_at:
           type: string
           format: date-time
-        status:
+        updated_at:
           type: string
-          enum: [active, disabled, pending]
+          format: date-time
 
     MailboxResponse:
       type: object
@@ -1219,25 +1829,134 @@ components:
           items:
             $ref: '#/components/schemas/ForwardRuleResponse'
 
+    # ==================== 邮箱历史 ====================
+    MailboxHistory:
+      type: object
+      properties:
+        id:
+          type: integer
+        mailbox_id:
+          type: integer
+        user_id:
+          type: integer
+          description: 操作人用户ID
+        owner_id:
+          type: integer
+          description: 邮箱所有者ID
+        action_type:
+          type: integer
+          enum: [1, 2, 3]
+          description: 操作类型（1=创建, 2=删除, 3=停用）
+        created_at:
+          type: string
+          format: date-time
+        user_username:
+          type: string
+          description: 操作人用户名
+        owner_username:
+          type: string
+          description: 邮箱所有者用户名
+        mailbox_address:
+          type: string
+          description: 邮箱地址（仅在用户历史记录中包含）
+
+    MailboxHistoryListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailboxHistory'
+
+    UserMailboxHistoryListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MailboxHistory'
+
     # ==================== 系统 ====================
     SystemConfig:
       type: object
       properties:
+        debug_mode:
+          type: boolean
+          description: 调试模式，启用后显示详细日志
+          default: false
+        allow_registration:
+          type: boolean
+          description: 是否允许新用户注册
+          default: true
+        auto_approve_mailbox:
+          type: boolean
+          description: 是否自动审核邮箱申请
+          default: false
+        supported_domains:
+          type: array
+          items:
+            type: string
+          description: 支持的邮箱域名列表
+          example: ["example.com", "test.com"]
+        mail_retention_days:
+          type: integer
+          minimum: 0
+          maximum: 365
+          description: 邮件保留天数，0表示永不过期
+          default: 30
+        attachment_max_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: 单个附件最大大小(MB)
+          default: 50
         allow_user_send:
           type: boolean
-          description: 是否允许普通用户发送邮件
+          description: 是否允许普通用户发送邮件（预留接口，暂未实现）
+          default: true
         max_mailboxes_per_user:
           type: integer
+          minimum: 1
+          description: 每个用户最大邮箱数量（预留接口，暂未实现）
+          default: 5
         storage_provider:
           type: string
           enum: [r2, s3, local]
+          description: 存储提供商（预留接口，暂未实现，默认使用 R2）
 
     SystemConfigUpdate:
       type: object
       properties:
+        debug_mode:
+          type: boolean
+        allow_registration:
+          type: boolean
+        auto_approve_mailbox:
+          type: boolean
+        supported_domains:
+          type: array
+          items:
+            type: string
+        mail_retention_days:
+          type: integer
+          minimum: 0
+          maximum: 365
+        attachment_max_size:
+          type: integer
+          minimum: 1
+          maximum: 100
         allow_user_send:
           type: boolean
+          description: 是否允许普通用户发送邮件（预留接口，暂未实现）
         max_mailboxes_per_user:
           type: integer
+          minimum: 1
+          description: 每个用户最大邮箱数量（预留接口，暂未实现）
         storage_provider:
           type: string
+          enum: [r2, s3, local]
+          description: 存储提供商（预留接口，暂未实现，默认使用 R2）

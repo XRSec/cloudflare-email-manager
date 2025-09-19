@@ -280,8 +280,8 @@ window.refreshConfig = async function() {
     }
     
     // 刷新前端调试状态
-    if (window.FrontendDebug && window.FrontendDebug.init) {
-        await window.FrontendDebug.init();
+    if (window.VueDebug && window.VueDebug.init) {
+        await window.VueDebug.init();
     }
     
     // 刷新调试信息

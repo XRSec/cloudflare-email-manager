@@ -110,7 +110,7 @@ export function matchForwardRule(email: Email, rule: ForwardRule): boolean {
 /**
  * 处理邮件转发
  */
-export async function handleEmailForwarding(email: Email, user: User, db: D1Database): Promise<void> {
+export async function handleEmailForwarding(email: Email, userId: number, db: D1Database): Promise<void> {
     try {
         // 获取启用的转发规则
         const rulesResult = await db.prepare(`
@@ -122,8 +122,13 @@ export async function handleEmailForwarding(email: Email, user: User, db: D1Data
 
         const rules = rulesResult.results as unknown as ForwardRule[];
 
-        // 检查用户个人 webhook
-        if (user.webhook_url) {
+        // 获取用户信息并检查个人 webhook
+        const userResult = await db.prepare(`
+            SELECT webhook_url, webhook_secret FROM users WHERE id = ?
+        `).bind(userId).first();
+
+        if (userResult && (userResult as any).webhook_url) {
+            const user = userResult as any;
             console.log(`发送用户个人webhook: ${user.webhook_url}`);
             const result = await sendWebhook(
                 user.webhook_url,
@@ -189,7 +194,7 @@ async function logForwardResult(
 /**
  * 获取转发规则列表
  */
-export async function getForwardRules(db: D1Database): Promise<ForwardRule[]> {
+export async function getForwardRules(db: D1Database, paginationParams?: { page: number; limit: number }): Promise<ForwardRule[]> {
     const result = await db.prepare(`
         SELECT id, rule_name, sender_filter, keyword_filter, recipient_filter,
                webhook_url, webhook_secret, webhook_type, enabled,

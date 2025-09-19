@@ -7,7 +7,7 @@
 ### 一体化部署架构
 ```
 cloudflare-email-manager/
-├── frontend/              # Vue 3 前端项目
+├── vue/              # Vue 3 前端项目
 │   ├── src/              # 前端源码
 │   └── dist/             # 构建产物（自动生成）
 ├── worker/               # Cloudflare Worker 后端
@@ -32,7 +32,7 @@ cloudflare-email-manager/
 
 ### 环境要求
 - Node.js >= 20.19.0
-- Docker（用于 Worker 开发）
+- Docker & Docker Compose
 - Cloudflare 账户
 
 ### 安装依赖
@@ -41,76 +41,66 @@ cloudflare-email-manager/
 npm install
 ```
 
-### 开发模式
+### 开发环境
 ```bash
-# 启动开发环境（前端 + 后端）
-npm run dev
+# 启动 Docker 容器（前端 + 后端）
+docker-compose up -d
+
+# 查看容器状态
+docker-compose ps
+
+# 停止容器
+docker-compose down
+
+# 查看日志
+docker-compose logs vue
+docker-compose logs worker
+
+# 重启服务
+docker-compose restart
+
+# 进入容器
+docker exec -it vue zsh  # 前端容器
+docker exec -it worker zsh    # 后端容器
 ```
 
 ### 构建和部署
 ```bash
-# 构建项目
-npm run build
+# 构建前端
+npm run build:vue
 
-# 部署到 Cloudflare
+# 构建后端
+npm run build:worker
+
+# 完整部署到 Cloudflare
 npm run deploy
 ```
 
 ### 数据库操作
 ```bash
-# 初始化数据库
+# 通过 npm 脚本（在宿主机运行）
 npm run db:init
-
-# 初始化远程数据库
 npm run db:init:remote
-
-# 执行数据库迁移
 npm run db:migrate
-
-# 导入邮件数据
 npm run db:import
 
-# 查看所有数据库命令
-npm run db
+# 直接在 Docker 容器内运行
+docker exec -it worker zsh -c "node scripts/db.js init"
+docker exec -it worker zsh -c "node scripts/db.js init --remote"
+docker exec -it worker zsh -c "node scripts/db.js migrate"
+docker exec -it worker zsh -c "node scripts/db.js import"
+
+# 执行 SQL 命令
+docker exec -it worker zsh -c "node scripts/db.js 'SELECT * FROM users'"
+docker exec -it worker zsh -c "node scripts/db.js 'SELECT * FROM users' --remote"
+
+# 执行 base64 编码的 SQL
+docker exec -it worker zsh -c "node scripts/db.js U0VMRUNUICogMSBhcyB0ZXN0"
 ```
-
-### Docker 配置
-```bash
-# 智能管理 Docker 容器
-npm run docker:start    # 启动容器（如果不存在则创建）
-npm run docker:stop     # 停止容器
-npm run docker:restart  # 重启容器
-npm run docker:status   # 查看容器状态
-npm run docker:build    # 构建镜像
-npm run docker:remove   # 删除容器
-
-# 或者直接使用脚本
-node scripts/docker.js start
-node scripts/docker.js status
-```
-
-### 手动 Docker 操作
-```bash
-# 构建 Docker 镜像
-docker build -t node:cem --progress=plain .
-
-# 检查容器状态
-docker ps -a | grep node
-
-# 创建并启动容器
-docker run -itd --name node -v "${PWD}/:${PWD}" -w "${PWD}" --net=host node:cem
-
-# 启动现有容器
-docker start node
-
-# 停止并删除容器
-docker stop node && docker rm node
-```
-
 
 ## 📁 目录结构
 
-### 前端 (frontend/)
+### 前端 (vue/)
 - `src/` - Vue 3 源码
   - `components/` - 可复用组件
   - `views/` - 页面组件
@@ -132,9 +122,9 @@ docker stop node && docker rm node
 - `package.json` - 统一依赖管理（前端 + 后端）
 - `wrangler.toml` - Cloudflare Worker 配置
 - `scripts/` - JavaScript 脚本
-  - `dev.js` - 开发环境启动脚本
   - `deploy.js` - 部署脚本
   - `db.js` - 数据库操作脚本
+  - `env-detector.js` - 环境检测模块
 
 ## 🔧 配置说明
 
@@ -145,7 +135,7 @@ main = "worker/src/main.ts"
 
 # 静态资源绑定
 [assets]
-directory = "frontend/dist/"
+directory = "vue/dist/"
 binding = "ASSETS"
 run_worker_first = true
 
@@ -186,8 +176,8 @@ bucket_name = "cem-r2"
 
 ### 添加新功能
 1. 在 `worker/src/routes/` 中添加 API 路由
-2. 在 `frontend/src/views/` 中添加页面组件
-3. 在 `frontend/src/api/` 中添加 API 调用
+2. 在 `vue/src/views/` 中添加页面组件
+3. 在 `vue/src/api/` 中添加 API 调用
 4. 更新类型定义
 
 ### 数据库操作

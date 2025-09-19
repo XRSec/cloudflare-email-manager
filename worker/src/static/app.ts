@@ -5,7 +5,7 @@
 export async function getJavaScript(): Promise<string> {
     return `
 // 前端调试系统
-const FrontendDebug = {
+const VueDebug = {
     enabled: false,
     
     // 初始化调试模式
@@ -30,9 +30,9 @@ const FrontendDebug = {
                 console.debug = function() {};
             }
             
-            console.log('[FrontendDebug] 调试模式:', this.enabled ? '已启用' : '已禁用');
+            console.log('[VueDebug] 调试模式:', this.enabled ? '已启用' : '已禁用');
         } catch (error) {
-            console.warn('[FrontendDebug] 初始化失败:', error);
+            console.warn('[VueDebug] 初始化失败:', error);
             // 默认在开发环境启用调试
             this.enabled = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         }
@@ -64,7 +64,7 @@ const FrontendDebug = {
 };
 
 // 初始化调试系统
-FrontendDebug.init();
+VueDebug.init();
 // =============================================================================
 // 临时邮箱管理系统 - 前端应用
 // =============================================================================
@@ -204,11 +204,11 @@ const State = {
     // 更新用户界面
     updateUserUI() {
         if (!this.currentUser) {
-            FrontendDebug.debug('updateUserUI: 没有当前用户');
+            VueDebug.debug('updateUserUI: 没有当前用户');
             return;
         }
 
-        FrontendDebug.debug('updateUserUI: 当前用户', this.currentUser);
+        VueDebug.debug('updateUserUI: 当前用户', this.currentUser);
 
         const userEmail = document.getElementById('userEmail');
         const userType = document.getElementById('userType');
@@ -236,15 +236,15 @@ const State = {
 
         // 显示/隐藏管理员菜单
         const adminMenuItems = document.getElementById('adminMenuItems');
-        FrontendDebug.debug('管理员菜单元素:', adminMenuItems, '用户类型:', this.currentUser.user_type);
+        VueDebug.debug('管理员菜单元素:', adminMenuItems, '用户类型:', this.currentUser.user_type);
         
         if (adminMenuItems) {
             if (this.currentUser.user_type === 'admin') {
                 adminMenuItems.classList.remove('hidden');
-                FrontendDebug.debug('已显示管理员菜单');
+                VueDebug.debug('已显示管理员菜单');
             } else {
                 adminMenuItems.classList.add('hidden');
-                FrontendDebug.debug('已隐藏管理员菜单');
+                VueDebug.debug('已隐藏管理员菜单');
             }
         }
 
@@ -255,9 +255,9 @@ const State = {
     // 更新调试模式菜单项显示状态
     updateDebugMenuItem() {
         const debugMenuItem = document.getElementById('debugMenuItem');
-        FrontendDebug.debug('updateDebugMenuItem: debugMenuItem元素:', debugMenuItem);
-        FrontendDebug.debug('updateDebugMenuItem: systemConfig:', this.systemConfig);
-        FrontendDebug.debug('updateDebugMenuItem: currentUser:', this.currentUser);
+        VueDebug.debug('updateDebugMenuItem: debugMenuItem元素:', debugMenuItem);
+        VueDebug.debug('updateDebugMenuItem: systemConfig:', this.systemConfig);
+        VueDebug.debug('updateDebugMenuItem: currentUser:', this.currentUser);
         
         if (debugMenuItem) {
             // 检查是否启用调试模式且用户是管理员
@@ -267,18 +267,18 @@ const State = {
                                  window.location.hostname === '127.0.0.1'));
             const isAdmin = this.currentUser?.user_type === 'admin';
             
-            FrontendDebug.debug('updateDebugMenuItem: isDebugMode:', isDebugMode);
-            FrontendDebug.debug('updateDebugMenuItem: isAdmin:', isAdmin);
+            VueDebug.debug('updateDebugMenuItem: isDebugMode:', isDebugMode);
+            VueDebug.debug('updateDebugMenuItem: isAdmin:', isAdmin);
             
             if (isDebugMode && isAdmin) {
                 debugMenuItem.classList.remove('hidden');
-                FrontendDebug.debug('已显示调试模式菜单项');
+                VueDebug.debug('已显示调试模式菜单项');
             } else {
                 debugMenuItem.classList.add('hidden');
-                FrontendDebug.debug('已隐藏调试模式菜单项');
+                VueDebug.debug('已隐藏调试模式菜单项');
             }
         } else {
-            FrontendDebug.debug('updateDebugMenuItem: debugMenuItem元素未找到');
+            VueDebug.debug('updateDebugMenuItem: debugMenuItem元素未找到');
         }
     },
 
@@ -3282,7 +3282,7 @@ const AdminManager = {
 const DebugManager = {
     // 初始化调试部分
     async initializeDebugSection() {
-        FrontendDebug.info('[Debug] 初始化调试部分');
+        VueDebug.info('[Debug] 初始化调试部分');
         
         // 更新调试信息
         await this.refreshDebugInfo();
@@ -4128,7 +4128,7 @@ window.refreshData = async function() {
 // 应用初始化
 async function initApp() {
     try {
-        FrontendDebug.info('开始初始化应用...');
+        VueDebug.info('开始初始化应用...');
 
         // 初始化侧边栏状态（确保类名正确）
         const sidebar = document.getElementById('sidebar');
@@ -4183,7 +4183,7 @@ async function initApp() {
             loadingSection.classList.add('hidden');
         }
 
-        FrontendDebug.info('应用初始化完成');
+        VueDebug.info('应用初始化完成');
     } catch (error) {
         console.error('应用初始化失败:', error);
         UI.showMessage('应用初始化失败', 'error');

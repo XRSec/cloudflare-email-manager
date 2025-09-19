@@ -12,6 +12,8 @@ CREATE TABLE users (
     username TEXT UNIQUE NOT NULL CHECK(LENGTH(username) >= 3 AND LENGTH(username) <= 50), -- 用户名，3-50字符
     password TEXT NOT NULL CHECK(LENGTH(password) >= 6), -- 用户密码，至少6位
     user_type TEXT DEFAULT 'user' CHECK(user_type IN ('admin','user')), -- 用户类型：admin/user
+    status INTEGER DEFAULT 1 CHECK(status IN (1,2,3)), -- 用户状态：1=激活, 2=停用, 3=删除
+    deleted_at DATETIME,                -- 删除时间（软删除）
     webhook_url TEXT CHECK(webhook_url IS NULL OR webhook_url LIKE 'http%'), -- webhook地址必须是有效URL
     webhook_secret TEXT,                -- webhook签名密钥
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -20,25 +22,25 @@ CREATE TABLE users (
 
 CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_users_user_type ON users(user_type);
+CREATE INDEX idx_users_status ON users(status);
 
 -- ===================
 -- 邮箱表
 -- ===================
 CREATE TABLE mailboxes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,               -- 关联用户ID
-    email_address TEXT UNIQUE NOT NULL CHECK(email_address LIKE '%@%'), -- 完整邮箱地址，必须包含@
-    is_default INTEGER DEFAULT 0 CHECK(is_default IN (0,1)), -- 是否为默认邮箱
-    is_active INTEGER DEFAULT 1 CHECK(is_active IN (0,1)),   -- 是否启用
+    owner_id INTEGER NOT NULL,               -- 邮箱所有者ID
+    address TEXT UNIQUE NOT NULL CHECK(address LIKE '%@%'), -- 邮箱地址
+    status INTEGER DEFAULT 1 CHECK(status IN (1,2,3)), -- 邮箱状态：1=激活, 2=停用, 3=删除
+    deleted_at DATETIME,                     -- 删除时间（软删除）
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_mailboxes_user_id ON mailboxes(user_id);
-CREATE INDEX idx_mailboxes_email_address ON mailboxes(email_address);
-CREATE INDEX idx_mailboxes_is_active ON mailboxes(is_active);
-CREATE INDEX idx_mailboxes_is_default ON mailboxes(is_default);
+CREATE INDEX idx_mailboxes_owner_id ON mailboxes(owner_id);
+CREATE INDEX idx_mailboxes_address ON mailboxes(address);
+CREATE INDEX idx_mailboxes_status ON mailboxes(status);
 
 -- ===================
 -- 邮箱申请表
@@ -47,7 +49,7 @@ CREATE TABLE mailbox_applications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,               -- 申请用户ID
     email_address TEXT NOT NULL CHECK(email_address LIKE '%@%'), -- 申请的邮箱地址，必须包含@
-    status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), -- 申请状态
+    status INTEGER DEFAULT 1 CHECK(status IN (1,2,3)), -- 申请状态：1=待审核, 2=已批准, 3=已拒绝
     reason TEXT CHECK(LENGTH(reason) <= 500), -- 申请理由，最多500字符
     admin_comment TEXT CHECK(LENGTH(admin_comment) <= 500), -- 管理员备注，最多500字符
     applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -91,6 +93,50 @@ CREATE INDEX idx_emails_sender_email ON emails(sender_email);
 CREATE INDEX idx_emails_recipient_email ON emails(recipient_email);
 CREATE INDEX idx_emails_received_at ON emails(received_at);
 CREATE INDEX idx_emails_has_attachments ON emails(has_attachments);
+
+-- ===================
+-- 邮箱历史记录表
+-- ===================
+CREATE TABLE mailbox_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mailbox_id INTEGER NOT NULL,           -- 关联邮箱ID
+    user_id INTEGER NOT NULL,              -- 操作人用户ID（谁执行的操作）
+    owner_id INTEGER NOT NULL,             -- 邮箱所有者ID（邮箱属于谁）
+    action_type INTEGER NOT NULL CHECK(action_type IN (1,2,3)), -- 操作类型：1=创建, 2=删除, 3=停用
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (mailbox_id) REFERENCES mailboxes(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_mailbox_history_mailbox_id ON mailbox_history(mailbox_id);
+CREATE INDEX idx_mailbox_history_user_id ON mailbox_history(user_id);
+CREATE INDEX idx_mailbox_history_owner_id ON mailbox_history(owner_id);
+CREATE INDEX idx_mailbox_history_action_type ON mailbox_history(action_type);
+CREATE INDEX idx_mailbox_history_created_at ON mailbox_history(created_at);
+
+-- ===================
+-- 安全审计表
+-- ===================
+CREATE TABLE security_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,           -- 用户ID（必须，只记录有有效身份的用户）
+    action_type INTEGER NOT NULL,       -- 操作类型：1=权限拒绝, 2=可疑操作
+    resource_type TEXT,                 -- 资源类型：'mailbox', 'email', 'user', 'system'
+    resource_id INTEGER,                -- 资源ID
+    request_ip TEXT,                    -- 请求IP
+    user_agent TEXT,                    -- 用户代理
+    attack_type INTEGER,                -- 攻击类型：1=权限拒绝, 2=可疑活动, 3=频率限制
+    description TEXT,                   -- 描述信息
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_security_audit_user_id ON security_audit(user_id);
+CREATE INDEX idx_security_audit_action_type ON security_audit(action_type);
+CREATE INDEX idx_security_audit_attack_type ON security_audit(attack_type);
+CREATE INDEX idx_security_audit_created_at ON security_audit(created_at);
+CREATE INDEX idx_security_audit_request_ip ON security_audit(request_ip);
 
 -- ===================
 -- 附件表
@@ -267,7 +313,7 @@ INSERT INTO system_settings (key, value, description) VALUES
     ('cleanup_days', '7', '邮件自动清理天数'),
     ('max_attachment_size', '52428800', '最大附件大小（50MB）'),
     ('domain', 'example.com', '邮件域名'),
-    ('admin_email', '', '管理员邮箱'),
+    ('admin_email', 'admin@example.com', '管理员邮箱'),
     -- JWT secret 将在首次运行时自动生成
     ('primary_domain', 'example.com', '主域名'),
     ('cookie_max_age', '604800', 'Cookie过期时间（秒）'),
@@ -278,16 +324,16 @@ INSERT INTO system_settings (key, value, description) VALUES
     ('max_mailboxes_per_user', '5', '每个用户最大邮箱数量');
 
 -- 插入默认用户账号（密码: 123456）
-INSERT INTO users (username, password, user_type) VALUES
-    ('admin', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 'admin');
-INSERT INTO users (username, password, user_type) VALUES
-    ('test', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 'user');
+INSERT INTO users (username, password, user_type, status) VALUES
+    ('admin', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 'admin', 1);
+INSERT INTO users (username, password, user_type, status) VALUES
+    ('test', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 'user', 2);
 
 -- 插入默认用户邮箱
-INSERT INTO mailboxes (user_id, email_address, is_default, is_active) VALUES
-    (1, 'admin@example.com', 1, 1);
-INSERT INTO mailboxes (user_id, email_address, is_default, is_active) VALUES
-    (2, 'test@example.com', 1, 1);
+INSERT INTO mailboxes (owner_id, address, status) VALUES
+    (1, 'admin@example.com', 1);
+INSERT INTO mailboxes (owner_id, address, status) VALUES
+    (2, 'test@example.com', 2);
 
 -- ===================
 -- 重置自增序列到正确的值

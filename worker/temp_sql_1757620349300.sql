@@ -1,1 +1,0 @@
-INSERT INTO mailboxes (user_id, email_address, is_default, is_active) VALUES (1, 'admin@doubi.tech', 1, 1) ON CONFLICT(email_address) DO NOTHING
