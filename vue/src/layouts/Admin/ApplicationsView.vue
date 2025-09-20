@@ -1,7 +1,7 @@
 <template>
   <div class="applications-page">
     <div class="page-header">
-      <h1>📋 申请审核</h1>
+      <h1>{{ pageIcon }} {{ pageTitle }}</h1>
     </div>
 
     <div class="applications-content">
@@ -40,11 +40,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import LoadingOverlay from '@/layouts/AppLoadingSpinner.vue'
 
 const applications = ref<any[]>([])
 const loading = ref(false)
+
+// 页面标题和图标
+const pageTitle = computed(() => '申请审核')
+const pageIcon = computed(() => '📋')
 
 const loadApplications = async () => {
   loading.value = true

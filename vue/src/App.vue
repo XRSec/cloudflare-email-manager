@@ -34,7 +34,6 @@ import { defineAsyncComponent } from 'vue'
 
 const AppLoadingSpinner = defineAsyncComponent(() => import('@/layouts/AppLoadingSpinner.vue'))
 const LoginView = defineAsyncComponent(() => import('@/layouts/LoginView.vue'))
-const MainLayoutView = defineAsyncComponent(() => import('@/layouts/MainLayoutView.vue'))
 
 const authStore = useAuthStore()
 const {

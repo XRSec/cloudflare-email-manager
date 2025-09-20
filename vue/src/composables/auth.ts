@@ -4,8 +4,6 @@ import { useStorage } from '@vueuse/core'
 import axios, { type AxiosResponse } from 'axios'
 import type {
   UserProfile,
-  LoginRequest,
-  RegisterRequest,
   LoginResponse,
   RegisterResponse,
   ApiResponse

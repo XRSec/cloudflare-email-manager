@@ -1,7 +1,7 @@
 <template>
   <div class="dashboard-page">
     <div class="dashboard-header">
-      <h1>仪表板</h1>
+      <h1>{{ pageIcon }} {{ pageTitle }}</h1>
       <p>欢迎使用临时邮箱管理系统</p>
     </div>
 
@@ -95,6 +95,10 @@ const recentEmails = ref<any[]>([])
 
 // 计算属性
 const isAdmin = computed(() => authStore.user?.user_type === 'admin')
+
+// 页面标题和图标
+const pageTitle = computed(() => '仪表板')
+const pageIcon = computed(() => '📊')
 
 // 方法
 const loadDashboardData = async () => {
@@ -394,7 +398,7 @@ onMounted(() => {
   }
 
   .content-section {
-    min-height: 250px;
+    min-height: 200px;
   }
 
   .email-meta {
