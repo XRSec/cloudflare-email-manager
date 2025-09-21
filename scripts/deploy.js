@@ -143,10 +143,6 @@ function updateWranglerToml(dbId, kvId, JWT_SECRET, DOMAIN, devMode) {
   // 简单的 TOML 解析和更新（这里简化处理）
   let config = readFileSync(wranglerPath, 'utf-8');
 
-  // 更新变量
-  config = config.replace(/DOMAIN\s*=\s*"[^"]*"/, `DOMAIN = "${DOMAIN}"`);
-  config = config.replace(/JWT_SECRET\s*=\s*"[^"]*"/, `JWT_SECRET = "${JWT_SECRET}"`);
-
   // 更新数据库绑定
   config = config.replace(/database_id\s*=\s*"[^"]*"/, `database_id = "${dbId}"`);
   config = config.replace(/id\s*=\s*"[^"]*"/, `id = "${kvId}"`);
@@ -252,21 +248,13 @@ async function main() {
     }
 
     // 获取用户输入
-    const DOMAIN = (await question('请输入您的域名 (例如: example.com): ')).trim() || 'doubi.tech';
     const dev_input = (await question(`是否开发模式? (y/n) [n]: `)).trim() || 'n';
     const devMode = /^[Yy]$/.test(dev_input);
-
     const DB_NAME = devMode ? 'cem-db-dev' : 'cem-db';
     const KV_NAME = devMode ? 'cem-kv-dev' : 'cem-kv';
     const BUCKET_NAME = devMode ? 'cem-r2-dev' : 'cem-r2';
 
-    log("info", `📋 部署配置:`);
-    log("info", `  域名: ${DOMAIN}`);
     devMode && log("info", "🚧 开发模式");
-
-    // 生成 JWT
-    const JWT_SECRET = randomBytes(32).toString('base64');
-    log("warn", `🔑 生成的 JWT 密钥: ${JWT_SECRET} （请妥善保存）`);
 
     // 创建资源
     log("info", "📦 创建 / 获取资源...");
@@ -286,22 +274,7 @@ async function main() {
       process.exit(1);
     }
     log("success", "✅ 数据库结构已初始化");
-
-    // 创建管理员账户
-    const ADMIN_PREFIX = (await question('请输入管理员账号 (例如: admin) [admin]: ')).trim() || 'admin';
-    const ADMIN_PASSWORD = (await question('请输入管理员密码 (例如: 123456) [123456]: ')).trim() || '123456';
-    const ADMIN_PASSWORD_HASH = createHash("sha256").update(String(ADMIN_PASSWORD)).digest("hex");
-
-    log("info", "👤 初始化管理员账户...");
-    const { err: error } = run(
-      `wrangler d1 execute ${DB_NAME} --command="INSERT OR IGNORE INTO users (username, password, user_type) VALUES ('${ADMIN_PREFIX}', '${ADMIN_PASSWORD_HASH}', 'admin')"`);
-    log("success", "✅ 管理员账户已创建");
-    if (error?.stderr?.includes("UNIQUE constraint failed") || error?.stdout?.includes("UNIQUE constraint failed")) {
-      log("warn", "⚠️  管理员账户已存在");
-    } else if (error) {
-      log("error", `❌ 管理员账户创建失败 ${error}`);
-      process.exit(1);
-    }
+    log("success", "✅ 默认用户 admin/123456");
 
     // 构建和部署
     await buildvue();
@@ -318,9 +291,8 @@ async function main() {
     log("info", `  KV 命名空间 ID: ${kvId}`);
     log("info", `  R2 存储桶: ${BUCKET_NAME}\n`);
     log("warn", "重要提醒:");
-    log("info", `1. 请保存 JWT 密钥: ${JWT_SECRET}`);
-    log("info", "2. 请在 Cloudflare 控制台配置邮件路由");
-    log("info", "3. 管理员密码请妥善保管\n");
+    log("info", "1. 请在 Cloudflare 控制台配置邮件路由");
+    log("info", "2. 记得修改密码\n");
     log("success", "🌐 访问地址:");
 
     if (devMode) {

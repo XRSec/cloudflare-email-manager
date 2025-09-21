@@ -9,20 +9,30 @@ info:
     - 管理员与普通用户通过后端鉴权区分，不再分叉路径
     - 错误响应、分页参数统一复用
     - 邮件发送接口统一 `/api/emails/send`
-    - 邮件查询支持 `scope` 参数控制（mine/all）
+    - 邮件查询支持 `scope` 参数控制（all）
+    - 转发规则查询支持 `scope` 参数控制（all）
 
     ### 邮件
     ```http
-    GET    /api/emails             # 获取邮件（scope=mine/all）
+    GET    /api/emails             # 获取邮件（scope=all）
     GET    /api/emails/{id}        # 获取详情
     DELETE /api/emails/{id}        # 删除邮件
     GET    /api/emails/{id}/attachments/{attachmentId}  # 下载附件
     POST   /api/emails/send        # 发送邮件（管理员/用户都能用）
     ```
 
+    ### 转发规则
+    ```http
+    GET    /api/forward-rules      # 获取转发规则（scope=all）
+    GET    /api/forward-rules/{id} # 获取详情
+    POST   /api/forward-rules      # 创建规则
+    PUT    /api/forward-rules/{id} # 更新规则
+    DELETE /api/forward-rules/{id} # 删除规则
+    ```
+
     ## 核心逻辑
 
-    资源路径不区分角色 → 统一 /api/emails
+    资源路径不区分角色 → 统一 /api/emails, /api/forward-rules
 
     角色差异用参数控制 → scope=all
 
@@ -811,11 +821,25 @@ paths:
       description: |
         - 普通用户：仅返回自己的规则
         - 管理员：可以返回全部规则（支持分页）
+        - 通过 scope 参数控制查询范围
       security:
         - cookieAuth: []
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/LimitParam'
+        - name: scope
+          in: query
+          description: 查询范围，all=所有规则（需管理员权限），其他值或不传则返回当前用户的规则
+          required: false
+          schema:
+            type: string
+            enum: [all]
+          example: all
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: 搜索关键词（规则名称、描述）
       responses:
         '200':
           description: 获取成功
@@ -825,6 +849,8 @@ paths:
                 $ref: '#/components/schemas/ForwardRuleListResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
 
     post:
       tags:
@@ -1213,40 +1239,10 @@ paths:
                                 type: integer
                                 description: 是否允许注册 (1=是, 0=否)
                                 example: 1
-                              allow_user_send:
-                                type: integer
-                                description: 是否允许用户发送邮件 (1=是, 0=否)
-                                example: 0
                               debug_mode:
                                 type: integer
                                 description: 调试模式状态 (1=开启, 0=关闭)
                                 example: 0
-                              max_mailboxes_per_user:
-                                type: integer
-                                description: 每用户最大邮箱数
-                                example: 5
-                              storage_provider:
-                                type: integer
-                                description: 存储提供商 (1=R2, 0=其他)
-                                example: 1
-                              max_attachment_size:
-                                type: integer
-                                description: 最大附件大小（字节）
-                                example: 52428800
-                              mail_retention_days:
-                                type: integer
-                                description: 邮件保留天数
-                                example: 30
-                              supported_domains:
-                                type: array
-                                items:
-                                  type: string
-                                description: 支持的域名列表
-                                example: ["example.com", "test.com"]
-                          version:
-                            type: integer
-                            description: 系统版本 (1.0.0 -> 100)
-                            example: 100
                           uptime:
                             type: integer
                             description: 系统运行时间（秒）
@@ -1315,35 +1311,9 @@ paths:
                               allow_registration:
                                 type: integer
                                 example: 0
-                              allow_user_send:
-                                type: integer
-                                example: 0
                               debug_mode:
                                 type: integer
                                 example: 0
-                              max_mailboxes_per_user:
-                                type: integer
-                                example: 0
-                              storage_provider:
-                                type: integer
-                                example: 0
-                              max_attachment_size:
-                                type: integer
-                                example: 0
-                              mail_retention_days:
-                                type: integer
-                                example: 0
-                              supported_domains:
-                                type: array
-                                items:
-                                  type: string
-                                example: []
-                          version:
-                            type: integer
-                            example: 0
-                          uptime:
-                            type: integer
-                            example: 0
 
   /api/system/clear-cache:
     post:
@@ -1775,26 +1745,44 @@ components:
       properties:
         rule_name:
           type: string
+          description: 规则名称
+        description:
+          type: string
+          nullable: true
+          description: 规则描述
+        source_email:
+          type: string
+          description: 源邮箱地址
+        target_email:
+          type: string
+          description: 目标邮箱地址
         sender_filter:
           type: string
           nullable: true
+          description: 发件人过滤条件
         keyword_filter:
           type: string
           nullable: true
+          description: 关键词过滤条件
         recipient_filter:
           type: string
           nullable: true
+          description: 收件人过滤条件
         webhook_url:
           type: string
           format: uri
+          description: Webhook URL
         webhook_secret:
           type: string
           nullable: true
+          description: Webhook 密钥
         webhook_type:
           type: string
           enum: [dingtalk, feishu, custom]
+          description: Webhook 类型
         enabled:
           type: boolean
+          description: 是否启用
 
     ForwardRuleCreateRequest:
       allOf:
@@ -1802,6 +1790,8 @@ components:
         - type: object
           required:
             - rule_name
+            - source_email
+            - target_email
             - webhook_url
 
     ForwardRuleUpdateRequest:
@@ -1813,11 +1803,37 @@ components:
       properties:
         id:
           type: integer
-        rule:
-          $ref: '#/components/schemas/ForwardRuleBase'
+          description: 规则ID
+        name:
+          type: string
+          description: 规则名称（rule_name的别名）
+        description:
+          type: string
+          nullable: true
+          description: 规则描述
+        source_email:
+          type: string
+          description: 源邮箱地址
+        target_email:
+          type: string
+          description: 目标邮箱地址
+        enabled:
+          type: boolean
+          description: 是否启用
         created_at:
           type: string
           format: date-time
+          description: 创建时间
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+        user_id:
+          type: integer
+          description: 用户ID（仅管理员可见）
+        username:
+          type: string
+          description: 用户名（仅管理员可见）
 
     ForwardRuleListResponse:
       type: object
@@ -1885,17 +1901,17 @@ components:
       type: object
       properties:
         debug_mode:
-          type: boolean
-          description: 调试模式，启用后显示详细日志
-          default: false
+          type: integer
+          description: 调试模式状态 (1=开启, 0=关闭)
+          default: 0
         allow_registration:
-          type: boolean
-          description: 是否允许新用户注册
-          default: true
+          type: integer
+          description: 是否允许新用户注册 (1=是, 0=否)
+          default: 1
         auto_approve_mailbox:
-          type: boolean
-          description: 是否自动审核邮箱申请
-          default: false
+          type: integer
+          description: 是否自动审核邮箱申请 (1=是, 0=否)
+          default: 0
         supported_domains:
           type: array
           items:
@@ -1915,9 +1931,9 @@ components:
           description: 单个附件最大大小(MB)
           default: 50
         allow_user_send:
-          type: boolean
-          description: 是否允许普通用户发送邮件（预留接口，暂未实现）
-          default: true
+          type: integer
+          description: 是否允许普通用户发送邮件 (1=是, 0=否)（预留接口，暂未实现）
+          default: 1
         max_mailboxes_per_user:
           type: integer
           minimum: 1
@@ -1932,11 +1948,14 @@ components:
       type: object
       properties:
         debug_mode:
-          type: boolean
+          type: integer
+          description: 调试模式状态 (1=开启, 0=关闭)
         allow_registration:
-          type: boolean
+          type: integer
+          description: 是否允许新用户注册 (1=是, 0=否)
         auto_approve_mailbox:
-          type: boolean
+          type: integer
+          description: 是否自动审核邮箱申请 (1=是, 0=否)
         supported_domains:
           type: array
           items:
@@ -1950,8 +1969,8 @@ components:
           minimum: 1
           maximum: 100
         allow_user_send:
-          type: boolean
-          description: 是否允许普通用户发送邮件（预留接口，暂未实现）
+          type: integer
+          description: 是否允许普通用户发送邮件 (1=是, 0=否)（预留接口，暂未实现）
         max_mailboxes_per_user:
           type: integer
           minimum: 1

@@ -151,7 +151,7 @@ const securityStats = ref({
 })
 
 const loading = ref(false)
-const pageTitle = '🛡️ 安全概览'
+const pageTitle = '安全概览'
 const pageIcon = '🛡️'
 
 // 加载安全统计数据

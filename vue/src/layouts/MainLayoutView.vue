@@ -5,72 +5,28 @@
       <!--    <div class="sidebar" :class="{ 'sidebar-open': sidebarOpen }">-->
       <div class="sidebar-header">
         <h2>CEM 邮箱管理系统</h2>
-        <!-- <button class="sidebar-toggle" @click="toggleSidebar">
-          ☰
-        </button> -->
       </div>
-
       <div class="sidebar-menu">
         <router-link to="/" class="sidebar-item" :class="{ active: $route.path === '/' }" @click="closeSidebarOnMobile">
           🏠 仪表板
         </router-link>
 
-        <router-link to="/emails" class="sidebar-item" :class="{ active: $route.path === '/emails' }"
-          @click="closeSidebarOnMobile">
-          📧 我的邮件
-        </router-link>
+        <!-- 使用v-for渲染导航菜单 -->
+        <template v-for="section in navigationSections" :key="section.title">
+          <div v-if="section.show" class="nav-section">
+            <div v-if="section.title" class="section-title">{{ section.title }}</div>
 
-        <router-link to="/mailboxes" class="sidebar-item" :class="{ active: $route.path === '/mailboxes' }"
-          @click="closeSidebarOnMobile">
-          📮 我的邮箱
-        </router-link>
-
-        <router-link to="/forward-rules" class="sidebar-item" :class="{ active: $route.path === '/forward-rules' }"
-          @click="closeSidebarOnMobile">
-          🔄 转发规则
-        </router-link>
-
-        <!-- 管理员菜单 -->
-        <div v-if="isAdmin" class="admin-menu">
-          <!--          <div class="section-title">管理员</div>-->
-          <router-link v-if="isDebugMode" to="/debug" class="sidebar-item" :class="{ active: $route.path === '/debug' }"
-            @click="closeSidebarOnMobile">
-            🐛 调试模式
-          </router-link>
-          <router-link to="/admin-users" class="sidebar-item" :class="{ active: $route.path === '/admin-users' }"
-            @click="closeSidebarOnMobile">
-            👥 用户管理
-          </router-link>
-
-          <router-link to="/admin-rules" class="sidebar-item" :class="{ active: $route.path === '/admin-rules' }"
-            @click="closeSidebarOnMobile">
-            🔄 转发管理</router-link>
-
-          <router-link to="/admin-emails" class="sidebar-item" :class="{ active: $route.path === '/admin-emails' }"
-            @click="closeSidebarOnMobile">
-            📨 全部邮件
-          </router-link>
-
-          <router-link to="/admin-mailboxes" class="sidebar-item"
-            :class="{ active: $route.path === '/admin-mailboxes' }" @click="closeSidebarOnMobile">
-            📮 邮箱管理
-          </router-link>
-
-          <router-link to="/admin-applications" class="sidebar-item"
-            :class="{ active: $route.path === '/admin-applications' }" @click="closeSidebarOnMobile">
-            📋 申请审核
-          </router-link>
-
-          <router-link to="/admin-security-overview" class="sidebar-item"
-            :class="{ active: $route.path === '/admin-security-overview' }" @click="closeSidebarOnMobile">
-            🛡️ 安全概览
-          </router-link>
-
-          <router-link to="/admin-settings" class="sidebar-item" :class="{ active: $route.path === '/admin-settings' }"
-            @click="closeSidebarOnMobile">
-            🛠️ 系统设置
-          </router-link>
-        </div>
+            <template v-for="item in section.items" :key="`${item.path}-${item.show}`">
+              <router-link v-if="item.show" :to="item.path" class="sidebar-item"
+                :class="{ active: isRouteActive(item.path, item.exactMatch) }" @click="closeSidebarOnMobile">
+                {{ item.icon }} {{ item.title }}
+                <span v-if="item.badge" class="nav-badge" :class="item.badgeClass">
+                  {{ item.badge }}
+                </span>
+              </router-link>
+            </template>
+          </div>
+        </template>
       </div>
 
       <div class="sidebar-footer">
@@ -109,11 +65,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/composables/stores'
 import { useSystemStore } from '@/composables/system'
-import { pageRefreshManager } from '@/composables/cache'
+
+// 调试工具函数
+const debugLog = (...args: any[]) => {
+  if (systemStore.isDebugMode) {
+    console.log('[MainLayout]', ...args)
+  }
+}
 
 const authStore = useAuthStore()
 const systemStore = useSystemStore()
@@ -156,6 +118,121 @@ const userType = computed(() => {
   return '用户'
 })
 
+// 导航配置 - 智能化管理
+const navigationSections = computed(() => {
+  debugLog('isDebugMode:', isDebugMode.value, 'type:', typeof isDebugMode.value)
+  return [
+    {
+      title: '', // 主要功能不显示标题
+      show: true,
+      items: [
+        {
+          path: '/emails',
+          title: '我的邮件',
+          icon: '📧',
+          show: true,
+          exactMatch: true
+        },
+        {
+          path: '/mailboxes',
+          title: '我的邮箱',
+          icon: '📮',
+          show: true,
+          exactMatch: true
+        },
+        {
+          path: '/forward-rules',
+          title: '转发规则',
+          icon: '📤',
+          show: true,
+          exactMatch: true
+        }
+      ]
+    },
+    {
+      title: '系统管理',
+      show: isAdmin,
+      items: [
+        {
+          path: '/admin-users',
+          title: '用户管理',
+          icon: '👥',
+          show: isAdmin,
+          exactMatch: false
+        },
+        {
+          path: '/admin-mailboxs',
+          title: '邮箱管理',
+          icon: '📮',
+          show: isAdmin,
+          exactMatch: false,
+          badge: '新',
+          badgeClass: 'badge-success'
+        },
+        {
+          path: '/admin-emails',
+          title: '全部邮件',
+          icon: '📨',
+          show: isAdmin,
+          exactMatch: false
+        },
+        {
+          path: '/admin-rules',
+          title: '转发管理',
+          icon: '🔄',
+          show: isAdmin,
+          exactMatch: false
+        },
+        {
+          path: '/admin-security-overview',
+          title: '安全概览',
+          icon: '🛡️',
+          show: isAdmin,
+          exactMatch: false
+        },
+        {
+          path: '/admin-settings',
+          title: '系统设置',
+          icon: '🛠️',
+          show: isAdmin,
+          exactMatch: false
+        }
+      ]
+    },
+    {
+      title: '其他功能',
+      show: true,
+      items: [
+        {
+          path: '/settings',
+          title: '个人设置',
+          icon: '⚙️',
+          show: true,
+          exactMatch: true
+        },
+        {
+          path: '/debug',
+          title: '调试模式',
+          icon: '🐛',
+          show: isDebugMode.value,
+          exactMatch: true,
+          badge: 'DEV',
+          badgeClass: 'badge-warning'
+        }
+      ]
+    }
+  ]
+})
+
+// 智能路由激活判断
+const isRouteActive = (path: string, exactMatch: boolean = false) => {
+  if (exactMatch) {
+    return route.path === path
+  } else {
+    return route.path.startsWith(path)
+  }
+}
+
 // 方法
 const toggleSidebar = () => {
   sidebarOpen.value = !sidebarOpen.value
@@ -168,17 +245,24 @@ const closeSidebarOnMobile = () => {
   }
 }
 
-// 刷新当前页面 - 简单直接的方式
+
+// 全局刷新当前页面
 const refreshCurrentPage = async () => {
   if (refreshing.value) return
 
   refreshing.value = true
   try {
-    // 直接调用当前页面暴露的刷新方法
-    if (window.refreshCurrentPage) {
-      await window.refreshCurrentPage()
-    } else {
-      console.warn('当前页面没有暴露刷新方法')
+    console.log('🌍 全局刷新触发')
+
+    // 先触发全局刷新事件
+    window.dispatchEvent(new CustomEvent('global:refresh'))
+
+    // 然后调用页面级刷新方法（如果存在）
+    if (window.refreshCurrentPage && typeof window.refreshCurrentPage === 'function') {
+      // 避免递归调用，检查是否是同一个函数
+      if (window.refreshCurrentPage !== refreshCurrentPage) {
+        await window.refreshCurrentPage()
+      }
     }
   } catch (error) {
     console.error('刷新页面失败:', error)
@@ -193,7 +277,17 @@ const handleLogout = () => {
 }
 
 // 初始化
-onMounted(() => {
+onMounted(async () => {
+  // 获取系统配置（包括调试模式设置）
+  // fetchSystemHealth 无需认证，适合在 MainLayoutView 中使用
+  await systemStore.fetchSystemHealth()
+
+  // 强制触发响应式更新
+  nextTick(() => {
+    // 触发计算属性重新计算
+    systemStore.systemConfig = { ...systemStore.systemConfig }
+  })
+
   // 检查屏幕大小，设置侧边栏状态
   const checkScreenSize = () => {
     if (window.innerWidth < 768) {
@@ -278,6 +372,53 @@ onMounted(() => {
   background: #d2d2d2;
   color: #3498db;
   border-right-color: #3498db;
+}
+
+.sidebar-item.active {
+  background: #e3f2fd;
+  color: #1976d2;
+  border-right-color: #1976d2;
+}
+
+/* 导航徽章样式 */
+.nav-badge {
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  margin-left: auto;
+  float: right;
+}
+
+.badge-success {
+  background: #28a745;
+  color: white;
+}
+
+.badge-warning {
+  background: #ffc107;
+  color: #212529;
+}
+
+.badge-info {
+  background: #17a2b8;
+  color: white;
+}
+
+/* 分组标题样式 */
+.section-title {
+  font-size: 12px;
+  color: #6c757d;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 20px 4px;
+  margin-top: 10px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.nav-section:first-child .section-title {
+  margin-top: 0;
 }
 
 .admin-menu {
@@ -564,6 +705,241 @@ onMounted(() => {
   background: #f8f9fa;
 }
 
+/* ===== 通用搜索组件样式 ===== */
+.search-container {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.search-input-wrapper {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 300px;
+  max-width: 500px;
+  position: relative;
+}
+
+.search-input {
+  flex: 1;
+  padding: 10px 16px;
+  border: 1px solid #ddd;
+  border-radius: 8px 0 0 8px;
+  font-size: 14px;
+  transition: border-color 0.3s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.search-btn {
+  padding: 10px 16px;
+  background: #007bff;
+  color: white;
+  border: 1px solid #007bff;
+  border-left: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  min-width: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search-btn:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.search-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.clear-btn {
+  background: #6c757d;
+  color: white;
+  border: 1px solid #6c757d;
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clear-btn:hover {
+  background: #5a6268;
+}
+
+.loading-spinner-sm {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+.search-stats {
+  color: #6c757d;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.search-time {
+  color: #28a745;
+  font-weight: 500;
+}
+
+/* ===== 通用页面头部样式 ===== */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.page-header h1 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+/* ===== 标签页样式 ===== */
+.view-tabs {
+  display: flex;
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.tab-btn {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6c757d;
+  transition: all 0.3s ease;
+}
+
+.tab-btn:hover {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.tab-btn.active {
+  background: #007bff;
+  color: white;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.25);
+}
+
+/* ===== 批量操作样式 ===== */
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #e3f2fd;
+  border-radius: 6px;
+  border: 1px solid #2196f3;
+  margin-bottom: 20px;
+}
+
+.selected-count {
+  font-size: 14px;
+  color: #1976d2;
+  font-weight: 500;
+}
+
+/* ===== 工具栏样式 ===== */
+.page-toolbar {
+  background: white;
+  padding: 15px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  border-radius: 10px 10px 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ===== 通用操作按钮组样式 ===== */
+.action-buttons {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.action-buttons .btn {
+  min-width: 36px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===== 响应式通用样式 ===== */
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .header-actions {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .search-input-wrapper {
+    min-width: 200px;
+    max-width: 100%;
+  }
+
+  .page-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar-left,
+  .toolbar-right {
+    justify-content: center;
+  }
+
+  .view-tabs {
+    justify-content: center;
+  }
+
+  .action-buttons {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
 /* ===== 页面内容样式 ===== */
 .page-content {
   flex: 1;
@@ -572,6 +948,7 @@ onMounted(() => {
   background: #f8f9fa;
   min-height: calc(100vh - 60px);
 }
+
 
 .page-header {
   margin-bottom: 20px;

@@ -80,7 +80,7 @@ class LocalStorageCache {
             }
 
             const item: CacheItem<T> = JSON.parse(serialized);
-
+            
             // 检查是否过期
             if (Date.now() - item.timestamp > item.ttl) {
                 this.delete(key);
@@ -221,7 +221,7 @@ class LocalStorageCache {
     getStats(): { count: number; size: number; sizeInKB: number; keys: string[] } {
         const keys = this.keys();
         const size = this.getSize();
-
+        
         return {
             count: keys.length,
             size: size,

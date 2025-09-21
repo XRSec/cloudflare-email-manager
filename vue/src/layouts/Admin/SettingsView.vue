@@ -5,9 +5,52 @@
     </div>
 
     <div class="page-content">
-      <LoadingOverlay v-if="loading" text="加载系统配置..." />
+      <LoadingOverlay v-if="loading" :text="loadingText" />
 
-      <div v-if="!loading" class="settings-container">
+      <!-- 个人设置 -->
+      <div v-if="!loading && isPersonalSettings" class="settings-container">
+        <!-- 密码设置 -->
+        <div class="settings-section">
+          <h3>密码设置</h3>
+          <div class="form-group">
+            <label class="form-label">新密码</label>
+            <input v-model="passwordForm.newPassword" type="password" class="form-control" placeholder="输入新密码（至少6位）"
+              minlength="6" />
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" @click="updatePassword" :disabled="loading">
+              {{ loading ? '更新中...' : '更新密码' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Webhook 设置 -->
+        <div class="settings-section">
+          <h3>Webhook 设置</h3>
+          <div class="form-group">
+            <label class="form-label">Webhook URL</label>
+            <input v-model="webhookForm.url" type="url" class="form-control"
+              placeholder="https://example.com/webhook" />
+            <div class="form-help">当有新邮件时，系统会向此URL发送POST请求</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Webhook 密钥</label>
+            <input v-model="webhookForm.secret" type="text" class="form-control" placeholder="可选，用于验证请求的安全密钥" />
+            <div class="form-help">用于验证webhook请求的HMAC签名</div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" @click="updateWebhook" :disabled="loading">
+              {{ loading ? '更新中...' : '更新 Webhook' }}
+            </button>
+            <button v-if="webhookForm.url" class="btn btn-secondary" @click="testWebhook" :disabled="loading">
+              测试 Webhook
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 系统设置 -->
+      <div v-if="!loading && !isPersonalSettings" class="settings-container">
         <!-- 基本设置 -->
         <div class="settings-section">
           <h3>基本设置</h3>
@@ -72,6 +115,60 @@
           </div>
         </div>
 
+        <!-- JWT 和安全设置 -->
+        <div class="settings-section">
+          <h3>JWT 和安全设置</h3>
+
+          <div class="form-group">
+            <label class="form-label">JWT 密钥</label>
+            <input v-model="jwtSecretInput" type="text" class="form-control"
+              :placeholder="jwtSecretInput ? '当前 JWT 密钥 (点击编辑)' : '输入新的 JWT 密钥 (留空则自动生成新密钥)'"
+              :readonly="!jwtSecretModified && !!jwtSecretInput" @input="jwtSecretModified = true"
+              @focus="jwtSecretModified = true">
+            <small class="form-text">JWT 密钥用于用户认证，显示为掩码格式，留空则自动生成新的密钥</small>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Cookie 最大年龄 (秒)</label>
+            <input v-model.number="systemConfig.cookie_max_age" type="number" class="form-control" min="60" max="86400">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">管理员邮箱</label>
+            <input v-model="systemConfig.admin_email" type="email" class="form-control" placeholder="admin@example.com">
+          </div>
+        </div>
+
+        <!-- 存储设置 -->
+        <div class="settings-section">
+          <h3>存储设置</h3>
+
+          <div class="form-group">
+            <label class="form-label">存储提供商</label>
+            <select v-model="systemConfig.storage_provider" class="form-control">
+              <option value="r2">Cloudflare R2</option>
+              <option value="s3">Amazon S3</option>
+              <option value="local">本地存储</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">每个用户最大邮箱数</label>
+            <input v-model.number="systemConfig.max_mailboxes_per_user" type="number" class="form-control" min="1"
+              max="100">
+          </div>
+
+          <div class="form-group">
+            <div class="form-switch">
+              <label class="form-label">允许用户发送邮件</label>
+              <label class="switch">
+                <input v-model="systemConfig.allow_user_send" type="checkbox">
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
         <!-- 操作按钮 -->
         <div class="settings-actions">
           <button class="btn btn-primary" @click="saveSettings" :disabled="loading">
@@ -90,24 +187,68 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { apiService } from '@/composables/api'
+import { useAuthStore, useSystemStore } from '@/composables/stores'
 import { cacheService } from '@/composables/cache'
 import LoadingOverlay from '@/layouts/AppLoadingSpinner.vue'
 
-// 直接使用 API 加载数据
+const route = useRoute()
+const authStore = useAuthStore()
+const systemStore = useSystemStore()
+
+// 检测是否为个人设置页面
+const isPersonalSettings = computed(() => route.name === 'settings')
+
+// 页面标题和图标
+const pageTitle = computed(() =>
+  isPersonalSettings.value ? '个人设置' : '系统设置'
+)
+const pageIcon = computed(() =>
+  isPersonalSettings.value ? '⚙️' : '🛠️'
+)
+
+// 加载文本
+const loadingText = computed(() =>
+  isPersonalSettings.value ? '加载个人设置...' : '加载系统配置...'
+)
+
+const loading = ref(false)
+
+// 个人设置表单
+const passwordForm = ref({
+  newPassword: ''
+})
+
+const webhookForm = ref({
+  url: '',
+  secret: ''
+})
+
+// JWT 密钥输入
+const jwtSecretInput = ref('')
+const jwtSecretModified = ref(false) // 跟踪是否修改过 JWT 密钥
+
+// 系统配置
 const systemConfig = ref({
   debug_mode: false,
   allow_registration: false,
   auto_approve_mailbox: false,
   supported_domains: [] as string[],
   mail_retention_days: 30,
-  attachment_max_size: 10
+  attachment_max_size: 50,
+  allow_user_send: false,
+  max_mailboxes_per_user: 5,
+  storage_provider: 'r2',
+  cleanup_days: 30,
+  max_attachment_size: 52428800, // 50MB in bytes
+  cookie_max_age: 86400, // 24 hours
+  jwt_secret: '',
+  admin_email: '',
+  primary_domain: '',
+  domains: [] as string[]
 })
-
-const loading = ref(false)
-const pageTitle = '🛠️ 系统设置'
-const pageIcon = '🛠️'
 
 // 加载系统配置
 const loadSystemConfig = async (forceRefresh = false) => {
@@ -121,25 +262,56 @@ const loadSystemConfig = async (forceRefresh = false) => {
       if (cached) {
         console.log('从缓存加载系统配置')
         systemConfig.value = cached
-        loading.value = false
-        return
+
+        // 检查缓存中是否有 JWT 密钥信息
+        if (cached.jwt_secret) {
+          jwtSecretInput.value = cached.jwt_secret
+          console.log('从缓存设置JWT密钥输入框:', jwtSecretInput.value)
+        } else {
+          console.log('缓存中没有JWT密钥信息，需要从API获取')
+          // 如果缓存中没有JWT密钥，强制从API获取
+          forceRefresh = true
+        }
+
+        if (!forceRefresh) {
+          loading.value = false
+          return
+        }
       }
     }
 
     // 从API获取
     console.log('从API加载系统配置')
     const response = await apiService.getSystemConfig()
+    console.log('API响应:', response)
     if (response.success && response.data) {
       const config = {
-        debug_mode: response.data.debug_mode || false,
-        allow_registration: response.data.allow_registration || false,
-        auto_approve_mailbox: response.data.auto_approve_mailbox || false,
-        supported_domains: response.data.supported_domains || [],
-        mail_retention_days: response.data.mail_retention_days || 30,
-        attachment_max_size: response.data.attachment_max_size || 10
+        debug_mode: response.data.config.debug_mode === 1 || response.data.config.debug_mode === '1' || response.data.config.debug_mode === true,
+        allow_registration: response.data.config.allow_registration === 1 || response.data.config.allow_registration === '1' || response.data.config.allow_registration === true,
+        auto_approve_mailbox: response.data.config.auto_approve_mailbox === 1 || response.data.config.auto_approve_mailbox === '1' || response.data.config.auto_approve_mailbox === true,
+        supported_domains: response.data.config.supported_domains || [],
+        mail_retention_days: response.data.config.mail_retention_days || 30,
+        attachment_max_size: response.data.config.attachment_max_size ? Math.round(response.data.config.attachment_max_size / 1024 / 1024) : 50,
+        allow_user_send: response.data.config.allow_user_send === 1 || response.data.config.allow_user_send === '1' || response.data.config.allow_user_send === true,
+        max_mailboxes_per_user: response.data.config.max_mailboxes_per_user || 5,
+        storage_provider: response.data.config.storage_provider || 'r2',
+        cleanup_days: response.data.config.cleanup_days || 30,
+        max_attachment_size: response.data.config.max_attachment_size || 52428800,
+        cookie_max_age: response.data.config.cookie_max_age || 86400,
+        jwt_secret: response.data.config.jwt_secret || '',
+        admin_email: response.data.config.admin_email || '',
+        primary_domain: response.data.config.primary_domain || '',
+        domains: response.data.config.domains || []
       }
 
       systemConfig.value = config
+
+      // 显示当前的 JWT 密钥（掩码格式）
+      if (response.data.config.jwt_secret) {
+        jwtSecretInput.value = response.data.config.jwt_secret
+        // 将 JWT 密钥也存储到配置中，以便缓存
+        config.jwt_secret = response.data.config.jwt_secret
+      }
 
       // 存入缓存（5分钟）
       cacheService.set(cacheKey, config, 5 * 60 * 1000)
@@ -153,12 +325,122 @@ const loadSystemConfig = async (forceRefresh = false) => {
 
 // 刷新数据
 const refreshData = async () => {
-  await loadSystemConfig(true)
+  loading.value = true
+  try {
+    await loadSystemConfig(true)
+    // 同时更新全局 systemStore
+    await systemStore.fetchSystemConfig()
+  } catch (error) {
+    console.error('刷新数据失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 加载个人设置
+const loadPersonalSettings = async () => {
+  loading.value = true
+  try {
+    // 从用户信息中加载webhook设置
+    if (authStore.user?.settings) {
+      webhookForm.value.url = authStore.user.settings.webhook_url || ''
+      webhookForm.value.secret = authStore.user.settings.webhook_secret || ''
+    }
+  } catch (error) {
+    console.error('加载个人设置失败:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 更新密码
+const updatePassword = async () => {
+  if (!passwordForm.value.newPassword) {
+    alert('请输入新密码')
+    return
+  }
+
+  if (passwordForm.value.newPassword.length < 6) {
+    alert('密码至少需要6位')
+    return
+  }
+
+  loading.value = true
+  try {
+    const response = await apiService.updateUserSettings({
+      password: passwordForm.value.newPassword
+    })
+
+    if (response.success) {
+      alert('密码更新成功')
+      passwordForm.value.newPassword = ''
+    } else {
+      alert(response.message || '密码更新失败')
+    }
+  } catch (error) {
+    console.error('更新密码失败:', error)
+    alert('更新密码失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 更新Webhook设置
+const updateWebhook = async () => {
+  loading.value = true
+  try {
+    const response = await apiService.updateUserSettings({
+      webhook_url: webhookForm.value.url,
+      webhook_secret: webhookForm.value.secret
+    })
+
+    if (response.success) {
+      alert('Webhook 设置更新成功')
+      // 更新用户信息
+      await authStore.fetchCurrentUser()
+    } else {
+      alert(response.message || 'Webhook 设置更新失败')
+    }
+  } catch (error) {
+    console.error('更新 Webhook 设置失败:', error)
+    alert('更新 Webhook 设置失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 测试Webhook (暂时禁用，API 未实现)
+const testWebhook = async () => {
+  alert('Webhook 测试功能暂未实现')
+}
+
+// 全局刷新事件处理
+const handleGlobalRefresh = () => {
+  console.log('🔄 系统设置页面收到全局刷新事件')
+  if (isPersonalSettings.value) {
+    loadPersonalSettings()
+  } else {
+    // 强制刷新系统配置
+    loadSystemConfig(true)
+  }
 }
 
 // 页面加载时获取数据
 onMounted(() => {
-  loadSystemConfig()
+  if (isPersonalSettings.value) {
+    loadPersonalSettings()
+  } else {
+    // 正常加载，使用缓存机制
+    loadSystemConfig()
+  }
+
+  // 监听全局刷新事件
+  window.addEventListener('global:refresh', handleGlobalRefresh)
+})
+
+// 页面卸载时清理事件监听
+onUnmounted(() => {
+  window.removeEventListener('global:refresh', handleGlobalRefresh)
 })
 
 // 新域名输入
@@ -181,9 +463,44 @@ const removeDomain = (index: number) => {
 // 保存设置
 const saveSettings = async () => {
   try {
-    const response = await apiService.updateSystemConfig(systemConfig.value)
+    // 转换配置为后端格式
+    const configToSave: any = {
+      debug_mode: systemConfig.value.debug_mode ? 1 : 0,
+      allow_registration: systemConfig.value.allow_registration ? 1 : 0,
+      auto_approve_mailbox: systemConfig.value.auto_approve_mailbox ? 1 : 0,
+      supported_domains: systemConfig.value.supported_domains,
+      mail_retention_days: systemConfig.value.mail_retention_days,
+      attachment_max_size: systemConfig.value.attachment_max_size * 1024 * 1024,
+      allow_user_send: systemConfig.value.allow_user_send ? 1 : 0,
+      max_mailboxes_per_user: systemConfig.value.max_mailboxes_per_user,
+      storage_provider: systemConfig.value.storage_provider,
+      cleanup_days: systemConfig.value.cleanup_days,
+      max_attachment_size: systemConfig.value.max_attachment_size,
+      cookie_max_age: systemConfig.value.cookie_max_age,
+      admin_email: systemConfig.value.admin_email,
+      primary_domain: systemConfig.value.primary_domain,
+      domains: systemConfig.value.domains
+    }
+
+    // JWT 密钥处理：只有在用户实际修改时才携带
+    if (jwtSecretModified.value) {
+      if (jwtSecretInput.value.trim() !== '') {
+        // 有输入则使用输入值
+        configToSave.jwt_secret = jwtSecretInput.value.trim()
+      } else {
+        // 输入框被清空则传递空字符串让后端自动生成
+        configToSave.jwt_secret = ''
+      }
+    }
+    // 如果输入框从未被修改过，则不携带 jwt_secret 字段
+
+    const response = await apiService.updateSystemConfig(configToSave)
     if (response.success) {
       alert('设置保存成功')
+      // 重置修改标记
+      jwtSecretModified.value = false
+      // 同时更新全局 systemStore 和本地数据
+      await systemStore.fetchSystemConfig()
       await refreshData()
     } else {
       alert('保存失败: ' + (response.message || '未知错误'))
@@ -373,5 +690,22 @@ input:checked+.slider:before {
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.form-help {
+  font-size: 12px;
+  color: #6c757d;
+  margin-top: 5px;
+  line-height: 1.4;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.form-actions .btn {
+  min-width: 120px;
 }
 </style>

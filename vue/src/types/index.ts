@@ -58,14 +58,30 @@ export interface ApiResponse<T = any> {
 export interface SystemHealth {
   success: boolean
   data?: {
-    status: string
-    version: string
-    uptime: number
-    config?: {
-      allow_registration: number
-      debug_mode: number
-      supported_domains: string[]
-      max_attachment_size: number
+    health: {
+      status: number
+      timestamp: string
+      services: {
+        database: {
+          status: number
+          latency_ms: number
+        }
+        storage: {
+          status: number
+          provider: number
+        }
+        kv: {
+          status: number
+          provider: number
+        }
+      }
+      config: {
+        allow_registration: number
+        debug_mode: number
+      }
+      version: number
+      uptime: number
+      total_latency_ms: number
     }
   }
   error?: string
@@ -74,7 +90,7 @@ export interface SystemHealth {
 export interface RegistrationStatus {
   success: boolean
   data?: {
-    allow_registration: boolean
+    allow_registration: number
   }
   error?: string
 }
@@ -88,8 +104,8 @@ declare global {
     showGlobalLoading: (text?: string) => void
     hideGlobalLoading: () => void
     CEM_CONFIG?: {
-      allow_registration: boolean
-      debug_mode: boolean
+      allow_registration: number
+      debug_mode: number
       supported_domains: string[]
       max_attachment_size: number
       api_base_url: string

@@ -29,12 +29,15 @@
 
 <script setup lang="ts">
 import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore, useApp } from '@/composables/stores'
+import { smartCache } from '@/composables/smartCache'
 import { defineAsyncComponent } from 'vue'
 
 const AppLoadingSpinner = defineAsyncComponent(() => import('@/layouts/AppLoadingSpinner.vue'))
 const LoginView = defineAsyncComponent(() => import('@/layouts/LoginView.vue'))
 
+const router = useRouter()
 const authStore = useAuthStore()
 const {
   currentStage,
@@ -55,12 +58,27 @@ declare global {
   interface Window {
     showGlobalLoading: (text?: string) => void
     hideGlobalLoading: () => void
+    showMessage?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void
+    router?: typeof router
+    refreshCurrentPage?: () => void
   }
 }
 
 // 将方法挂载到全局，方便其他组件使用
 window.showGlobalLoading = showGlobalLoading
 window.hideGlobalLoading = hideGlobalLoading
+window.router = router
+
+// 全局消息提示函数
+window.showMessage = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
+  console.log(`[${type.toUpperCase()}] ${message}`)
+  // 这里可以替换为更好的消息组件
+  if (type === 'error') {
+    alert(message)
+  } else {
+    console.log(message)
+  }
+}
 
 // 流式加载函数
 const loadNextStage = async (stage: typeof currentStage.value) => {
@@ -108,7 +126,30 @@ const loadNextStage = async (stage: typeof currentStage.value) => {
 
 // 处理登录成功
 const handleLoginSuccess = async () => {
-  await loadNextStage('main-preload')
+  // 检查是否有重定向参数
+  const urlParams = new URLSearchParams(window.location.search)
+  const redirectUrl = urlParams.get('redirect')
+
+  if (redirectUrl) {
+    // 清除 URL 中的 redirect 参数
+    const newUrl = window.location.pathname
+    window.history.replaceState({}, '', newUrl)
+
+    // 如果重定向到根路径，直接进入主界面
+    if (decodeURIComponent(redirectUrl) === '/') {
+      await loadNextStage('main-preload')
+    } else {
+      // 其他路径，先进入主界面再跳转
+      await loadNextStage('main-preload')
+      // 延迟跳转，确保主界面加载完成
+      setTimeout(() => {
+        router.push(decodeURIComponent(redirectUrl))
+      }, 500)
+    }
+  } else {
+    // 没有重定向参数，正常进入主界面
+    await loadNextStage('main-preload')
+  }
 }
 
 // 处理退出登录
@@ -119,7 +160,25 @@ const handleLogout = async () => {
 
 // 应用初始化
 onMounted(async () => {
+  // 初始化智能缓存系统
+  console.log('🚀 智能缓存系统已启动')
+  console.log('📊 缓存统计:', smartCache.getStats())
+
   await loadNextStage('initial-loading')
+})
+
+// 监听路由变化，实现智能预加载
+router.afterEach((to, from) => {
+  console.log(`🔄 路由切换: ${String(from.name || '')} → ${String(to.name || '')}`)
+
+  // 预加载相关页面
+  if (to.name === 'dashboard') {
+    // 预加载邮件和邮箱页面
+    setTimeout(() => {
+      // 简单的预加载逻辑，暂时用 push 替代
+      console.log('预加载邮件和邮箱页面')
+    }, 1000)
+  }
 })
 </script>
 

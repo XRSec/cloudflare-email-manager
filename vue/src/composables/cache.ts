@@ -1,43 +1,134 @@
-// 缓存服务
+// 缓存服务 - 统一使用localStorage
 interface CacheEntry<T> {
   value: T
   expiry: number
+  size: number
 }
 
 class CacheService {
-  private cache = new Map<string, CacheEntry<any>>()
+  private readonly CACHE_PREFIX = 'cem_cache_'
+  private readonly MAX_TOTAL_SIZE = 50 * 1024 * 1024 // 50MB 总限制
 
   set<T>(key: string, value: T, ttl: number): void {
-    const expiry = Date.now() + ttl
-    this.cache.set(key, { value, expiry })
+    try {
+      const expiry = Date.now() + ttl
+      const serializedValue = JSON.stringify(value)
+      const size = new Blob([serializedValue]).size
+
+      // 检查总大小限制
+      if (size > this.MAX_TOTAL_SIZE) {
+        console.warn(`缓存项 ${key} 过大 (${size} bytes)，跳过缓存`)
+        return
+      }
+
+      const entry: CacheEntry<T> = {
+        value,
+        expiry,
+        size
+      }
+
+      const cacheKey = this.CACHE_PREFIX + key
+      localStorage.setItem(cacheKey, JSON.stringify(entry))
+
+      console.log(`缓存已保存: ${key} (${size} bytes)`)
+    } catch (error) {
+      console.error(`保存缓存失败 ${key}:`, error)
+    }
   }
 
   get<T>(key: string): T | undefined {
-    const entry = this.cache.get(key)
-    if (!entry) {
+    try {
+      const cacheKey = this.CACHE_PREFIX + key
+      const item = localStorage.getItem(cacheKey)
+
+      if (!item) {
+        return undefined
+      }
+
+      const entry: CacheEntry<T> = JSON.parse(item)
+
+      if (Date.now() > entry.expiry) {
+        localStorage.removeItem(cacheKey)
+        return undefined
+      }
+
+      return entry.value as T
+    } catch (error) {
+      console.error(`获取缓存失败 ${key}:`, error)
       return undefined
     }
-    if (Date.now() > entry.expiry) {
-      this.cache.delete(key)
-      return undefined
-    }
-    return entry.value as T
   }
 
   delete(key: string): void {
-    this.cache.delete(key)
+    try {
+      const cacheKey = this.CACHE_PREFIX + key
+      localStorage.removeItem(cacheKey)
+    } catch (error) {
+      console.error(`删除缓存失败 ${key}:`, error)
+    }
   }
 
   clear(): void {
-    this.cache.clear()
+    try {
+      const keys = Object.keys(localStorage)
+      keys.forEach(key => {
+        if (key.startsWith(this.CACHE_PREFIX)) {
+          localStorage.removeItem(key)
+        }
+      })
+    } catch (error) {
+      console.error('清空缓存失败:', error)
+    }
   }
 
   size(): number {
-    return this.cache.size
+    try {
+      const keys = Object.keys(localStorage)
+      return keys.filter(key => key.startsWith(this.CACHE_PREFIX)).length
+    } catch (error) {
+      console.error('获取缓存大小失败:', error)
+      return 0
+    }
   }
 
   keys(): string[] {
-    return Array.from(this.cache.keys())
+    try {
+      const keys = Object.keys(localStorage)
+      return keys
+        .filter(key => key.startsWith(this.CACHE_PREFIX))
+        .map(key => key.substring(this.CACHE_PREFIX.length))
+    } catch (error) {
+      console.error('获取缓存键失败:', error)
+      return []
+    }
+  }
+
+  // 获取缓存统计信息
+  getStats(): { totalSize: number; itemCount: number; averageSize: number } {
+    try {
+      const keys = Object.keys(localStorage)
+      let totalSize = 0
+      let itemCount = 0
+
+      keys.forEach(key => {
+        if (key.startsWith(this.CACHE_PREFIX)) {
+          const item = localStorage.getItem(key)
+          if (item) {
+            totalSize += new Blob([item]).size
+            itemCount++
+          }
+        }
+      })
+
+      return {
+        totalSize,
+        itemCount,
+        averageSize: itemCount > 0 ? Math.round(totalSize / itemCount) : 0
+      }
+    } catch (error) {
+      console.error('获取缓存统计失败:', error)
+      return { totalSize: 0, itemCount: 0, averageSize: 0 }
+    }
   }
 
   // 生成缓存键

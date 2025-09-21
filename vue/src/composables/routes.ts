@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useSystemStore } from './system'
 
 // 动态导入组件
 const LoginView = () => import('@/layouts/LoginView.vue')
@@ -6,7 +7,6 @@ const MainLayoutView = () => import('@/layouts/MainLayoutView.vue')
 const DashboardView = () => import('@/layouts/Admin/DashboardView.vue')
 const EmailsView = () => import('@/layouts/Admin/EmailsView.vue')
 const MailboxesView = () => import('@/layouts/Admin/MailboxesView.vue')
-const ApplicationsView = () => import('@/layouts/Admin/ApplicationsView.vue')
 const SettingsView = () => import('@/layouts/Admin/SettingsView.vue')
 const UsersView = () => import('@/layouts/Admin/UsersView.vue')
 const ForwardRulesView = () => import('@/layouts/Admin/ForwardRulesView.vue')
@@ -48,11 +48,6 @@ const router = createRouter({
           component: ForwardRulesView
         },
         {
-          path: 'mailbox-applications',
-          name: 'mailbox-applications',
-          component: ApplicationsView
-        },
-        {
           path: 'settings',
           name: 'settings',
           component: SettingsView
@@ -79,14 +74,9 @@ const router = createRouter({
           component: EmailsView
         },
         {
-          path: 'admin-mailboxes',
-          name: 'admin-mailboxes',
+          path: 'admin-mailboxs',
+          name: 'admin-mailboxs',
           component: MailboxesView
-        },
-        {
-          path: 'admin-applications',
-          name: 'admin-applications',
-          component: ApplicationsView
         },
         {
           path: 'admin-security-overview',
@@ -104,13 +94,20 @@ const router = createRouter({
 })
 
 // 路由守卫 - 简化版本，避免在路由守卫中使用 store
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   // 检查是否需要认证
   if (to.meta.requiresAuth) {
     // 检查 localStorage 中是否有用户信息
     const userInfo = localStorage.getItem('user_info')
     if (!userInfo) {
-      next('/login')
+      // 如果是根路径，直接跳转到登录页（避免 redirect=%2F）
+      if (to.path === '/') {
+        next('/login')
+      } else {
+        // 其他路径，携带重定向参数
+        const redirectUrl = encodeURIComponent(to.fullPath)
+        next(`/login?redirect=${redirectUrl}`)
+      }
       return
     }
   }
@@ -126,8 +123,15 @@ router.beforeEach((to, _from, next) => {
 
   // 检查调试模式权限
   if (to.meta.requiresDebug) {
-    const isDebugMode = import.meta.env.DEV || import.meta.env.VITE_DEBUG === 'true'
-    if (!isDebugMode) {
+    const systemStore = useSystemStore()
+
+    // 总是获取最新的系统健康状态（包含调试模式配置）
+    // health 接口无需认证，适合在路由守卫中使用
+    if (!systemStore.systemConfig) {
+      await systemStore.fetchSystemHealth()
+    }
+
+    if (systemStore.systemConfig?.debug_mode !== 1) {
       next('/')
       return
     }

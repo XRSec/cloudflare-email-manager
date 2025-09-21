@@ -44,8 +44,15 @@ alwaysApply: true
 3. **API维护** - 开发前必须先仔细阅读 api/api-doc.yml 如果有修改请进行更新
 4. **更新日志** - 开发以及更新日志统一保存到 docs/UPDATE_LOG.md 文件
 5. **产品定义** - 该项目不叫临时邮箱管理系统，叫 邮箱管理系统 简写 cem 全拼 cloudflare email manager
-6. **缓存机制** - 该项目前后端同时时候相同的缓存策略，当我们的缓存策略相关代码发生修改时，同时需要更新 docs/CACHE_API.md
+6. **缓存机制** - 该项目统一使用localStorage进行缓存，所有缓存数据存储在localStorage中，使用`cem_cache_`前缀，最大缓存限制50MB。不再使用sessionStorage，完全基于localStorage实现。systemConfig也存储在localStorage中，确保系统配置持久化。当缓存策略相关代码发生修改时，同时需要更新 docs/CACHE_API.md
 7. **流式相应** - 我正在计划前一流式相应 和 css 统一，我计划在 后面页面切换不在需要刷新整个页面，而是动态加载，可以参考 vue/src/App.vue 和 vue/src/views/LoginView.vue
+8. **数据库结构同步** - worker/src/routes/database.ts 和 db/schema.sql 的 数据结构需要保持一致性
+   - 已实现完整的11个表结构同步（包括security_audit表）
+   - 使用SHA-256哈希存储用户密码
+   - 数据库初始化时自动检查并创建管理员用户
+   - 复用 '../utils/crypto' 中的 hashPassword 函数
+   - 系统配置与schema.sql完全一致
+   - SQL语句集中管理：DATABASE_SCHEMAS, DATABASE_INDEXES, INITIAL_DATA_SQL
 
 ### 🚀 开发环境
 

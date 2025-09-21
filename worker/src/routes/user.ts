@@ -15,6 +15,7 @@ import {
     deleteUser,
     toggleUserStatus
 } from '../services/user';
+import { getPrimaryDomain } from '../services/settings';
 import type { Env, ApiResponse, UserSettingsUpdate } from '../types';
 
 const userRoutes = new Hono<{ Bindings: Env }>();
@@ -40,7 +41,7 @@ userRoutes.get('/me', async (c) => {
             data: {
                 id: userData.id,
                 username: userData.username,
-                email: userData.username + '@' + c.env.DOMAIN, // 假设邮箱格式
+                email: userData.username + '@' + (await getPrimaryDomain(c.env.DB)), // 假设邮箱格式
                 user_type: userData.user_type,
                 created_at: userData.created_at,
                 updated_at: userData.updated_at,
@@ -134,6 +135,9 @@ userRoutes.get('/', adminAuthMiddleware, async (c) => {
 
         const result = await getAllUsers(c.env.DB, queryParams.page, queryParams.limit, searchParams);
 
+        // 获取主域名
+        const primaryDomain = await getPrimaryDomain(c.env.DB);
+
         return c.json<ApiResponse>({
             success: true,
             data: {
@@ -141,7 +145,7 @@ userRoutes.get('/', adminAuthMiddleware, async (c) => {
                 items: result.users.map(user => ({
                     id: user.id,
                     username: user.username,
-                    email: user.username + '@' + c.env.DOMAIN,
+                    email: user.username + '@' + primaryDomain,
                     user_type: user.user_type,
                     status: user.status,
                     created_at: user.created_at,
@@ -217,7 +221,7 @@ userRoutes.get('/:id', adminAuthMiddleware, async (c) => {
             data: {
                 id: userData.id,
                 username: userData.username,
-                email: userData.username + '@' + c.env.DOMAIN,
+                email: userData.username + '@' + (await getPrimaryDomain(c.env.DB)),
                 user_type: userData.user_type,
                 created_at: userData.created_at,
                 updated_at: userData.updated_at,

@@ -1,22 +1,9 @@
 <template>
-  <div class="users-page">
-    <div class="page-header">
-      <h1>{{ pageIcon }} {{ pageTitle }}</h1>
-      <div class="page-actions">
-        <!-- 刷新按钮已移除，浏览器刷新时会自动重新加载数据 -->
-      </div>
-    </div>
-
-    <!-- 搜索栏 -->
-    <div class="search-section">
-      <div class="search-box">
-        <input v-model="searchKeyword" type="text" placeholder="搜索用户名或邮箱..." class="form-control"
-          @keyup.enter="handleSearch" />
-        <button class="btn btn-primary" @click="handleSearch">
-          🔍 搜索
-        </button>
-      </div>
-    </div>
+  <div class="page-content">
+    <!-- 统一页面头部 -->
+    <PageHeader :title="`${pageIcon} ${pageTitle}`" :show-search="true" search-placeholder="搜索用户名或邮箱..."
+      :search-loading="loading" :search-results="searchResults" :show-refresh="false"
+      v-model:search-query="searchKeyword" @search="handleSearch" @clear-search="handleClearSearch" />
 
     <div class="users-content">
       <!-- 加载状态 -->
@@ -33,7 +20,7 @@
       <div v-else-if="!hasUsers" class="empty-state">
         <div class="empty-icon">👥</div>
         <p>{{ searchKeyword ? '没有找到匹配的用户' : '暂无用户' }}</p>
-        <button v-if="searchKeyword" class="btn btn-secondary" @click="searchKeyword = ''; handleSearch()">
+        <button v-if="searchKeyword" class="btn btn-secondary" @click="handleClearSearch">
           清除搜索
         </button>
       </div>
@@ -73,10 +60,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import LoadingOverlay from '@/layouts/AppLoadingSpinner.vue'
+import PageHeader from '@/layouts/components/PageHeader.vue'
 import { adminApiService } from '@/composables/api'
 import { cacheService } from '@/composables/cache'
+
+// 调试工具函数
+const debugLog = (...args: any[]) => {
+  const isDebugMode = import.meta.env.DEV || import.meta.env.VITE_DEBUG === 'true'
+  if (isDebugMode) {
+    console.log(...args)
+  }
+}
 
 // 响应式数据
 const users = ref<any[]>([])
@@ -86,6 +82,7 @@ const error = ref<string | null>(null)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const searchKeyword = ref('')
+const searchResults = ref<any>(null)
 
 // 页面配置
 const pageTitle = computed(() => '用户管理')
@@ -96,31 +93,44 @@ const hasUsers = computed(() => users.value && users.value.length > 0)
 
 // 加载用户数据
 const loadData = async (forceRefresh = false) => {
+  debugLog(`📊 用户管理：开始加载数据 (forceRefresh: ${forceRefresh})`)
   loading.value = true
   error.value = null
 
   try {
     const cacheKey = `admin-users_${currentPage.value}_${pageSize.value}_${searchKeyword.value}`
+    debugLog(`🔑 缓存键: ${cacheKey}`)
 
     // 检查缓存
     if (!forceRefresh) {
       const cached = cacheService.get<{ items: any[], total: number }>(cacheKey)
       if (cached) {
-        console.log('从缓存加载用户数据')
+        debugLog('✅ 从缓存加载用户数据', cached)
         users.value = cached.items || []
         total.value = cached.total || 0
         loading.value = false
         return
+      } else {
+        debugLog('❌ 缓存中没有数据')
       }
+    } else {
+      debugLog('🚫 强制刷新，跳过缓存检查')
     }
 
     // 从API获取
-    console.log('从API加载用户数据')
+    debugLog('📡 准备调用 API: /admin/users', {
+      page: currentPage.value,
+      limit: pageSize.value,
+      search: searchKeyword.value
+    })
+
     const response = await adminApiService.getAllUsers({
       page: currentPage.value,
       limit: pageSize.value,
       search: searchKeyword.value
     })
+
+    debugLog('📡 API 响应:', response)
 
     if (response.success && response.data) {
       users.value = response.data.items || []
@@ -135,7 +145,7 @@ const loadData = async (forceRefresh = false) => {
       throw new Error(response.message || '加载用户数据失败')
     }
   } catch (err) {
-    console.error('加载用户数据失败:', err)
+    debugLog('加载用户数据失败:', err)
     error.value = err instanceof Error ? err.message : '加载数据失败'
   } finally {
     loading.value = false
@@ -145,7 +155,7 @@ const loadData = async (forceRefresh = false) => {
 
 // 编辑用户
 const editUser = (userId: string) => {
-  console.log('编辑用户:', userId)
+  debugLog('编辑用户:', userId)
   // TODO: 实现编辑用户功能
 }
 
@@ -161,12 +171,12 @@ const deleteUser = async (userId: string) => {
     if (response.success) {
       // 删除成功后刷新列表
       await loadData(true)
-      console.log('用户删除成功')
+      debugLog('用户删除成功')
     } else {
-      console.error('删除用户失败:', response.message)
+      debugLog('删除用户失败:', response.message)
     }
   } catch (error) {
-    console.error('删除用户失败:', error)
+    debugLog('删除用户失败:', error)
   } finally {
     loading.value = false
   }
@@ -174,13 +184,47 @@ const deleteUser = async (userId: string) => {
 
 // 搜索用户
 const handleSearch = async () => {
+  const startTime = Date.now()
   currentPage.value = 1
   await loadData(true) // 强制刷新
+  searchResults.value = {
+    total: total.value,
+    time: Date.now() - startTime
+  }
+}
+
+const handleClearSearch = () => {
+  searchKeyword.value = ''
+  searchResults.value = null
+  currentPage.value = 1
+  loadData(true)
+}
+
+const refreshData = () => {
+  debugLog('🔄 用户管理页面：手动刷新数据')
+  // 清空当前数据，强制重新加载
+  users.value = []
+  total.value = 0
+  // 清空缓存
+  const cacheKey = `admin-users_${currentPage.value}_${pageSize.value}_${searchKeyword.value}`
+  cacheService.delete(cacheKey)
+  // 重新加载
+  loadData(true)
 }
 
 // 页面初始化
 onMounted(() => {
   loadData()
+  // 注册全局刷新函数
+  window.refreshCurrentPage = refreshData
+})
+
+// 页面卸载时清理
+onUnmounted(() => {
+  // 清理全局刷新函数
+  if (window.refreshCurrentPage === refreshData) {
+    window.refreshCurrentPage = undefined
+  }
 })
 </script>
 

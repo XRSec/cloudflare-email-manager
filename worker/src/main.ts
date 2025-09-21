@@ -11,7 +11,8 @@ import { HTTPException } from 'hono/http-exception';
 import { initDebugMode } from './utils/debug';
 import { initializeSystemSettings, getSystemConfig } from './services/settings';
 import { jwtAuthMiddleware, adminAuthMiddleware } from './middleware/auth';
-import { generateConfigScript, generateEnvScript } from './utils/dynamic-config';
+import { debugModeMiddleware } from './middleware/debug';
+// 动态配置生成已移除，前端独立处理配置
 
 // 路由模块
 import { api } from './routes/api';
@@ -20,37 +21,9 @@ import { api } from './routes/api';
 import emailHandler from './handlers/email';
 import scheduledHandler from './handlers/scheduled';
 
-// 静态资源服务已移除，现在使用 ASSETS 绑定
+// 静态资源服务已完全移除，前端独立处理所有静态资源
 
 import type { Env, ExecutionContext, ScheduledEvent } from './types';
-
-/**
- * 注入动态配置到HTML中
- */
-async function injectDynamicConfig(html: string, db: D1Database): Promise<string> {
-    try {
-        // 生成配置脚本
-        const configScript = await generateConfigScript(db);
-        const envScript = generateEnvScript();
-
-        // 在</head>标签前注入配置
-        const injectionPoint = '</head>';
-        const scripts = `
-    <script>
-        ${envScript}
-    </script>
-    <script>
-        ${configScript}
-    </script>
-`;
-
-        return html.replace(injectionPoint, scripts + injectionPoint);
-    } catch (error) {
-        console.error('注入动态配置失败:', error);
-        // 如果注入失败，返回原始HTML
-        return html;
-    }
-}
 
 // 创建 Hono 应用
 const app = new Hono<{ Bindings: Env }>();
@@ -62,7 +35,7 @@ app.use('*', cors({
     allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// 静态资源处理中间件 - 参考 cloudflare_temp_email 实现
+// 静态资源处理中间件 - 通过 ASSETS 绑定处理
 app.use('*', async (c, next) => {
     // 检查是否为静态文件请求
     if (c.env.ASSETS && !c.req.path.startsWith('/api/')) {
@@ -118,24 +91,9 @@ app.notFound((c: any) => {
 app.route('/api', api);
 
 // 调试接口（仅在调试模式下启用，且仅管理员可访问）
-app.get('/api/debug', async (c: any) => {
+app.get('/api/debug', jwtAuthMiddleware, adminAuthMiddleware, debugModeMiddleware, async (c: any) => {
     // 从系统设置获取调试模式状态
     const config = await getSystemConfig(c.env.DB);
-
-    if (!config.debug_mode && c.env.cem_debug !== 'true') {
-        throw new HTTPException(404, { message: '接口不存在' });
-    }
-
-    // 检查管理员权限
-    try {
-        await jwtAuthMiddleware(c, async () => {
-            await adminAuthMiddleware(c, async () => {
-                // 权限检查通过，继续处理
-            });
-        });
-    } catch (error) {
-        throw new HTTPException(403, { message: '需要管理员权限' });
-    }
 
     return c.json({
         success: true,
@@ -144,32 +102,13 @@ app.get('/api/debug', async (c: any) => {
             timestamp: new Date().toISOString(),
             environment: {
                 debug_mode: config.debug_mode,
-                env_debug: c.env.cem_debug === 'true',
-                domain: c.env.DOMAIN,
             }
         }
     });
 });
 
 // 模拟邮件接收接口（仅在调试模式下启用，且仅管理员可访问）
-app.post('/api/debug/simulate-email', async (c: any) => {
-    // 从系统设置获取调试模式状态
-    const config = await getSystemConfig(c.env.DB);
-
-    if (!config.debug_mode && c.env.cem_debug !== 'true') {
-        throw new HTTPException(404, { message: '接口不存在' });
-    }
-
-    // 检查管理员权限
-    try {
-        await jwtAuthMiddleware(c, async () => {
-            await adminAuthMiddleware(c, async () => {
-                // 权限检查通过，继续处理
-            });
-        });
-    } catch (error) {
-        throw new HTTPException(403, { message: '需要管理员权限' });
-    }
+app.post('/api/debug/simulate-email', jwtAuthMiddleware, adminAuthMiddleware, debugModeMiddleware, async (c: any) => {
 
     try {
         const { to, from, subject, content, content_type } = await c.req.json();
@@ -231,41 +170,12 @@ app.get('*', async (c: any) => {
             url.pathname = '/';
         }
 
-        const response = await c.env.ASSETS.fetch(url.toString());
-
-        // 如果是HTML文件，注入动态配置
-        if (response && response.headers.get('content-type')?.includes('text/html')) {
-            const html = await response.text();
-            const modifiedHtml = await injectDynamicConfig(html, c.env.DB);
-
-            return new Response(modifiedHtml, {
-                status: response.status,
-                statusText: response.statusText,
-                headers: {
-                    ...Object.fromEntries(response.headers.entries()),
-                    'Content-Type': 'text/html; charset=utf-8'
-                }
-            });
-        }
-
-        return response;
+        return await c.env.ASSETS.fetch(url.toString());
     }
 
     // 如果没有 ASSETS 绑定，返回404
     return c.text('前端资源不可用', 404);
 });
-
-// favicon.ico 处理（返回空响应避免404）
-app.get('/favicon.ico', (c: any) => {
-    return new Response(null, {
-        status: 204,
-        headers: {
-            'Cache-Control': 'public, max-age=86400' // 缓存24小时
-        }
-    });
-});
-
-// 静态资源路由已移除，现在通过 ASSETS 绑定处理
 
 /**
  * Workers 主要导出对象
@@ -276,7 +186,7 @@ export default {
      */
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
         // 初始化调试模式
-        initDebugMode(env);
+        await initDebugMode(env);
 
         // 初始化系统设置
         try {
@@ -292,7 +202,7 @@ export default {
      * 邮件处理
      */
     async email(message: any, env: Env, ctx: ExecutionContext): Promise<void> {
-        initDebugMode(env);
+        await initDebugMode(env);
         await emailHandler.email(message, env, ctx);
     },
 
@@ -300,7 +210,7 @@ export default {
      * 定时任务处理
      */
     async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-        initDebugMode(env);
+        await initDebugMode(env);
         await scheduledHandler.scheduled(event, env, ctx);
     }
 };

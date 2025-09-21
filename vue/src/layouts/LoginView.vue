@@ -118,8 +118,8 @@ const errorMessage = ref('')
 
 // 登录表单
 const loginForm = ref({
-  username: '',
-  password: ''
+  username: 'admin',
+  password: '123456'
 })
 
 // 注册表单
@@ -174,22 +174,14 @@ const handleLogin = async () => {
   errorMessage.value = '' // 清空之前的错误消息
 
   try {
-    // 获取重定向URL参数
-    const urlParams = new URLSearchParams(window.location.search)
-    const redirectUrl = urlParams.get('redirect')
-
     const result = await authStore.login(
       loginForm.value.username,
       loginForm.value.password
     )
 
     if (result.success) {
-      // 登录成功后处理重定向
-      if (redirectUrl) {
-        window.location.href = decodeURIComponent(redirectUrl)
-      } else {
-        await handleLoginSuccess()
-      }
+      // 登录成功，统一使用流式加载处理后续逻辑
+      await handleLoginSuccess()
     } else {
       // 显示错误消息
       errorMessage.value = result.error || '登录失败'
@@ -234,6 +226,10 @@ const handleRegister = async () => {
 <style scoped>
 .login-page {
   display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #f8f9fa;
   padding: 20px;
   z-index: 1000;
 }
@@ -242,9 +238,10 @@ const handleRegister = async () => {
   width: 400px;
   min-width: 400px;
   padding: 30px;
-  border: 2px solid #e0e0e0;
+  background: white;
+  border: 1px solid #e0e0e0;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, .16);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   position: relative;
   display: flex;
@@ -297,14 +294,78 @@ const handleRegister = async () => {
   display: block;
 }
 
-/* 表单样式已移至全局样式，这里只保留LoginView特有的样式 */
+/* 表单样式 - 登录页面专用，因为登录时MainLayoutView还没加载 */
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #2c3e50;
+  font-size: 14px;
+}
+
+.form-control {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.3s ease;
+  box-sizing: border-box;
+  background: white;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+/* 只有在用户交互后才显示验证状态 */
+.form-control:invalid:not(:placeholder-shown) {
+  border-color: #e74c3c;
+}
+
+.form-control:valid:not(:placeholder-shown) {
+  border-color: #27ae60;
+}
+
+/* 按钮样式 - 登录页面专用 */
 .btn {
   width: 100%;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
+}
+
+.btn-primary {
+  background: #007bff;
+  color: white;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #0056b3;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
 }
 
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
 }
 
 .help-text {

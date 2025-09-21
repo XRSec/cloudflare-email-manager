@@ -175,16 +175,15 @@ systemRoutes.get('/health', async (c) => {
     if (healthInfo.services.database.status === 1) {
         try {
             const config = await getSystemConfig(c.env.DB);
-            healthInfo.config = {
-                allow_registration: config.allow_registration ? 1 : 0,
-                allow_user_send: config.allow_user_send ? 1 : 0,
-                debug_mode: config.debug_mode ? 1 : 0,
-                max_mailboxes_per_user: config.max_mailboxes_per_user,
-                storage_provider: config.storage_provider === 'r2' ? 1 : 0,
-                max_attachment_size: config.attachment_max_size,
-                mail_retention_days: config.mail_retention_days,
-                supported_domains: config.supported_domains
+
+            // 构建配置对象 - 只保留必要的健康检查相关配置
+            const configData = {
+                allow_registration: config.allow_registration,
+                debug_mode: config.debug_mode
             };
+
+            healthInfo.config = configData;
+
         } catch (error) {
             errorLog('[健康检查] 获取配置失败:', error);
             // 配置获取失败不影响整体健康状态

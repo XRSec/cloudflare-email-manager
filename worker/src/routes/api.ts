@@ -19,6 +19,7 @@ import mailboxHistoryRoutes from './mailbox-history';
 import userInfoRoutes from './user-info';
 import securityAuditRoutes from './security-audit';
 import { cache } from './cache';
+import { databaseRoutes } from './database';
 
 // 导入服务
 import {
@@ -226,9 +227,11 @@ api.post('/emails/send', jwtAuthMiddleware, async (c) => {
     }
 
     // 发送邮件
+    const { getPrimaryDomain } = await import('../services/settings');
+    const primaryDomain = await getPrimaryDomain(c.env.DB);
     await sendEmail(c.env, {
       to,
-      from: from || config.admin_email || 'noreply@' + c.env.DOMAIN,
+      from: from || config.admin_email || 'noreply@' + primaryDomain,
       subject,
       content,
       content_type
@@ -268,7 +271,11 @@ api.route('/system', systemRoutes);
 // ==================== 管理员相关 ====================
 api.route('/admin', adminRoutes);
 
+
 // ==================== 缓存管理 ====================
 api.route('/cache', cache);
+
+// ==================== 数据库管理 ====================
+api.route('/database', databaseRoutes);
 
 export { api };

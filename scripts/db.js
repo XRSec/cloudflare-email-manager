@@ -74,45 +74,202 @@ function decodeBase64(str) {
   }
 }
 
-// 执行数据库清理
+// 执行数据库清理（使用与 database.ts 相同的逻辑）
 async function executeDbClean(isRemote) {
   console.log(`🧹 清理数据库${isRemote ? ' (远程)' : ''}...`);
-  let tablesResult
-  try {
-    console.log('📋 查询数据库中的表...');
-    tablesResult = await executeSQL('SELECT name FROM sqlite_master WHERE type="table" AND name NOT LIKE "sqlite_%"', isRemote);
-  } catch (error) {
-    console.log('⚠️ 查询所有表失败...');
-  }
-  if (tablesResult && tablesResult.results && tablesResult.results.length > 0) {
-    const tables = tablesResult.results.map(row => row.name);
-    console.log(`📋 发现 ${tables.length} 个表:`, tables.join(', '));
 
-    console.log('🗑️ 删除所有表...');
-    for (const tableName of tables) {
-      if (tableName !== '_cf_METADATA') {
+  try {
+    // 1. 获取所有表名
+    console.log('📋 查询数据库中的表...');
+    const tablesResult = await executeSQL('SELECT name FROM sqlite_master WHERE type="table" AND name NOT LIKE "sqlite_%" AND name NOT LIKE "_cf%"', isRemote);
+
+    // 2. 删除触发器（先删除触发器，避免依赖问题）
+    console.log('🗑️ 删除触发器...');
+    try {
+      // 一次性生成所有删除触发器的 SQL 语句
+      const dropAllTriggersQuery = `
+        SELECT 'DROP TRIGGER IF EXISTS "' || name || '";' as sql
+        FROM sqlite_master 
+        WHERE type = 'trigger'
+      `;
+
+      const triggers = await executeSQL(dropAllTriggersQuery, isRemote);
+      if (triggers && triggers.results && triggers.results.length > 0) {
+        // 将所有删除语句合并成一个 SQL
+        const allDropSQL = triggers.results.map(trigger => trigger.sql).join(' ');
+
         try {
-          await executeSQL(`DROP TABLE IF EXISTS "${tableName}"`, isRemote);
-          console.log(`  删除表: ${tableName} 成功`);
+          await executeSQL(allDropSQL, isRemote);
+          console.log(`✅ 批量删除 ${triggers.results.length} 个触发器成功`);
         } catch (error) {
-          console.log(`⚠️ 删除表: ${tableName} 失败...${error}`);
+          console.warn('批量删除触发器失败，回退到逐个删除:', error);
+          // 回退到逐个删除
+          for (const trigger of triggers.results) {
+            try {
+              await executeSQL(trigger.sql, isRemote);
+              console.log(`  删除触发器: ${trigger.sql.replace('DROP TRIGGER IF EXISTS "', '').replace('";', '')} 成功`);
+            } catch (error) {
+              console.log(`⚠️ 删除触发器失败: ${trigger.sql} - ${error}`);
+            }
+          }
+        }
+      } else {
+        console.log('  没有找到触发器');
+      }
+    } catch (error) {
+      console.log('⚠️ 查询触发器失败...');
+    }
+
+    // 3. 删除所有表（先禁用外键约束，忽略错误）
+    try {
+      await executeSQL('PRAGMA foreign_keys = OFF', isRemote);
+      console.log('✅ 已禁用外键约束');
+    } catch (error) {
+      console.warn('禁用外键约束时出现错误，忽略:', error);
+    }
+
+    // 动态获取表依赖关系并删除表
+    if (tablesResult && tablesResult.results && tablesResult.results.length > 0) {
+      const tables = tablesResult.results.map(row => row.name);
+      console.log(`📋 发现 ${tables.length} 个表:`, tables.join(', '));
+
+      // 一次性获取所有表的外键依赖关系
+      const tableDependencies = {};
+      for (const tableName of tables) {
+        tableDependencies[tableName] = [];
+      }
+
+      try {
+        // 使用 sqlite_master 表一次性查询所有外键信息
+        const allFkQuery = `
+          SELECT 
+            m.name as table_name,
+            pti.\`table\` as ref_table
+          FROM sqlite_master m
+          JOIN pragma_foreign_key_list(m.name) pti
+          WHERE m.type = 'table' 
+            AND m.name NOT LIKE 'sqlite_%' 
+            AND m.name NOT LIKE '_cf%'
+        `;
+
+        const fkResult = await executeSQL(allFkQuery, isRemote);
+        if (fkResult && fkResult.results) {
+          for (const fk of fkResult.results) {
+            if (tableDependencies[fk.table_name]) {
+              tableDependencies[fk.table_name].push(fk.ref_table);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('批量获取外键信息失败，回退到逐个查询:', error);
+        // 回退到逐个查询
+        for (const tableName of tables) {
+          try {
+            const fkResult = await executeSQL(`PRAGMA foreign_key_list(${tableName})`, isRemote);
+            if (fkResult && fkResult.results) {
+              tableDependencies[tableName] = fkResult.results.map(fk => fk.table);
+            }
+          } catch (error) {
+            console.warn(`获取表 ${tableName} 外键信息失败:`, error);
+          }
         }
       }
+
+      // 构建反向依赖图：找出哪些表依赖于当前表
+      const reverseDependencies = {};
+      for (const tableName of tables) {
+        reverseDependencies[tableName] = [];
+      }
+
+      for (const tableName of tables) {
+        const dependencies = tableDependencies[tableName] || [];
+        for (const dep of dependencies) {
+          if (tables.includes(dep)) {
+            reverseDependencies[dep].push(tableName);
+          }
+        }
+      }
+
+      // 拓扑排序：找到删除顺序（先删除依赖表，再删除被依赖的表）
+      const deleteOrder = [];
+      const visited = new Set();
+      const visiting = new Set();
+
+      function visit(tableName) {
+        if (visiting.has(tableName)) {
+          console.warn(`检测到循环依赖: ${tableName}`);
+          return;
+        }
+        if (visited.has(tableName)) {
+          return;
+        }
+
+        visiting.add(tableName);
+
+        // 先处理依赖当前表的表（依赖表要先删除）
+        const dependents = reverseDependencies[tableName] || [];
+        for (const dependent of dependents) {
+          if (tables.includes(dependent)) {
+            visit(dependent);
+          }
+        }
+
+        visiting.delete(tableName);
+        visited.add(tableName);
+        deleteOrder.push(tableName);
+      }
+
+      // 对所有表进行拓扑排序
+      for (const tableName of tables) {
+        if (!visited.has(tableName)) {
+          visit(tableName);
+        }
+      }
+
+      console.log(`📋 删除顺序:`, deleteOrder.join(' -> '));
+
+      // 按依赖顺序批量删除所有表
+      const dropTablesSQL = deleteOrder.map(tableName => `DROP TABLE IF EXISTS ${tableName}`).join('; ');
+
+      try {
+        await executeSQL(dropTablesSQL, isRemote);
+        console.log(`✅ 批量删除 ${deleteOrder.length} 个表成功`);
+      } catch (error) {
+        console.warn('批量删除表失败，回退到逐个删除:', error);
+        // 回退到逐个删除
+        for (const tableName of deleteOrder) {
+          try {
+            await executeSQL(`DROP TABLE IF EXISTS ${tableName}`, isRemote);
+            console.log(`✅ 删除表 ${tableName} 成功`);
+          } catch (error) {
+            console.warn(`删除表 ${tableName} 时出现错误，忽略:`, error);
+          }
+        }
+      }
+    } else {
+      console.log('📋 数据库中没有表');
     }
-  } else {
-    console.log('📋 数据库中没有表');
-  }
 
-  // 3. 清空自增序列
-  console.log('🔄 清空自增序列...');
-  try {
-    await executeSQL('DELETE FROM sqlite_sequence', isRemote);
+    try {
+      await executeSQL('PRAGMA foreign_keys = ON', isRemote);
+      console.log('✅ 已启用外键约束');
+    } catch (error) {
+      console.warn('启用外键约束时出现错误，忽略:', error);
+    }
+
+    // 4. 清空自增序列（忽略错误）
+    try {
+      await executeSQL('DELETE FROM sqlite_sequence', isRemote);
+      console.log('✅ 清空自增序列成功');
+    } catch (error) {
+      console.warn('清空自增序列时出现错误，忽略:', error);
+    }
+
+    console.log('✅ 数据库清理完成');
   } catch (error) {
-    console.log('⚠️ 清空自增序列失败...');
+    console.error('❌ 数据库清理失败:', error);
+    throw error;
   }
-
-
-  console.log('✅ 数据库清理完成');
 }
 
 // 执行数据库初始化

@@ -2,23 +2,23 @@
  * 项目类型定义
  */
 
-// Cloudflare Workers 类型导入
-export type ExecutionContext = import('@cloudflare/workers-types').ExecutionContext;
-export type ScheduledEvent = import('@cloudflare/workers-types').ScheduledEvent;
-export type D1Database = import('@cloudflare/workers-types').D1Database;
-export type R2Bucket = import('@cloudflare/workers-types').R2Bucket;
-export type KVNamespace = import('@cloudflare/workers-types').KVNamespace;
-export type Fetcher = import('@cloudflare/workers-types').Fetcher;
+// Cloudflare Workers 类型定义
+// 使用更简洁的导入方式
+export type {
+    ExecutionContext,
+    ScheduledEvent,
+    D1Database,
+    R2Bucket,
+    KVNamespace,
+    Fetcher
+} from '@cloudflare/workers-types';
 
 // 环境变量接口
 export interface Env {
     DB: D1Database;
     R2: R2Bucket;
     KV: KVNamespace; // Workers KV 存储
-    ASSETS: Fetcher;
-    DOMAIN: string;
-    JWT_SECRET: string;
-    cem_debug?: string;
+    ASSETS: Fetcher; // 静态资源绑定
 }
 
 // 用户接口
@@ -78,7 +78,7 @@ export interface MailboxApplication {
 
 // 邮件接口
 export interface Email {
-    id: number;
+    id: string;
     message_id: string;
     user_id: number;
     sender_email: string;
@@ -96,7 +96,7 @@ export interface Email {
 // 附件接口
 export interface Attachment {
     id: number;
-    email_id: number;
+    email_id: string;
     filename: string;
     content_type: string;
     size_bytes: number;
@@ -202,15 +202,23 @@ export interface UserSettingsUpdate {
 
 // 系统配置接口
 export interface SystemConfig {
-    debug_mode: boolean;
-    allow_registration: boolean;
-    auto_approve_mailbox: boolean;
+    debug_mode: number; // 1=开启, 0=关闭
+    allow_registration: number; // 1=是, 0=否
+    auto_approve_mailbox: number; // 1=是, 0=否
     supported_domains: string[];
     mail_retention_days: number;
     attachment_max_size: number;
-    allow_user_send?: boolean;
+    allow_user_send?: number; // 1=是, 0=否
     max_mailboxes_per_user?: number;
     storage_provider?: 'r2' | 's3' | 'local';
+    // 其他配置字段
+    cleanup_days?: number;
+    max_attachment_size?: number;
+    cookie_max_age?: number;
+    jwt_secret?: string;
+    admin_email?: string;
+    primary_domain?: string;
+    domains?: string[];
 }
 
 // 扩展 Hono 上下文类型

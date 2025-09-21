@@ -22,7 +22,7 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
         const recipientEmail = message.to;
         const subject = message.headers.get('Subject') || '';
 
-        debugLog('[邮件处理] 邮件信息:', {
+        infoLog('[邮件处理] 邮件信息:', {
             messageId,
             senderEmail,
             recipientEmail,
@@ -49,7 +49,7 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
             return;
         }
 
-        debugLog('[邮件处理] 域名匹配成功:', matchedDomain);
+        infoLog('[邮件处理] 域名匹配成功:', matchedDomain);
 
         // 根据邮箱地址获取用户ID
         const userId = await getUserIdByEmail(env.DB, recipientEmail);
@@ -58,7 +58,7 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
             return;
         }
 
-        debugLog('[邮件处理] 找到用户ID:', userId);
+        infoLog('[邮件处理] 找到用户ID:', userId);
 
         // 获取原始邮件内容
         const rawEmail = await message.raw();
@@ -109,6 +109,7 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
             received_at: new Date().toISOString()
         };
 
+        infoLog('[邮件处理] 准备创建邮件记录:', emailRecord);
         const savedEmail = await createEmail(env.DB, emailRecord);
         infoLog('[邮件处理] 邮件保存成功，ID:', savedEmail.id);
 

@@ -15,6 +15,7 @@ import {
     findUserByUsername,
     updateUserSettings
 } from '../services/user';
+import { getPrimaryDomain } from '../services/settings';
 import {
     getAllEmails,
     getEmailById,
@@ -96,6 +97,9 @@ adminRoutes.get('/users', async (c) => {
 
         const users = await getAllUsers(c.env.DB, queryParams, query);
 
+        // 获取主域名
+        const primaryDomain = await getPrimaryDomain(c.env.DB);
+
         return c.json<ApiResponse>({
             success: true,
             data: {
@@ -103,7 +107,7 @@ adminRoutes.get('/users', async (c) => {
                 items: users.map(user => ({
                     id: user.id,
                     username: user.username,
-                    email: user.username + '@' + c.env.DOMAIN,
+                    email: user.username + '@' + primaryDomain,
                     user_type: user.user_type,
                     created_at: user.created_at,
                     updated_at: user.updated_at

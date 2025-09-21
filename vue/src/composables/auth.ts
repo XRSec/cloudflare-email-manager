@@ -59,16 +59,30 @@ const clearAllAuthDataAndRedirect = () => {
   localStorage.removeItem('auth_token')
   localStorage.removeItem('cem_persist_auth_token')
 
-  // 清理 sessionStorage
-  sessionStorage.clear()
+  // 清理 localStorage 中的CEM相关缓存
+  const cemKeys = Object.keys(localStorage).filter(key =>
+    key.startsWith('cem_cache_') ||
+    key.startsWith('cem_')
+  )
+  cemKeys.forEach(key => {
+    localStorage.removeItem(key)
+  })
+
+  // 不再使用sessionStorage，统一使用localStorage
 
   // 清理 cookies
   document.cookie = 'session_cookies=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
 
-  // 如果当前不在登录页，重定向到登录页（携带当前页面作为重定向参数）
+  // 如果当前不在登录页，重定向到登录页
   if (window.location.pathname !== '/login') {
-    const currentUrl = encodeURIComponent(window.location.pathname + window.location.search)
-    window.location.href = `/login?redirect=${currentUrl}`
+    // 对于根路径，直接跳转到登录页（避免 redirect=%2F）
+    if (window.location.pathname === '/') {
+      window.location.href = '/login'
+    } else {
+      // 其他路径，携带重定向参数
+      const currentUrl = encodeURIComponent(window.location.pathname + window.location.search)
+      window.location.href = `/login?redirect=${currentUrl}`
+    }
   }
 }
 
@@ -115,7 +129,20 @@ export const useAuthStore = defineStore('auth', () => {
   const loading = ref(false)
 
   // 使用 VueUse 的 useStorage 进行持久化存储
-  const userStorage = useStorage('user_info', null as UserProfile | null)
+  const userStorage = useStorage('user_info', null as UserProfile | null, localStorage, {
+    serializer: {
+      read: (value: string) => {
+        try {
+          return value ? JSON.parse(value) : null
+        } catch {
+          return null
+        }
+      },
+      write: (value: UserProfile | null) => {
+        return value ? JSON.stringify(value) : ''
+      }
+    }
+  })
 
   // 计算属性
   const isAuthenticated = computed(() => !!user.value)

@@ -13,23 +13,30 @@ export async function createEmail(
     db: D1Database,
     emailData: Omit<Email, 'id' | 'created_at' | 'updated_at'>
 ): Promise<Email> {
+    // 生成唯一的邮件ID
+    const emailId = `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     const result = await db.prepare(`
         INSERT INTO emails (
-            message_id, user_id, sender_email, recipient_email, subject,
-            content, content_type, raw_email, has_attachments, received_at,
-            created_at, updated_at
+            id, message_id, user_id, subject, from_address, to_address,
+            sender_email, recipient_email, content_type, content, raw_content,
+            has_attachments, size_bytes, received_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `).bind(
+        emailId,
         emailData.message_id,
         emailData.user_id,
+        emailData.subject || null,
+        emailData.sender_email, // from_address
+        emailData.recipient_email, // to_address
         emailData.sender_email,
         emailData.recipient_email,
-        emailData.subject || null,
-        emailData.content || null,
         emailData.content_type,
+        emailData.content || null,
         emailData.raw_email || null,
         emailData.has_attachments,
+        emailData.raw_email ? new TextEncoder().encode(emailData.raw_email).length : 0,
         emailData.received_at
     ).run();
 
@@ -37,7 +44,7 @@ export async function createEmail(
         throw new Error('Failed to create email');
     }
 
-    const createdEmail = await getEmailById(db, result.meta.last_row_id as number);
+    const createdEmail = await getEmailById(db, emailId);
     if (!createdEmail) {
         throw new Error('Failed to retrieve created email');
     }
@@ -48,11 +55,11 @@ export async function createEmail(
 /**
  * 根据ID获取邮件
  */
-export async function getEmailById(db: D1Database, id: number): Promise<Email | null> {
+export async function getEmailById(db: D1Database, id: string): Promise<Email | null> {
     const result = await db.prepare(`
-        SELECT id, message_id, user_id, sender_email, recipient_email, subject,
-               content, content_type, raw_email, has_attachments, received_at,
-               created_at, updated_at
+        SELECT id, message_id, user_id, subject, from_address, to_address,
+               sender_email, recipient_email, content_type, content, raw_content,
+               has_attachments, size_bytes, received_at, created_at, updated_at
         FROM emails
         WHERE id = ?
     `).bind(id).first();
@@ -62,7 +69,7 @@ export async function getEmailById(db: D1Database, id: number): Promise<Email | 
     }
 
     return {
-        id: result.id as number,
+        id: result.id as string,
         message_id: result.message_id as string,
         user_id: result.user_id as number,
         sender_email: result.sender_email as string,
@@ -140,9 +147,9 @@ export async function getUserEmails(
 
     // 获取邮件列表
     const emailsResult = await db.prepare(`
-            SELECT id, message_id, user_id, sender_email, recipient_email, subject,
-                   content, content_type, has_attachments, received_at,
-                   created_at, updated_at
+            SELECT id, message_id, user_id, subject, from_address, to_address,
+                   sender_email, recipient_email, content_type, content, raw_content,
+                   has_attachments, size_bytes, received_at, created_at, updated_at
             FROM emails
             WHERE ${whereClause}
             ${orderClause}
@@ -157,7 +164,7 @@ export async function getUserEmails(
         `).bind(...values).first();
 
     const emails = emailsResult.results.map(result => ({
-        id: result.id as number,
+        id: result.id as string,
         message_id: result.message_id as string,
         user_id: result.user_id as number,
         sender_email: result.sender_email as string,
@@ -251,9 +258,9 @@ export async function getAllEmails(
 
         // 获取邮件列表
         const emailsResult = await db.prepare(`
-            SELECT id, message_id, user_id, sender_email, recipient_email, subject,
-                   content, content_type, has_attachments, received_at,
-                   created_at, updated_at
+            SELECT id, message_id, user_id, subject, from_address, to_address,
+                   sender_email, recipient_email, content_type, content, raw_content,
+                   has_attachments, size_bytes, received_at, created_at, updated_at
             FROM emails
             ${whereClause}
             ${orderClause}
@@ -272,7 +279,7 @@ export async function getAllEmails(
         console.log('[getAllEmails] 总数查询结果:', countResult?.total);
 
         const emails = emailsResult.results.map(result => ({
-            id: result.id as number,
+            id: result.id as string,
             message_id: result.message_id as string,
             user_id: result.user_id as number,
             sender_email: result.sender_email as string,
@@ -302,7 +309,7 @@ export async function getAllEmails(
 /**
  * 删除邮件
  */
-export async function deleteEmail(db: D1Database, r2: R2Bucket, emailId: number): Promise<void> {
+export async function deleteEmail(db: D1Database, r2: R2Bucket, emailId: string): Promise<void> {
     // 先获取邮件的附件信息
     const attachments = await getEmailAttachments(db, emailId);
 
@@ -328,7 +335,7 @@ export async function deleteEmail(db: D1Database, r2: R2Bucket, emailId: number)
 /**
  * 获取邮件附件列表
  */
-export async function getEmailAttachments(db: D1Database, emailId: number): Promise<Attachment[]> {
+export async function getEmailAttachments(db: D1Database, emailId: string): Promise<Attachment[]> {
     const result = await db.prepare(`
         SELECT id, email_id, filename, content_type, size_bytes, r2_key,
                created_at, updated_at
@@ -339,7 +346,7 @@ export async function getEmailAttachments(db: D1Database, emailId: number): Prom
 
     return result.results.map(row => ({
         id: row.id as number,
-        email_id: row.email_id as number,
+        email_id: row.email_id as string,
         filename: row.filename as string,
         content_type: row.content_type as string,
         size_bytes: row.size_bytes as number,
@@ -387,7 +394,7 @@ export async function createAttachment(
 
     return {
         id: createdAttachment.id as number,
-        email_id: createdAttachment.email_id as number,
+        email_id: createdAttachment.email_id as string,
         filename: createdAttachment.filename as string,
         content_type: createdAttachment.content_type as string,
         size_bytes: createdAttachment.size_bytes as number,
@@ -414,7 +421,7 @@ export async function getAttachmentById(db: D1Database, id: number): Promise<Att
 
     return {
         id: result.id as number,
-        email_id: result.email_id as number,
+        email_id: result.email_id as string,
         filename: result.filename as string,
         content_type: result.content_type as string,
         size_bytes: result.size_bytes as number,

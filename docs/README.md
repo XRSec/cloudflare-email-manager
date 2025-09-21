@@ -20,7 +20,7 @@ cloudflare-email-manager/
 ```
 
 ### 核心特性
-- **前后端一体化部署**：前端通过 Worker 的 ASSETS 绑定提供服务
+- **一体化部署架构**：前端通过 Worker 的 ASSETS 绑定提供服务
 - **模块化架构**：清晰的前后端分离，便于维护
 - **TypeScript 支持**：全栈 TypeScript 开发
 - **现代化 UI**：基于 Vue 3 + Naive UI 的响应式界面
@@ -133,7 +133,7 @@ docker exec -it worker zsh -c "node scripts/db.js U0VMRUNUICogMSBhcyB0ZXN0"
 name = "cem"
 main = "worker/src/main.ts"
 
-# 静态资源绑定
+# 静态资源绑定 - 前端构建产物
 [assets]
 directory = "vue/dist/"
 binding = "ASSETS"
@@ -156,9 +156,7 @@ bucket_name = "cem-r2"
 ```
 
 ### 环境变量
-- `DOMAIN` - 邮箱域名
-- `JWT_SECRET` - JWT 密钥
-- `cem_debug` - 调试模式开关
+系统现在完全基于数据库配置运行，无需额外的环境变量设置。
 
 ## 📚 API 文档
 
@@ -190,7 +188,7 @@ npm run import:emails
 ```
 
 ### 调试模式
-设置环境变量 `cem_debug = "true"` 启用调试模式，可以访问：
+通过系统设置界面启用调试模式，可以访问：
 - `/api/debug` - 调试信息
 - `/api/debug/simulate-email` - 模拟邮件发送
 

@@ -2,6 +2,7 @@
 dist/
 test/
 .vscode/
+.config
 # Logs
 logs
 *.log

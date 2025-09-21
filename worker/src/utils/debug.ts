@@ -4,18 +4,21 @@
 
 /**
  * 初始化调试模式
- * 注意：调试模式由系统设置中的 debug_mode 控制，而不是环境变量
+ * 注意：调试模式完全由系统设置中的 debug_mode 控制
  */
-export function initDebugMode(env: any): void {
-    // 环境变量 cem_debug 仅用于开发环境强制开启调试
-    if (env?.cem_debug === 'true') {
-        console.log('[调试模式] 通过环境变量强制开启');
-        return;
-    }
-    
-    // 生产环境默认关闭 console.debug
-    if (!env?.cem_debug) {
-        console.debug = function () {};
+export async function initDebugMode(env: any): Promise<void> {
+    try {
+        // 获取系统配置中的调试模式设置
+        const { getSystemConfig } = await import('../services/settings');
+        const config = await getSystemConfig(env.DB);
+
+        if (config.debug_mode === 1) {
+            console.log('[调试模式] 已启用');
+        } else {
+            console.log('[调试模式] 已禁用');
+        }
+    } catch (error) {
+        console.warn('[调试模式] 初始化失败，默认禁用:', error);
     }
 }
 

@@ -82,15 +82,16 @@ export const systemApiService = {
 export const userApiService = {
   // 获取用户信息
   async getUserProfile(): Promise<ApiResponse<any>> {
-    const response = await api.get('/user/profile')
+    const response = await api.get('/users/me')
     return response.data
   },
 
   // 更新用户设置
   async updateUserSettings(settings: any): Promise<ApiResponse<any>> {
-    const response = await api.put('/user/settings', settings)
+    const response = await api.put('/users/me', settings)
     return response.data
   },
+
 
   // 获取用户的转发规则
   async getForwardRules(page = 1, limit = 20): Promise<ApiResponse<any>> {
@@ -117,6 +118,56 @@ export const userApiService = {
   // 删除转发规则
   async deleteForwardRule(id: number): Promise<ApiResponse<any>> {
     const response = await api.delete(`/forward-rules/${id}`)
+    return response.data
+  },
+
+  // ===== 管理员功能 =====
+
+  // 获取用户列表（仅管理员）
+  async getUserList(page = 1, limit = 20, query?: string): Promise<ApiResponse<any>> {
+    const params = new URLSearchParams()
+    params.append('page', page.toString())
+    params.append('limit', limit.toString())
+    if (query) {
+      params.append('query', query)
+    }
+
+    const response = await api.get(`/users?${params}`)
+    return response.data
+  },
+
+  // 创建用户（仅管理员）
+  async createUser(userData: {
+    username: string
+    password: string
+    email: string
+    user_type?: 'user' | 'admin'
+  }): Promise<ApiResponse<any>> {
+    const response = await api.post('/users', userData)
+    return response.data
+  },
+
+  // 获取指定用户信息（仅管理员）
+  async getUserById(id: number): Promise<ApiResponse<any>> {
+    const response = await api.get(`/users/${id}`)
+    return response.data
+  },
+
+  // 删除用户（仅管理员）
+  async deleteUser(id: number): Promise<ApiResponse<any>> {
+    const response = await api.delete(`/users/${id}`)
+    return response.data
+  },
+
+  // 根据用户ID获取用户名
+  async getUsernameById(userId: number): Promise<ApiResponse<any>> {
+    const response = await api.get(`/user-info/username/${userId}`)
+    return response.data
+  },
+
+  // 批量获取用户名
+  async getUsernamesByIds(userIds: number[]): Promise<ApiResponse<any>> {
+    const response = await api.post('/user-info/usernames', { user_ids: userIds })
     return response.data
   }
 }
@@ -300,8 +351,32 @@ export const mailboxApiService = {
   },
 
   // 获取邮箱历史记录
-  async getMailboxHistory(mailboxId: number): Promise<ApiResponse<any>> {
-    const response = await api.get(`/mailbox-history/${mailboxId}`)
+  async getMailboxHistory(mailboxId: number, page = 1, limit = 20): Promise<ApiResponse<any>> {
+    const params = new URLSearchParams()
+    params.append('page', page.toString())
+    params.append('limit', limit.toString())
+
+    const response = await api.get(`/mailbox-history/${mailboxId}?${params}`)
+    return response.data
+  },
+
+  // 获取当前用户的邮箱历史记录
+  async getUserMailboxHistory(page = 1, limit = 20): Promise<ApiResponse<any>> {
+    const params = new URLSearchParams()
+    params.append('page', page.toString())
+    params.append('limit', limit.toString())
+
+    const response = await api.get(`/mailbox-history/user/me?${params}`)
+    return response.data
+  },
+
+  // 获取所有邮箱历史记录（仅管理员）
+  async getAllMailboxHistory(page = 1, limit = 20): Promise<ApiResponse<any>> {
+    const params = new URLSearchParams()
+    params.append('page', page.toString())
+    params.append('limit', limit.toString())
+
+    const response = await api.get(`/mailbox-history/admin/all?${params}`)
     return response.data
   }
 }
@@ -376,8 +451,26 @@ export const adminApiService = {
     urlParams.append('limit', params.limit.toString())
     if (params.search) urlParams.append('search', params.search)
 
-    const response = await api.get(`/admin/users?${urlParams}`)
-    return response.data
+    const url = `/admin/users?${urlParams}`
+
+    // Debug mode logging
+    const isDebugMode = import.meta.env.DEV || import.meta.env.VITE_DEBUG === 'true'
+    if (isDebugMode) {
+      console.log(`🌐 adminApiService.getAllUsers: 发起请求 ${url}`, params)
+    }
+
+    try {
+      const response = await api.get(url)
+      if (isDebugMode) {
+        console.log(`🌐 adminApiService.getAllUsers: 请求成功`, response.data)
+      }
+      return response.data
+    } catch (error) {
+      if (isDebugMode) {
+        console.error(`🌐 adminApiService.getAllUsers: 请求失败`, error)
+      }
+      throw error
+    }
   },
 
   // 获取用户详情
@@ -535,7 +628,24 @@ export const apiService = {
   updateForwardRule: adminApiService.updateForwardRule,
   deleteForwardRule: adminApiService.deleteForwardRule,
   // 管理员邮件方法
-  getAdminEmails: adminApiService.getEmails
+  getAdminEmails: adminApiService.getEmails,
+  // 数据库管理方法
+  getDatabaseInfo: async (): Promise<ApiResponse<any>> => {
+    const response = await api.get('/database/info')
+    return response.data
+  },
+  getAllTablesData: async (): Promise<ApiResponse<any>> => {
+    const response = await api.get('/database/tables')
+    return response.data
+  },
+  initializeDatabase: async (confirmText: string): Promise<ApiResponse<any>> => {
+    const response = await api.post('/database/init', { confirmText })
+    return response.data
+  },
+  getDatabaseStats: async (): Promise<ApiResponse<any>> => {
+    const response = await api.get('/database/stats')
+    return response.data
+  }
 }
 
 // 默认导出 axios 实例

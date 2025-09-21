@@ -488,7 +488,7 @@ export async function getUserIdByEmail(db: D1Database, email: string): Promise<n
         SELECT u.id
         FROM users u
         JOIN mailboxes m ON u.id = m.owner_id
-        WHERE m.address = ? AND m.status = 'active'
+        WHERE m.address = ? AND m.status = 1
     `).bind(email).first();
 
     return (result as any)?.id || null;
@@ -502,7 +502,7 @@ export async function getMailboxInfoByEmail(db: D1Database, email: string): Prom
         SELECT m.id as mailbox_id, u.id as user_id
         FROM users u
         JOIN mailboxes m ON u.id = m.owner_id
-        WHERE m.address = ? AND m.status = 'active'
+        WHERE m.address = ? AND m.status = 1
     `).bind(email).first();
 
     if (!result) return null;

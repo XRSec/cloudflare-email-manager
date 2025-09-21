@@ -49,7 +49,10 @@
     "@types/node": "^24.4.0",
     "@vicons/ionicons5": "^0.13.0",
     "axios": "^1.12.2",
+    "cloudflare": "^5.1.0",
     "dayjs": "^1.11.18",
+    "element-plus": "^2.11.3",
+    "hono": "^4.9.8",
     "naive-ui": "^2.43.1",
     "pinia": "^3.0.3",
     "typescript": "^5.9.2",
@@ -60,6 +63,7 @@
     "vue-tsc": "^3.0.7"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250920.0",
     "@vitejs/plugin-vue": "^6.0.1",
     "vite": "^7.1.5",
     "vite-plugin-vue-devtools": "^8.0.0"

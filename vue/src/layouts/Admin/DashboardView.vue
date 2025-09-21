@@ -1,8 +1,10 @@
 <template>
-  <div class="dashboard-page">
-    <div class="dashboard-header">
-      <h1>{{ pageIcon }} {{ pageTitle }}</h1>
-      <p>欢迎使用临时邮箱管理系统</p>
+  <div class="page-content">
+    <!-- 统一页面头部 -->
+    <PageHeader :title="`${pageIcon} ${pageTitle}`" :show-search="false" :show-refresh="false" />
+
+    <div class="dashboard-welcome">
+      <p>欢迎使用邮箱管理系统</p>
     </div>
 
     <div class="dashboard-stats">
@@ -82,6 +84,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/composables/stores'
+import PageHeader from '@/layouts/components/PageHeader.vue'
 // import SecurityWidget from '@/components/SecurityWidget.vue'
 
 const router = useRouter()
@@ -99,6 +102,7 @@ const isAdmin = computed(() => authStore.user?.user_type === 'admin')
 // 页面标题和图标
 const pageTitle = computed(() => '仪表板')
 const pageIcon = computed(() => '📊')
+const loading = ref(false)
 
 // 方法
 const loadDashboardData = async () => {
@@ -140,6 +144,15 @@ const viewEmail = (emailId: string) => {
 
 const goToMailboxes = () => {
   router.push('/mailboxes')
+}
+
+const refreshData = () => {
+  loading.value = true
+  // 刷新仪表盘数据
+  setTimeout(() => {
+    loading.value = false
+    console.log('仪表盘数据已刷新')
+  }, 500)
 }
 
 const goToSettings = () => {
