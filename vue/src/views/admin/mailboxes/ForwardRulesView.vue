@@ -59,8 +59,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import LoadingOverlay from '@/layouts/AppLoadingSpinner.vue'
-import PageHeader from '@/layouts/components/PageHeader.vue'
+import LoadingOverlay from '@/views/shared/components/AppLoadingSpinner.vue'
+import { PageHeader } from '@/components/common'
 
 // 响应式数据
 const rulesResponse = ref<any>(null)

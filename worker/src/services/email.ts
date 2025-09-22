@@ -16,14 +16,16 @@ export async function createEmail(
     // 生成唯一的邮件ID
     const emailId = `email_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    const result = await db.prepare(`
+    const sql = `
         INSERT INTO emails (
             id, message_id, user_id, subject, from_address, to_address,
-            sender_email, recipient_email, content_type, content, raw_content,
-            has_attachments, size_bytes, received_at, created_at, updated_at
+            sender_email, recipient_email, reply_to, cc, bcc, content_type, content, raw_content,
+            is_read, has_attachments, size_bytes, received_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).bind(
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `;
+
+    const bound = [
         emailId,
         emailData.message_id,
         emailData.user_id,
@@ -32,23 +34,40 @@ export async function createEmail(
         emailData.recipient_email, // to_address
         emailData.sender_email,
         emailData.recipient_email,
+        emailData.reply_to || null,
+        emailData.cc || null,
+        emailData.bcc || null,
         emailData.content_type,
         emailData.content || null,
-        emailData.raw_email || null,
+        emailData.raw_content || null,
+        emailData.is_read || 0,
         emailData.has_attachments,
-        emailData.raw_email ? new TextEncoder().encode(emailData.raw_email).length : 0,
+        emailData.raw_content ? new TextEncoder().encode(emailData.raw_content).length : 0,
         emailData.received_at
-    ).run();
+    ];
+
+    console.log('🐛 [createEmail] SQL:', sql);
+    console.log('🐛 [createEmail] BOUND:', bound.map((v, i) => ({ param: i + 1, value: v, type: typeof v })));
+
+    const stmt = db.prepare(sql);
+    const result = await stmt.bind(...bound).run();
 
     if (!result.success) {
-        throw new Error('Failed to create email');
+        const errorMsg = `Failed to create email; success=${result.success}; meta=${JSON.stringify(result.meta)}; error=${JSON.stringify(result.error || 'undefined')}`;
+        console.log('🐛 [createEmail] INSERT_FAILED:', errorMsg);
+        throw new Error(errorMsg);
     }
+
+    console.log('🐛 [createEmail] INSERT_OK:', { id: emailId, meta: result.meta });
 
     const createdEmail = await getEmailById(db, emailId);
     if (!createdEmail) {
-        throw new Error('Failed to retrieve created email');
+        const msg = 'Failed to retrieve created email';
+        console.log('🐛 [createEmail] RETRIEVE_FAILED:', msg);
+        throw new Error(msg);
     }
 
+    console.log('🐛 [createEmail] RETRIEVE_OK:', { id: createdEmail.id, user_id: createdEmail.user_id });
     return createdEmail;
 }
 
@@ -58,8 +77,8 @@ export async function createEmail(
 export async function getEmailById(db: D1Database, id: string): Promise<Email | null> {
     const result = await db.prepare(`
         SELECT id, message_id, user_id, subject, from_address, to_address,
-               sender_email, recipient_email, content_type, content, raw_content,
-               has_attachments, size_bytes, received_at, created_at, updated_at
+               sender_email, recipient_email, reply_to, cc, bcc, content_type, content, raw_content,
+               is_read, has_attachments, size_bytes, received_at, created_at, updated_at
         FROM emails
         WHERE id = ?
     `).bind(id).first();
@@ -77,7 +96,11 @@ export async function getEmailById(db: D1Database, id: string): Promise<Email | 
         subject: result.subject as string | undefined,
         content: result.content as string | undefined,
         content_type: result.content_type as 'text' | 'html',
-        raw_email: result.raw_email as string | undefined,
+        raw_content: result.raw_content as string | undefined,
+        reply_to: result.reply_to as string | undefined,
+        cc: result.cc as string | undefined,
+        bcc: result.bcc as string | undefined,
+        is_read: result.is_read as number,
         has_attachments: result.has_attachments as number,
         received_at: result.received_at as string,
         created_at: result.created_at as string | undefined,
@@ -148,8 +171,8 @@ export async function getUserEmails(
     // 获取邮件列表
     const emailsResult = await db.prepare(`
             SELECT id, message_id, user_id, subject, from_address, to_address,
-                   sender_email, recipient_email, content_type, content, raw_content,
-                   has_attachments, size_bytes, received_at, created_at, updated_at
+                   sender_email, recipient_email, reply_to, cc, bcc, content_type, content, raw_content,
+                   is_read, has_attachments, size_bytes, received_at, created_at, updated_at
             FROM emails
             WHERE ${whereClause}
             ${orderClause}
@@ -172,7 +195,11 @@ export async function getUserEmails(
         subject: result.subject as string | undefined,
         content: result.content as string | undefined,
         content_type: result.content_type as 'text' | 'html',
-        raw_email: undefined, // 列表中不返回原始邮件内容
+        raw_content: undefined, // 列表中不返回原始邮件内容
+        reply_to: result.reply_to as string | undefined,
+        cc: result.cc as string | undefined,
+        bcc: result.bcc as string | undefined,
+        is_read: result.is_read as number,
         has_attachments: result.has_attachments as number,
         received_at: result.received_at as string,
         created_at: result.created_at as string | undefined,
@@ -259,8 +286,8 @@ export async function getAllEmails(
         // 获取邮件列表
         const emailsResult = await db.prepare(`
             SELECT id, message_id, user_id, subject, from_address, to_address,
-                   sender_email, recipient_email, content_type, content, raw_content,
-                   has_attachments, size_bytes, received_at, created_at, updated_at
+                   sender_email, recipient_email, reply_to, cc, bcc, content_type, content, raw_content,
+                   is_read, has_attachments, size_bytes, received_at, created_at, updated_at
             FROM emails
             ${whereClause}
             ${orderClause}
@@ -287,7 +314,11 @@ export async function getAllEmails(
             subject: result.subject as string | undefined,
             content: result.content as string | undefined,
             content_type: result.content_type as 'text' | 'html',
-            raw_email: undefined, // 列表中不返回原始邮件内容
+            raw_content: undefined, // 列表中不返回原始邮件内容
+            reply_to: result.reply_to as string | undefined,
+            cc: result.cc as string | undefined,
+            bcc: result.bcc as string | undefined,
+            is_read: result.is_read as number,
             has_attachments: result.has_attachments as number,
             received_at: result.received_at as string,
             created_at: result.created_at as string | undefined,

@@ -92,7 +92,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/composables/stores'
 import { apiService } from '@/composables/api'
 import { smartCache, CacheKeys } from '@/composables/smartCache'
-import PageHeader from '@/layouts/components/PageHeader.vue'
+import { PageHeader } from '@/components/common'
 // import SecurityWidget from '@/components/SecurityWidget.vue'
 
 const router = useRouter()
@@ -193,7 +193,7 @@ const formatTime = (dateString: string) => {
 }
 
 const viewEmail = (emailId: string) => {
-  router.push({ name: 'emails', query: { email: emailId } })
+  router.push({ name: 'my-emails', query: { email: emailId } })
 }
 
 // const goToEmails = () => {
@@ -201,11 +201,11 @@ const viewEmail = (emailId: string) => {
 // }
 
 const goToMailboxes = () => {
-  router.push('/mailboxes')
+  router.push('/my-mailboxes')
 }
 
 const goToSettings = () => {
-  router.push('/settings')
+  router.push('/system-settings')
 }
 
 const goToAdmin = () => {

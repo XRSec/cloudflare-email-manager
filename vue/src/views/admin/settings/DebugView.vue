@@ -578,7 +578,7 @@ const cacheInfo = ref<any>(null)
 const showEmailForm = ref(false) // 控制模拟邮件接收表单的显示
 
 // 管理员权限判断
-const isAdmin = computed(() => authStore.user?.user_type === 'admin')
+const isAdmin = computed(() => authStore.user?.user_type === 1)
 
 // 数据库管理相关
 const databaseInfo = ref<any>(null)
@@ -825,26 +825,18 @@ const clearAllCache = () => {
     return
   }
 
-  let clearedCount = 0
-
   // 清空内存缓存
-  const memoryCacheSize = cacheService.size()
   cacheService.clear()
-  clearedCount += memoryCacheSize
+
+  // 清空认证状态
+  const authStore = useAuthStore()
+  authStore.logout()
 
   // 清空localStorage中的所有数据
-  const localStorageKeys = Object.keys(localStorage)
-  localStorageKeys.forEach(key => {
-    localStorage.removeItem(key)
-    clearedCount++
-  })
+  localStorage.clear()
 
-  // 清空sessionStorage中的所有数据
-  const sessionStorageKeys = Object.keys(sessionStorage)
-  sessionStorageKeys.forEach(key => {
-    sessionStorage.removeItem(key)
-    clearedCount++
-  })
+  // 清空sessionStorage中的所有数据（项目不再使用sessionStorage）
+  sessionStorage.clear()
 
   // 清空所有Cookies
   const cookies = document.cookie.split(';')
@@ -856,7 +848,6 @@ const clearAllCache = () => {
       document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
       document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=${window.location.hostname}`
       document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.${window.location.hostname}`
-      clearedCount++
     }
   })
 
@@ -871,11 +862,11 @@ const clearAllCache = () => {
       window.location.reload()
     } catch (error) {
       console.error('重新初始化系统配置失败:', error)
-      alert(`缓存已清空！\n清空了 ${clearedCount} 个缓存项\n- 内存缓存: ${memoryCacheSize} 项\n- localStorage: ${localStorageKeys.length} 项\n- Cookies: ${cookies.length} 项\n\n请手动刷新页面以重新加载系统配置。`)
+      alert('缓存已清空！请手动刷新页面以重新加载系统配置。')
     }
   }, 100)
 
-  alert(`所有缓存已清空！\n清空了 ${clearedCount} 个缓存项\n- 内存缓存: ${memoryCacheSize} 项\n- localStorage: ${localStorageKeys.length} 项\n- Cookies: ${cookies.length} 项\n\n系统将自动重新加载...`)
+  alert('所有缓存已清空！系统将自动重新加载...')
 }
 
 
@@ -891,13 +882,17 @@ const showAllStorage = () => {
     storageInfo += `  ${key}: ${value}\n`
   })
 
-  // 2. sessionStorage 数据
+  // 2. sessionStorage 数据（项目不再使用sessionStorage）
   const allSessionStorageKeys = Object.keys(sessionStorage)
-  storageInfo += `\n🗂️ sessionStorage (${allSessionStorageKeys.length} 项):\n`
-  allSessionStorageKeys.forEach(key => {
-    const value = sessionStorage.getItem(key)
-    storageInfo += `  ${key}: ${value}\n`
-  })
+  storageInfo += `\n🗂️ sessionStorage (${allSessionStorageKeys.length} 项，项目不再使用):\n`
+  if (allSessionStorageKeys.length === 0) {
+    storageInfo += `  (空 - 项目已统一使用 localStorage)\n`
+  } else {
+    allSessionStorageKeys.forEach(key => {
+      const value = sessionStorage.getItem(key)
+      storageInfo += `  ${key}: ${value}\n`
+    })
+  }
 
   // 3. Cookies 数据
   storageInfo += `\n🍪 Cookies:\n`

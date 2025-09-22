@@ -88,7 +88,11 @@ export interface Email {
     subject?: string;
     content?: string;
     content_type: 'text' | 'html' | 'markdown';
-    raw_email?: string;
+    raw_content?: string; // 修复字段名，与数据库一致
+    reply_to?: string;
+    cc?: string;
+    bcc?: string;
+    is_read: number;
     has_attachments: number;
     received_at: string;
     created_at?: string;

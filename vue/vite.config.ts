@@ -30,7 +30,7 @@ export default defineConfig({
     }
   },
   server: {
-    host: '0.0.0.0',
+    host: '127.0.0.1',
     port: 5173,
     proxy: {
       '/api': {
@@ -52,9 +52,9 @@ export default defineConfig({
           // 工具库
           utils: ['@vueuse/core', 'dayjs'],
           // 组件按功能分组
-          'components-loading': ['@/layouts/AppLoadingSpinner.vue'],
-          'views-login': ['@/layouts/LoginView.vue'],
-          'views-main': ['@/layouts/MainLayoutView.vue'],
+          'components-loading': ['@/views/shared/components/AppLoadingSpinner.vue'],
+          'views-login': ['@/views/auth/LoginView.vue'],
+          'views-main': ['@/views/shared/layouts/MainLayout.vue'],
           'auth': ['@/composables/auth'],
           'api': ['@/composables/api']
         }

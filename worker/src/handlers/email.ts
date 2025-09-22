@@ -104,7 +104,7 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
             subject: subject || undefined,
             content: content || undefined,
             content_type: contentType as 'text' | 'html',
-            raw_email: rawEmail, // 保存原始邮件数据
+            raw_content: rawEmail, // 修复字段名，与数据库一致
             has_attachments: hasAttachments ? 1 : 0,
             received_at: new Date().toISOString()
         };

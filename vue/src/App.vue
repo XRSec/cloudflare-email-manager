@@ -34,8 +34,8 @@ import { useAuthStore, useApp } from '@/composables/stores'
 import { smartCache } from '@/composables/smartCache'
 import { defineAsyncComponent } from 'vue'
 
-const AppLoadingSpinner = defineAsyncComponent(() => import('@/layouts/AppLoadingSpinner.vue'))
-const LoginView = defineAsyncComponent(() => import('@/layouts/LoginView.vue'))
+const AppLoadingSpinner = defineAsyncComponent(() => import('@/views/shared/components/AppLoadingSpinner.vue'))
+const LoginView = defineAsyncComponent(() => import('@/views/auth/LoginView.vue'))
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -82,6 +82,7 @@ window.showMessage = (message: string, type: 'success' | 'error' | 'warning' | '
 
 // 流式加载函数
 const loadNextStage = async (stage: typeof currentStage.value) => {
+  console.log(`🔄 切换到阶段: ${stage}`)
   setStage(stage)
 
   switch (stage) {
@@ -96,9 +97,12 @@ const loadNextStage = async (stage: typeof currentStage.value) => {
       setLoadingText('正在验证用户身份...')
       try {
         await authStore.initAuth()
+        console.log('🔐 认证状态:', authStore.isAuthenticated)
         if (authStore.isAuthenticated) {
+          console.log('✅ 用户已认证，进入主界面')
           await loadNextStage('main-preload')
         } else {
+          console.log('❌ 用户未认证，进入登录页')
           await loadNextStage('login')
         }
       } catch (error) {
@@ -126,30 +130,18 @@ const loadNextStage = async (stage: typeof currentStage.value) => {
 
 // 处理登录成功
 const handleLoginSuccess = async () => {
+  console.log('🎯 App.vue 收到登录成功事件')
+  setLoadingText('正在跳转至主界面...')
   // 检查是否有重定向参数
   const urlParams = new URLSearchParams(window.location.search)
   const redirectUrl = urlParams.get('redirect')
-
-  if (redirectUrl) {
-    // 清除 URL 中的 redirect 参数
-    const newUrl = window.location.pathname
-    window.history.replaceState({}, '', newUrl)
-
-    // 如果重定向到根路径，直接进入主界面
-    if (decodeURIComponent(redirectUrl) === '/') {
-      await loadNextStage('main-preload')
-    } else {
-      // 其他路径，先进入主界面再跳转
-      await loadNextStage('main-preload')
-      // 延迟跳转，确保主界面加载完成
-      setTimeout(() => {
-        router.push(decodeURIComponent(redirectUrl))
-      }, 500)
-    }
-  } else {
-    // 没有重定向参数，正常进入主界面
-    await loadNextStage('main-preload')
+  console.log('📍 重定向URL:', redirectUrl)
+  let newUrl = '/'
+  if (redirectUrl && decodeURIComponent(redirectUrl) !== '/') {
+    newUrl = decodeURIComponent(redirectUrl)
   }
+  await loadNextStage('main-preload')
+  router.push(newUrl)
 }
 
 // 处理退出登录

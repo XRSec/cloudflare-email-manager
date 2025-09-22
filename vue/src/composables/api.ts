@@ -1,5 +1,4 @@
 import axios from 'axios'
-import { cacheInvalidation } from './smartCache'
 
 // 创建 axios 实例
 const api = axios.create({
@@ -14,7 +13,7 @@ const api = axios.create({
 // 请求拦截器
 api.interceptors.request.use(
   (config) => {
-    // 使用 cookies 认证，不需要手动添加 Authorization header
+    // 后端通过 HttpOnly cookies 自动解析用户信息，无需手动添加 headers
     return config
   },
   (error) => {
@@ -29,8 +28,8 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
-      // 未授权，清理所有认证数据并重定向到登录页
-      localStorage.removeItem('user_info')
+      // 未授权，清理用户信息并重定向到登录页
+      localStorage.clear()
       // 重定向到登录页
       window.location.href = '/login'
     }

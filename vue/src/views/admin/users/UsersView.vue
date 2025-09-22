@@ -34,8 +34,8 @@
               <div class="user-name">{{ user.username }}</div>
               <div class="user-email">{{ user.email }}</div>
               <div class="user-type">
-                <span :class="['badge', user.user_type === 'admin' ? 'badge-danger' : 'badge-primary']">
-                  {{ user.user_type === 'admin' ? '管理员' : '普通用户' }}
+                <span :class="['badge', user.user_type === 1 ? 'badge-danger' : 'badge-primary']">
+                  {{ user.user_type === 1 ? '管理员' : '普通用户' }}
                 </span>
               </div>
             </div>
@@ -61,8 +61,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import LoadingOverlay from '@/layouts/AppLoadingSpinner.vue'
-import PageHeader from '@/layouts/components/PageHeader.vue'
+import LoadingOverlay from '@/views/shared/components/AppLoadingSpinner.vue'
+import { PageHeader } from '@/components/common'
 import { adminApiService } from '@/composables/api'
 import { cacheService } from '@/composables/cache'
 

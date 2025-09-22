@@ -43,14 +43,14 @@ const ROUTE_CONFIGS: Record<string, PageConfig> = {
     keepAlive: true,
     preload: true
   },
-  'emails': {
+  'my-emails': {
     title: '我的邮件',
     showRefreshButton: true,
     autoRefresh: true,
     refreshInterval: 15000,
     keepAlive: true
   },
-  'mailboxes': {
+  'my-mailboxes': {
     title: '我的邮箱',
     showRefreshButton: true,
     keepAlive: true
@@ -60,8 +60,8 @@ const ROUTE_CONFIGS: Record<string, PageConfig> = {
     showRefreshButton: true,
     keepAlive: true
   },
-  'settings': {
-    title: '设置',
+  'personal-settings': {
+    title: '个人设置',
     showRefreshButton: false,
     keepAlive: true
   },
@@ -71,14 +71,14 @@ const ROUTE_CONFIGS: Record<string, PageConfig> = {
     autoRefresh: false,
     keepAlive: true
   },
-  'admin-emails': {
+  'all-emails': {
     title: '全部邮件',
     showRefreshButton: true,
     autoRefresh: true,
     refreshInterval: 20000,
     keepAlive: true
   },
-  'admin-mailboxes': {
+  'mailbox-management': {
     title: '邮箱管理',
     showRefreshButton: true,
     keepAlive: true
@@ -97,7 +97,7 @@ const ROUTE_CONFIGS: Record<string, PageConfig> = {
     refreshInterval: 60000,
     keepAlive: true
   },
-  'admin-settings': {
+  'system-settings': {
     title: '系统设置',
     showRefreshButton: false,
     keepAlive: true

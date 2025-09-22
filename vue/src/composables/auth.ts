@@ -44,47 +44,23 @@ api.interceptors.response.use(
   (error: any) => {
     if (error.response?.status === 401) {
       // 未授权，清理所有认证数据并重定向到登录页
-      clearAllAuthDataAndRedirect()
+      console.log('🧹 检测到401错误，清理认证数据并重定向...')
+
+      // 清理所有本地数据
+      localStorage.clear()
+      document.cookie = 'session_cookies=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+
+      // 重定向到登录页
+      if (window.location.pathname !== '/login') {
+        const redirectUrl = window.location.pathname === '/'
+          ? '/login'
+          : `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`
+        window.location.href = redirectUrl
+      }
     }
     return Promise.reject(error)
   }
 )
-
-// ==================== 工具函数 ====================
-
-// 清理所有认证数据并重定向到登录页
-const clearAllAuthDataAndRedirect = () => {
-  // 清理 localStorage 中的认证信息
-  localStorage.removeItem('user_info')
-  localStorage.removeItem('auth_token')
-  localStorage.removeItem('cem_persist_auth_token')
-
-  // 清理 localStorage 中的CEM相关缓存
-  const cemKeys = Object.keys(localStorage).filter(key =>
-    key.startsWith('cem_cache_') ||
-    key.startsWith('cem_')
-  )
-  cemKeys.forEach(key => {
-    localStorage.removeItem(key)
-  })
-
-  // 不再使用sessionStorage，统一使用localStorage
-
-  // 清理 cookies
-  document.cookie = 'session_cookies=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
-
-  // 如果当前不在登录页，重定向到登录页
-  if (window.location.pathname !== '/login') {
-    // 对于根路径，直接跳转到登录页（避免 redirect=%2F）
-    if (window.location.pathname === '/') {
-      window.location.href = '/login'
-    } else {
-      // 其他路径，携带重定向参数
-      const currentUrl = encodeURIComponent(window.location.pathname + window.location.search)
-      window.location.href = `/login?redirect=${currentUrl}`
-    }
-  }
-}
 
 // ==================== API 服务 ====================
 
@@ -116,7 +92,19 @@ export const authApiService = {
       console.error('登出请求失败:', error)
     } finally {
       // 无论后端登出是否成功，都清理本地状态
-      clearAllAuthDataAndRedirect()
+      console.log('🧹 用户登出，清理认证数据并重定向...')
+
+      // 清理所有本地数据
+      localStorage.clear()
+      document.cookie = 'session_cookies=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+
+      // 重定向到登录页
+      if (window.location.pathname !== '/login') {
+        const redirectUrl = window.location.pathname === '/'
+          ? '/login'
+          : `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`
+        window.location.href = redirectUrl
+      }
     }
   }
 }
@@ -146,7 +134,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   // 计算属性
   const isAuthenticated = computed(() => !!user.value)
-  const isAdmin = computed(() => user.value?.user_type === 'admin')
+  const isAdmin = computed(() => user.value?.user_type === 1)
 
   // 获取当前用户信息
   const fetchCurrentUser = async () => {
@@ -207,13 +195,13 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response = await authApiService.login(username, password)
       if (response.success && response.data) {
-        // 登录成功后获取用户信息
-        const userResult = await fetchCurrentUser()
-        if (userResult.success) {
-          return { success: true }
-        } else {
-          return { success: false, error: '获取用户信息失败' }
-        }
+        // 登录成功，直接使用返回的用户信息
+        console.log('✅ 登录成功，设置用户信息:', response.data.user)
+        user.value = response.data.user // TODO 有意义吗？
+        userStorage.value = response.data.user
+        console.log('🔐 当前认证状态:', !!user.value)
+
+        return { success: true }
       } else {
         return { success: false, error: response.message || '登录失败' }
       }

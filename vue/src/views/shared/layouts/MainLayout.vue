@@ -40,10 +40,10 @@
       <!-- 顶部栏 -->
       <div class="top-bar">
         <div class="left-section">
-          <button class="btn btn-secondary btn-sm" @click="toggleSidebar">☰ 菜单</button>
-          <button class="btn btn-primary btn-sm" @click="refreshCurrentPage" :disabled="refreshing">
+          <Button variant="secondary" size="sm" @click="toggleSidebar">☰ 菜单</Button>
+          <Button variant="primary" size="sm" @click="refreshCurrentPage" :disabled="refreshing">
             {{ refreshing ? '🔄 刷新中...' : '🔄 刷新' }}
-          </button>
+          </Button>
         </div>
         <div class="user-info">
           <div class="user-avatar">
@@ -69,6 +69,13 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/composables/stores'
 import { useSystemStore } from '@/composables/system'
+import { useUnifiedGlobalRefreshManager } from '@/composables/globalRefreshManager'
+import { Button } from '@/components/common'
+// 在开发模式下导入测试
+if (import.meta.env.DEV) {
+  import('@/composables/testRouteApiMapper')
+  import('@/composables/testCacheKeys')
+}
 
 // 调试工具函数
 const debugLog = (...args: any[]) => {
@@ -89,8 +96,12 @@ const emit = defineEmits<{
 // 侧边栏状态
 const sidebarOpen = ref(false)
 
+// 使用统一全局刷新管理器
+const { executeGlobalRefresh, isRefreshing, getCurrentPageRefreshInfo } = useUnifiedGlobalRefreshManager()
+
 // 刷新状态
-const refreshing = ref(false)
+// 使用统一刷新管理器的状态
+const refreshing = isRefreshing
 
 // 计算属性
 const isAdmin = computed(() => authStore.user?.user_type === 1)
@@ -127,14 +138,14 @@ const navigationSections = computed(() => {
       show: true,
       items: [
         {
-          path: '/emails',
+          path: '/my-emails',
           title: '我的邮件',
           icon: '📧',
           show: true,
           exactMatch: true
         },
         {
-          path: '/mailboxes',
+          path: '/my-mailboxes',
           title: '我的邮箱',
           icon: '📮',
           show: true,
@@ -161,7 +172,7 @@ const navigationSections = computed(() => {
           exactMatch: false
         },
         {
-          path: '/admin-mailboxs',
+          path: '/mailbox-management',
           title: '邮箱管理',
           icon: '📮',
           show: isAdmin,
@@ -170,7 +181,7 @@ const navigationSections = computed(() => {
           badgeClass: 'badge-success'
         },
         {
-          path: '/admin-emails',
+          path: '/all-emails',
           title: '全部邮件',
           icon: '📨',
           show: isAdmin,
@@ -191,7 +202,7 @@ const navigationSections = computed(() => {
           exactMatch: false
         },
         {
-          path: '/admin-settings',
+          path: '/system-settings',
           title: '系统设置',
           icon: '🛠️',
           show: isAdmin,
@@ -204,7 +215,7 @@ const navigationSections = computed(() => {
       show: true,
       items: [
         {
-          path: '/settings',
+          path: '/personal-settings',
           title: '个人设置',
           icon: '⚙️',
           show: true,
@@ -248,26 +259,13 @@ const closeSidebarOnMobile = () => {
 
 // 全局刷新当前页面
 const refreshCurrentPage = async () => {
-  if (refreshing.value) return
-
-  refreshing.value = true
   try {
-    console.log('🌍 全局刷新触发')
+    const refreshInfo = getCurrentPageRefreshInfo()
+    console.log('🌍 全局刷新触发', refreshInfo)
 
-    // 先触发全局刷新事件
-    window.dispatchEvent(new CustomEvent('global:refresh'))
-
-    // 然后调用页面级刷新方法（如果存在）
-    if (window.refreshCurrentPage && typeof window.refreshCurrentPage === 'function') {
-      // 避免递归调用，检查是否是同一个函数
-      if (window.refreshCurrentPage !== refreshCurrentPage) {
-        await window.refreshCurrentPage()
-      }
-    }
+    await executeGlobalRefresh()
   } catch (error) {
     console.error('刷新页面失败:', error)
-  } finally {
-    refreshing.value = false
   }
 }
 
@@ -578,12 +576,12 @@ onMounted(async () => {
 }
 
 .btn-secondary {
-  background: #6c757d;
+  background: #3498db;
   color: white;
 }
 
 .btn-secondary:hover {
-  background: #5a6268;
+  background: #0056b3;
   transform: translateY(-1px);
 }
 

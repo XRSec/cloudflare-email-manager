@@ -116,7 +116,7 @@
 import { ref, onMounted } from 'vue'
 import { apiService } from '@/composables/api'
 import { cacheService } from '@/composables/cache'
-import LoadingOverlay from '@/layouts/AppLoadingSpinner.vue'
+import LoadingOverlay from '@/views/shared/components/AppLoadingSpinner.vue'
 
 // 定义类型接口
 interface AttackRecord {

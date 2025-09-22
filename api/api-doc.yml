@@ -9,12 +9,12 @@ info:
     - 管理员与普通用户通过后端鉴权区分，不再分叉路径
     - 错误响应、分页参数统一复用
     - 邮件发送接口统一 `/api/emails/send`
-    - 邮件查询支持 `scope` 参数控制（all）
-    - 转发规则查询支持 `scope` 参数控制（all）
+    - 邮件查询支持 `scope` 参数控制（all/user）
+    - 转发规则查询支持 `scope` 参数控制（all/user）
 
     ### 邮件
     ```http
-    GET    /api/emails             # 获取邮件（scope=all）
+    GET    /api/emails             # 获取邮件（scope=all/user）
     GET    /api/emails/{id}        # 获取详情
     DELETE /api/emails/{id}        # 删除邮件
     GET    /api/emails/{id}/attachments/{attachmentId}  # 下载附件
@@ -23,7 +23,7 @@ info:
 
     ### 转发规则
     ```http
-    GET    /api/forward-rules      # 获取转发规则（scope=all）
+    GET    /api/forward-rules      # 获取转发规则（scope=all/user）
     GET    /api/forward-rules/{id} # 获取详情
     POST   /api/forward-rules      # 创建规则
     PUT    /api/forward-rules/{id} # 更新规则
@@ -34,7 +34,7 @@ info:
 
     资源路径不区分角色 → 统一 /api/emails, /api/forward-rules
 
-    角色差异用参数控制 → scope=all
+    角色差异用参数控制 → scope=all/user
 
     业务差异前端封装 → send-info 只是 send 的一层包装
 
@@ -396,8 +396,8 @@ paths:
         - 邮件
       summary: 获取邮件列表
       description: |
-        - 普通用户：默认只能获取自己的邮件
-        - 管理员：可以使用 scope=all 获取全部邮件
+        - 普通用户：默认只能获取自己的邮件，可使用 scope=user 明确指定
+        - 管理员：可以使用 scope=all 获取全部邮件，或 scope=user 获取自己的邮件
       security:
         - cookieAuth: []
       parameters:
@@ -405,10 +405,11 @@ paths:
         - $ref: '#/components/parameters/LimitParam'
         - name: scope
           in: query
+          description: 查询范围，all=所有邮件（需管理员权限），user=当前用户邮件，不传则默认返回当前用户邮件
+          required: false
           schema:
             type: string
-            enum: [all]
-          description: 查询范围（仅管理员可用，获取全部邮件）
+            enum: [all, user]
         - name: search
           in: query
           schema:
@@ -574,6 +575,7 @@ paths:
       description: |
         - 默认行为：始终返回当前用户的邮箱
         - 当 scope=all 时：需要管理员权限，返回所有邮箱
+        - 当 scope=user 时：明确指定返回当前用户的邮箱
         - 支持分页查询
       security:
         - cookieAuth: []
@@ -582,11 +584,11 @@ paths:
         - $ref: '#/components/parameters/LimitParam'
         - name: scope
           in: query
-          description: 查询范围，all=所有邮箱（需管理员权限），其他值或不传则返回当前用户的邮箱
+          description: 查询范围，all=所有邮箱（需管理员权限），user=当前用户邮箱，不传则默认返回当前用户邮箱
           required: false
           schema:
             type: string
-            enum: [all]
+            enum: [all, user]
           example: all
       responses:
         '200':
@@ -824,8 +826,8 @@ paths:
         - 转发规则
       summary: 获取转发规则列表
       description: |
-        - 普通用户：仅返回自己的规则
-        - 管理员：可以返回全部规则（支持分页）
+        - 普通用户：仅返回自己的规则，可使用 scope=user 明确指定
+        - 管理员：可以返回全部规则（scope=all）或自己的规则（scope=user）
         - 通过 scope 参数控制查询范围
       security:
         - cookieAuth: []
@@ -834,11 +836,11 @@ paths:
         - $ref: '#/components/parameters/LimitParam'
         - name: scope
           in: query
-          description: 查询范围，all=所有规则（需管理员权限），其他值或不传则返回当前用户的规则
+          description: 查询范围，all=所有规则（需管理员权限），user=当前用户规则，不传则默认返回当前用户规则
           required: false
           schema:
             type: string
-            enum: [all]
+            enum: [all, user]
           example: all
         - name: search
           in: query

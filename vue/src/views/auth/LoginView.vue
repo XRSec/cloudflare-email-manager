@@ -68,26 +68,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useAuthStore } from '@/composables/stores'
 import { systemApiService } from '@/composables/api'
 
 const authStore = useAuthStore()
-
-onMounted(async () => {
-  if (authStore.isAuthenticated) {
-    // 如果已登录，触发登录成功事件
-    await handleLoginSuccess()
-  }
-})
 
 // 定义事件
 const emit = defineEmits<{
   'login-success': []
 }>()
 
-const handleLoginSuccess = () => {
+const handleLoginSuccess = async () => {
   // 触发登录成功事件，让 App.vue 处理预加载
+  console.log('🚀 触发登录成功事件')
+
+  // 使用 nextTick 确保在下一个 tick 中触发事件
+  await nextTick()
   emit('login-success')
 }
 
@@ -180,10 +177,21 @@ const handleLogin = async () => {
     )
 
     if (result.success) {
-      // 登录成功，统一使用流式加载处理后续逻辑
+      // 登录成功，立即隐藏登录页面
+      console.log('✅ 登录成功，准备触发登录成功事件')
+
+      // 立即隐藏登录页面，不等待 Vue 响应式更新
+      const loginPage = document.querySelector('.login-page') as HTMLElement
+      if (loginPage) {
+        loginPage.style.display = 'none'
+        console.log('🚫 登录页面已隐藏')
+      }
+
+      // 触发登录成功事件
       await handleLoginSuccess()
     } else {
       // 显示错误消息
+      console.log('❌ 登录失败:', result.error)
       errorMessage.value = result.error || '登录失败'
     }
   } catch (error) {
@@ -192,6 +200,7 @@ const handleLogin = async () => {
   } finally {
     loading.value = false
   }
+  // 注意：登录成功时不重置 loading 状态，让页面切换时自然隐藏
 }
 
 const handleRegister = async () => {
@@ -228,7 +237,7 @@ const handleRegister = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  /* min-height: 100vh; */
   background: #f8f9fa;
   padding: 20px;
   z-index: 1000;

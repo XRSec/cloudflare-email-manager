@@ -174,13 +174,18 @@ export const CacheKeys = {
   emailList: (userId: number, page: number, limit: number, scope?: string) =>
     `emails_${userId}_${page}_${limit}_${scope || 'user'}`,
 
-  // 邮箱相关
-  mailboxList: (userId: number, page: number, limit: number, scope?: string) =>
-    `mailboxes_${userId}_${page}_${limit}_${scope || 'user'}`,
+  // 邮箱相关 - 包含路由信息以区分不同页面
+  mailboxList: (userId: number, page: number, limit: number, scope?: string, routeName?: string) =>
+    `mailboxes_${userId}_${page}_${limit}_${scope || 'user'}_${routeName || 'default'}`,
 
   // 申请相关
   applicationList: (userId: number, page: number, limit: number, scope?: string) =>
     `applications_${userId}_${page}_${limit}_${scope || 'user'}`,
+
+  // 统计相关
+  recentEmails: (userId: number) => `recent_emails_${userId}`,
+  mailboxStats: (userId: number) => `mailbox_stats_${userId}`,
+  dashboardStats: (userId: number) => `dashboard_stats_${userId}`,
 
   // 系统相关
   systemConfig: 'system_config',
@@ -207,8 +212,6 @@ export const cacheInvalidation = {
   onNewEmail: (userId: number) => {
     smartCache.invalidateMultiple([
       CacheDependencies.NEW_EMAIL,
-      CacheKeys.recentEmails(userId),
-      CacheKeys.dashboardStats(userId),
       CacheKeys.userStats(userId)
     ])
   },
@@ -217,8 +220,6 @@ export const cacheInvalidation = {
   onNewMailbox: (userId: number) => {
     smartCache.invalidateMultiple([
       CacheDependencies.NEW_MAILBOX,
-      CacheKeys.mailboxStats(userId),
-      CacheKeys.dashboardStats(userId),
       CacheKeys.userStats(userId)
     ])
   },
@@ -227,7 +228,6 @@ export const cacheInvalidation = {
   onApplicationChange: (userId: number) => {
     smartCache.invalidateMultiple([
       CacheDependencies.APPLICATION_CHANGE,
-      CacheKeys.dashboardStats(userId),
       CacheKeys.userStats(userId)
     ])
   },
