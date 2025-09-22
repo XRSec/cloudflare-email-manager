@@ -327,7 +327,7 @@ async function executeImport() {
 // 执行自定义 SQL 命令
 async function executeSQL(sql, isRemote) {
   console.log(`🔧 执行 SQL 命令${isRemote ? ' (远程)' : ''}...`);
-  console.log(`SQL: ${sql}`);
+  console.log(`SQL: ${sql.replace(/\s+/g, ' ').replace(/\n/g, ' ')}`);
 
   try {
     // 使用 spawn 而不是 execSync 来避免 shell 引号问题

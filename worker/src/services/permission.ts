@@ -16,7 +16,7 @@ export async function validateUserExists(
     const result = await db.prepare(`
             SELECT id, username, user_type, created_at
             FROM users 
-            WHERE id = ? AND status = 'active'
+            WHERE id = ? AND status = 1
         `).bind(userId).first();
 
     if (result) {
@@ -71,7 +71,7 @@ export async function validateAdminPermission(
     const result = await db.prepare(`
             SELECT id, username, user_type
             FROM users 
-            WHERE id = ? AND user_type = 'admin' AND status = 'active'
+            WHERE id = ? AND user_type = 1 AND status = 1
         `).bind(userId).first();
 
     if (result) {
@@ -95,7 +95,7 @@ export async function validateMailboxOperationPermission(
   db: D1Database,
   mailboxId: number,
   userId: number,
-  userType: string,
+  userType: number,
   requestInfo?: { ip?: string; userAgent?: string }
 ): Promise<{ hasPermission: boolean; mailbox?: any; reason?: string }> {
   try {
@@ -119,7 +119,7 @@ export async function validateMailboxOperationPermission(
     const mailbox = mailboxResult as any;
 
     // 管理员可以操作所有邮箱
-    if (userType === 'admin') {
+    if (userType === 1) {
       debugLog('[权限验证] 管理员权限验证通过:', userId, '邮箱ID:', mailboxId);
       return { hasPermission: true, mailbox };
     }
@@ -136,7 +136,7 @@ export async function validateMailboxOperationPermission(
     if (requestInfo) {
       await recordPermissionDenied(db, {
         user_id: userId,
-        resource_type: 'mailbox',
+        resource_type: 0, // mailbox
         resource_id: mailboxId,
         request_ip: requestInfo.ip,
         user_agent: requestInfo.userAgent,

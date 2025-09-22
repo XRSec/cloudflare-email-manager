@@ -82,7 +82,7 @@ export async function adminAuthMiddleware(c: Context<{ Bindings: Env }>, next: N
         throw new HTTPException(401, { message: '未提供认证令牌' });
     }
 
-    if (payload.user_type !== 'admin') {
+    if (payload.user_type !== 1) {
         debugLog('[管理员中间件] 权限不足，用户类型:', payload.user_type);
         throw new HTTPException(403, { message: '需要管理员权限' });
     }
@@ -102,7 +102,7 @@ export async function userResourceMiddleware(c: Context<{ Bindings: Env }>, next
     }
 
     // 管理员可以访问所有资源
-    if (payload.user_type === 'admin') {
+    if (payload.user_type === 1) {
         await next();
         return;
     }

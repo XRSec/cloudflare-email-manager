@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL CHECK(LENGTH(username) >= 3 AND LENGTH(username) <= 50), -- 用户名，3-50字符
     password TEXT NOT NULL CHECK(LENGTH(password) >= 6), -- 用户密码，至少6位
-    user_type TEXT DEFAULT 'user' CHECK(user_type IN ('admin','user')), -- 用户类型：admin/user
+    user_type INTEGER DEFAULT 0 CHECK(user_type IN (0,1)), -- 用户类型：0=普通用户, 1=管理员
     status INTEGER DEFAULT 1 CHECK(status IN (1,2,3)), -- 用户状态：1=激活, 2=停用, 3=删除
     deleted_at DATETIME,                -- 删除时间（软删除）
     webhook_url TEXT CHECK(webhook_url IS NULL OR webhook_url LIKE 'http%'), -- webhook地址必须是有效URL
@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS mailbox_applications (
     user_id INTEGER NOT NULL,               -- 申请用户ID
     requested_address TEXT NOT NULL CHECK(requested_address LIKE '%@%'), -- 申请的邮箱地址
     reason TEXT,                            -- 申请理由
-    status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), -- 申请状态
+    status INTEGER DEFAULT 0 CHECK(status IN (0,1,2)), -- 申请状态：0=待审核, 1=已批准, 2=已拒绝
     admin_comment TEXT,                     -- 管理员备注
     processed_by INTEGER,                   -- 处理人ID
     processed_at DATETIME,                  -- 处理时间
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS security_audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,           -- 用户ID（必须，只记录有有效身份的用户）
     action_type INTEGER NOT NULL,       -- 操作类型：1=权限拒绝, 2=可疑操作
-    resource_type TEXT,                 -- 资源类型：'mailbox', 'email', 'user', 'system'
+    resource_type INTEGER,              -- 资源类型：0=mailbox, 1=email, 2=user, 3=system
     resource_id INTEGER,                -- 资源ID
     request_ip TEXT,                    -- 请求IP
     user_agent TEXT,                    -- 用户代理
@@ -215,7 +215,7 @@ CREATE TABLE IF NOT EXISTS forward_logs (
     email_id TEXT NOT NULL,                 -- 邮件ID
     rule_id INTEGER,                        -- 转发规则ID
     webhook_url TEXT NOT NULL,              -- Webhook URL
-    status TEXT NOT NULL CHECK(status IN ('success','failed')), -- 转发状态
+    status INTEGER NOT NULL CHECK(status IN (0,1)), -- 转发状态：0=成功, 1=失败
     response_code INTEGER,                  -- 响应码
     error_message TEXT,                     -- 错误信息
     sent_at DATETIME DEFAULT CURRENT_TIMESTAMP, -- 发送时间
@@ -325,11 +325,11 @@ INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
 
 -- 插入默认管理员用户（密码：123456，已哈希）
 INSERT OR IGNORE INTO users (username, password, user_type, status) VALUES
-('admin', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 'admin', 1);
+('admin', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 1, 1);
 
 -- 插入默认测试用户（密码：123456，已哈希）
 INSERT OR IGNORE INTO users (username, password, user_type, status) VALUES
-('test', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 'user', 1);
+('test', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 0, 1);
 
 -- 为管理员创建默认邮箱
 INSERT OR IGNORE INTO mailboxes (owner_id, address, status) VALUES

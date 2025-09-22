@@ -5,6 +5,7 @@
 import { signJWT } from '../utils/crypto';
 import type { Email, User, ForwardRule, ForwardLog } from '../types';
 import type { D1Database } from '@cloudflare/workers-types';
+import { WEBHOOK_STATUS } from '../shared/constants';
 
 /**
  * 发送 Webhook
@@ -182,7 +183,7 @@ async function logForwardResult(
             emailId,
             ruleId,
             webhookUrl,
-            result.success ? 'success' : 'failed',
+            result.success ? WEBHOOK_STATUS.SUCCESS : WEBHOOK_STATUS.FAILED,
             result.responseCode || null,
             result.errorMessage || null
         ).run();

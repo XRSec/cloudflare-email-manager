@@ -1,32 +1,17 @@
 # Cloudflare Workers 配置文件
-# 邮箱管理系统
+# 邮箱管理系统 (CEM - Cloudflare Email Manager)
 
 name = "cem"
 compatibility_date = "2025-09-10"
 main = "worker/src/main.ts"
 compatibility_flags = ["nodejs_compat"]
 
-# D1 数据库
-[[d1_databases]]
-binding = "DB"
-database_name = "cem-db"
-database_id = "your-d1-database-id"   # 替换为您的D1数据库ID
+# ----- 全局配置 -----
 
-# R2 存储桶
-[[r2_buckets]]
-binding = "R2"
-bucket_name = "cem-r2"                # 替换为您的R2命名空间ID
-
-# KV 存储
-[[kv_namespaces]]
-binding = "KV"
-id = "your-kv-namespace-id"           # 替换为您的KV命名空间ID
-
-# 静态资源绑定 - 前端构建产物
-[assets]
-directory = "vue/dist/"
-binding = "ASSETS"
-run_worker_first = true
+# 本地开发服务器配置
+[dev]
+ip = "0.0.0.0"
+port = 8787
 
 # 定时任务
 [triggers]
@@ -37,32 +22,46 @@ crons = ["0 2 * * *"]                 # 每天凌晨2点执行清理
 enabled = true
 head_sampling_rate = 1
 
-[dev]
-ip = "0.0.0.0"
-port = 8787
-
-# 开发环境配置
-[env.dev]
-name = "cem-dev"
-
-[[env.dev.d1_databases]]
-binding = "DB"
-database_name = "cem-db-dev"
-database_id = "your-dev-d1-database-id"    # 替换为您的D1数据库ID
-
-[[env.dev.r2_buckets]]
-binding = "R2"
-bucket_name = "cem-r2-dev"                 # 替换为您的R2命名空间ID
-
-[[env.dev.kv_namespaces]]
-binding = "KV"
-id = "your-dev-kv-namespace-id"            # 替换为您的KV命名空间ID
-
-# 开发环境静态资源绑定
-[env.dev.assets]
+# 静态资源绑定 - 前端构建产物
+[assets]
 directory = "vue/dist/"
 binding = "ASSETS"
 run_worker_first = true
 
-[env.dev.triggers]
-crons = [ "0 2 * * *" ]
+# ----- 生产环境-----
+  # D1 数据库
+  [[d1_databases]]
+  binding = "DB"
+  database_id = ""                      # 部署脚本会自动填充
+  database_name = "cem-db"
+
+  # R2 存储桶
+  [[r2_buckets]]
+  binding = "R2"
+  bucket_name = "cem-r2"
+
+  # KV 存储
+  [[kv_namespaces]]
+  binding = "KV"
+  id = ""                               # 部署脚本会自动填充
+
+# ----- 开发环境-----
+# 开发环境配置 (云端部署)
+[env.dev]
+name = "cem-dev"
+
+  # D1 数据库
+  [[env.dev.d1_databases]]
+  binding = "DB"
+  database_name = "cem-db-dev"
+  database_id = ""                            # 部署脚本会自动填充
+
+  # R2 存储桶
+  [[env.dev.r2_buckets]]
+  binding = "R2"
+  bucket_name = "cem-r2-dev"
+
+  # KV 存储
+  [[env.dev.kv_namespaces]]
+  binding = "KV"
+  id = ""                                     # 部署脚本会自动填充

@@ -605,6 +605,7 @@ paths:
                       - id: 1
                         owner_id: 2
                         owner_username: "user1"
+                        owner_usertype: 0
                         address: "user1@example.com"
                         status: "active"
                         created_at: "2025-09-12 18:05:00"
@@ -612,6 +613,7 @@ paths:
                       - id: 2
                         owner_id: 2
                         owner_username: "user1"
+                        owner_usertype: 0
                         address: "test@example.com"
                         status: "active"
                         created_at: "2025-09-12 18:06:00"
@@ -625,6 +627,7 @@ paths:
                       - id: 1
                         owner_id: 1
                         owner_username: "admin"
+                        owner_usertype: 1
                         address: "admin@example.com"
                         status: "active"
                         created_at: "2025-09-12 18:03:08"
@@ -632,6 +635,7 @@ paths:
                       - id: 2
                         owner_id: 2
                         owner_username: "user1"
+                        owner_usertype: 0
                         address: "user1@example.com"
                         status: "active"
                         created_at: "2025-09-12 18:05:00"
@@ -639,6 +643,7 @@ paths:
                       - id: 3
                         owner_id: 2
                         owner_username: "user1"
+                        owner_usertype: 0
                         address: "test@example.com"
                         status: "disabled"
                         created_at: "2025-09-12 18:06:00"
@@ -1659,6 +1664,10 @@ components:
         owner_username:
           type: string
           description: 邮箱所有者用户名
+        owner_usertype:
+          type: integer
+          enum: [0, 1]
+          description: 邮箱所有者用户类型(0: 普通用户, 1: 管理员)
         address:
           type: string
         status:
@@ -1706,8 +1715,9 @@ components:
         application_id:
           type: integer
         status:
-          type: string
-          enum: [pending, approved, rejected]
+          type: integer
+          enum: [0, 1, 2]
+          description: "0=待审核, 1=已批准, 2=已拒绝"
 
     MailboxApplicationListResponse:
       type: object
@@ -1725,8 +1735,9 @@ components:
         - action
       properties:
         action:
-          type: string
-          enum: [approve, reject]
+          type: integer
+          enum: [1, 2]
+          description: "1=批准, 2=拒绝"
 
     AdminMailboxCreateRequest:
       type: object

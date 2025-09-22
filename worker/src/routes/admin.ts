@@ -95,7 +95,12 @@ adminRoutes.get('/users', async (c) => {
         const queryParams = getPaginationParams(c.req.query());
         const query = c.req.query('query');
 
-        const users = await getAllUsers(c.env.DB, queryParams, query);
+        const result = await getAllUsers(
+            c.env.DB,
+            queryParams.page,
+            queryParams.limit,
+            { search: query }
+        );
 
         // 获取主域名
         const primaryDomain = await getPrimaryDomain(c.env.DB);
@@ -103,15 +108,19 @@ adminRoutes.get('/users', async (c) => {
         return c.json<ApiResponse>({
             success: true,
             data: {
-                total: users.length,
-                items: users.map(user => ({
+                total: result.total,
+                items: result.users.map(user => ({
                     id: user.id,
                     username: user.username,
                     email: user.username + '@' + primaryDomain,
                     user_type: user.user_type,
+                    status: user.status,
                     created_at: user.created_at,
                     updated_at: user.updated_at
-                }))
+                })),
+                page: queryParams.page,
+                limit: queryParams.limit,
+                total_pages: Math.ceil(result.total / queryParams.limit)
             }
         });
     } catch (error) {

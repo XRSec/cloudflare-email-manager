@@ -10,7 +10,7 @@ export interface SecurityAuditRecord {
   id: number;
   user_id: number;
   action_type: 1 | 2; // 1=权限拒绝, 2=可疑操作
-  resource_type?: 'mailbox' | 'email' | 'user' | 'system';
+  resource_type?: 0 | 1 | 2 | 3; // 0=mailbox, 1=email, 2=user, 3=system
   resource_id?: number;
   request_ip?: string;
   user_agent?: string;
@@ -27,7 +27,7 @@ export async function recordSecurityEvent(
   params: {
     user_id: number;
     action_type: 1 | 2; // 1=权限拒绝, 2=可疑操作
-    resource_type?: 'mailbox' | 'email' | 'user' | 'system';
+    resource_type?: 0 | 1 | 2 | 3; // 0=mailbox, 1=email, 2=user, 3=system
     resource_id?: number;
     request_ip?: string;
     user_agent?: string;
@@ -70,7 +70,7 @@ export async function recordPermissionDenied(
   db: D1Database,
   params: {
     user_id: number;
-    resource_type?: 'mailbox' | 'email' | 'user' | 'system';
+    resource_type?: 0 | 1 | 2 | 3; // 0=mailbox, 1=email, 2=user, 3=system
     resource_id?: number;
     request_ip?: string;
     user_agent?: string;
@@ -91,7 +91,7 @@ export async function recordSuspiciousOperation(
   db: D1Database,
   params: {
     user_id: number;
-    resource_type?: 'mailbox' | 'email' | 'user' | 'system';
+    resource_type?: 0 | 1 | 2 | 3; // 0=mailbox, 1=email, 2=user, 3=system
     resource_id?: number;
     request_ip?: string;
     user_agent?: string;

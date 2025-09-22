@@ -61,7 +61,7 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
     };
 
     // 检查权限：普通用户只能获取自己的邮件，管理员可以获取全部
-    const isAdmin = payload.user_type === 'admin';
+    const isAdmin = payload.user_type === 1;
     const scope = queryParams.scope;
 
     if (scope === 'all' && !isAdmin) {
@@ -103,12 +103,12 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
     }
 
     // 检查权限：普通用户只能查看自己的邮件
-    if (payload.user_type !== 'admin' && email.user_id !== payload.user_id) {
+    if (payload.user_type !== 1 && email.user_id !== payload.user_id) {
       throw new HTTPException(403, { message: '无权访问此邮件' });
     }
 
     // 获取附件列表
-    const attachments = await getEmailAttachments(c.env.DB, parseInt(emailId));
+    const attachments = await getEmailAttachments(c.env.DB, emailId);
 
     return c.json<ApiResponse>({
       success: true,
@@ -141,7 +141,7 @@ api.delete('/emails/:id', jwtAuthMiddleware, async (c) => {
     }
 
     // 检查权限：普通用户只能删除自己的邮件
-    if (payload.user_type !== 'admin' && email.user_id !== payload.user_id) {
+    if (payload.user_type !== 1 && email.user_id !== payload.user_id) {
       throw new HTTPException(403, { message: '无权删除此邮件' });
     }
 
@@ -176,7 +176,7 @@ api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) =>
     }
 
     // 检查权限：普通用户只能下载自己邮件的附件
-    if (payload.user_type !== 'admin' && email.user_id !== payload.user_id) {
+    if (payload.user_type !== 1 && email.user_id !== payload.user_id) {
       throw new HTTPException(403, { message: '无权下载此附件' });
     }
 
@@ -222,7 +222,7 @@ api.post('/emails/send', jwtAuthMiddleware, async (c) => {
 
     // 检查是否允许用户发送邮件
     const config = await getSystemConfig(c.env.DB);
-    if (payload.user_type !== 'admin' && !config.allow_user_send) {
+    if (payload.user_type !== 1 && !config.allow_user_send) {
       throw new HTTPException(403, { message: '系统不允许普通用户发送邮件' });
     }
 

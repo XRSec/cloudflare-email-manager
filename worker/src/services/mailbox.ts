@@ -14,7 +14,7 @@ export async function findMailboxByEmail(db: D1Database, email: string): Promise
     const result = await db.prepare(`
         SELECT id, owner_id, address, status, created_at, updated_at
         FROM mailboxes
-        WHERE address = ? AND status = 'active'
+        WHERE address = ? AND status = 1
     `).bind(email).first();
 
     return result as Mailbox | null;
@@ -27,7 +27,7 @@ export async function findMailboxesByUserId(db: D1Database, userId: number): Pro
     const result = await db.prepare(`
         SELECT id, owner_id, address, status, created_at, updated_at
         FROM mailboxes
-        WHERE owner_id = ? AND status = 'active'
+        WHERE owner_id = ? AND status = 1
         ORDER BY created_at ASC
     `).bind(userId).all();
 
@@ -62,13 +62,13 @@ export async function createMailbox(
 
     if (existing) {
         const existingStatus = (existing as any).status;
-        if (existingStatus === 'active' || existingStatus === 'disabled') {
+        if (existingStatus === 1 || existingStatus === 2) {
             throw new Error('邮箱地址已被使用');
-        } else if (existingStatus === 'deleted') {
+        } else if (existingStatus === 3) {
             // 如果邮箱被删除，重新激活
             const result = await db.prepare(`
                 UPDATE mailboxes 
-                SET owner_id = ?, status = 'active', updated_at = CURRENT_TIMESTAMP
+                SET owner_id = ?, status = 1, updated_at = CURRENT_TIMESTAMP
                 WHERE address = ?
             `).bind(userId, emailAddress).run();
 
@@ -94,12 +94,15 @@ export async function createMailbox(
             );
 
             return mailbox as unknown as Mailbox;
+        } else {
+            // 未知状态，抛出错误
+            throw new Error('邮箱状态异常，无法处理');
         }
     } else {
         // 创建新邮箱
         const result = await db.prepare(`
             INSERT INTO mailboxes (owner_id, address, status, created_at, updated_at)
-            VALUES (?, ?, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         `).bind(userId, emailAddress).run();
 
         if (!result.success) {
@@ -138,7 +141,7 @@ export async function deleteMailbox(
     db: D1Database,
     mailboxId: number,
     userId: number,
-    userType: string,
+    userType: number,
     requestInfo?: { ip?: string; userAgent?: string }
 ): Promise<void> {
     // 验证权限
@@ -155,7 +158,7 @@ export async function deleteMailbox(
 
     const result = await db.prepare(`
         UPDATE mailboxes 
-        SET status = 'deleted', updated_at = CURRENT_TIMESTAMP
+        SET status = 3, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     `).bind(mailboxId).run();
 
@@ -190,8 +193,8 @@ export async function getAllMailboxes(
 ): Promise<{ mailboxes: (Mailbox & { owner_username: string })[], total: number }> {
     const offset = (page - 1) * pageSize;
 
-    // 构建查询条件 - 只显示 active 状态的邮箱
-    const whereClause = userId ? 'WHERE m.status = \'active\' AND m.owner_id = ?' : 'WHERE m.status = \'active\'';
+    // 构建查询条件 - 只显示 active 状态的邮箱 (status = 1)
+    const whereClause = userId ? 'WHERE m.status = 1 AND m.owner_id = ?' : 'WHERE m.status = 1';
     const bindValues = userId ? [userId] : [];
 
     // 获取总数
@@ -213,7 +216,8 @@ export async function getAllMailboxes(
             m.status,
             m.created_at,
             m.updated_at,
-            u.username as owner_username
+            u.username as owner_username,
+            u.user_type as owner_usertype
         FROM mailboxes m
         JOIN users u ON m.owner_id = u.id
         ${whereClause}
@@ -222,7 +226,7 @@ export async function getAllMailboxes(
     `).bind(...bindValues, pageSize, offset).all();
 
     return {
-        mailboxes: result.results as unknown as (Mailbox & { owner_username: string })[],
+        mailboxes: result.results as unknown as (Mailbox & { owner_username: string; owner_usertype: number })[],
         total
     };
 }
@@ -261,7 +265,7 @@ export async function createMailboxApplication(
     // 检查邮箱是否已被使用（排除 deleted 状态）
     const existing = await db.prepare(`
         SELECT id FROM mailboxes 
-        WHERE address = ? AND status IN ('active', 'disabled')
+        WHERE address = ? AND status IN (1, 2)
     `).bind(emailAddress).first();
 
     if (existing) {
@@ -271,7 +275,7 @@ export async function createMailboxApplication(
     // 检查是否已有待处理的申请
     const existingApp = await db.prepare(`
         SELECT id FROM mailbox_applications 
-        WHERE user_id = ? AND email_address = ? AND status = 'pending'
+        WHERE user_id = ? AND email_address = ? AND status = 0
     `).bind(userId, emailAddress).first();
 
     if (existingApp) {
@@ -370,7 +374,7 @@ export async function processMailboxApplication(
     db: D1Database,
     applicationId: number,
     adminId: number,
-    action: 'approve' | 'reject',
+    action: 1 | 2, // 1=批准, 2=拒绝
     adminComment?: string
 ): Promise<void> {
     // 获取申请信息
@@ -384,11 +388,11 @@ export async function processMailboxApplication(
         throw new Error('申请不存在');
     }
 
-    if ((application as any).status !== 'pending') {
+    if ((application as any).status !== 0) {
         throw new Error('申请已被处理');
     }
 
-    const newStatus = action === 'approve' ? 'approved' : 'rejected';
+    const newStatus = action; // action直接就是状态值
 
     // 更新申请状态
     const updateResult = await db.prepare(`
@@ -402,7 +406,7 @@ export async function processMailboxApplication(
     }
 
     // 如果批准，创建邮箱
-    if (action === 'approve') {
+    if (action === 1) {
         await createMailbox(db, (application as any).user_id, (application as any).email_address);
     }
 
@@ -442,7 +446,7 @@ export async function checkUserMailboxLimit(db: D1Database, userId: number): Pro
     const maxMailboxes = setting ? parseInt((setting as any).value) : 5;
 
     const countResult = await db.prepare(`
-        SELECT COUNT(*) as count FROM mailboxes WHERE owner_id = ? AND status = 'active'
+        SELECT COUNT(*) as count FROM mailboxes WHERE owner_id = ? AND status = 1
     `).bind(userId).first();
 
     const currentCount = (countResult as any)?.count || 0;
@@ -519,7 +523,7 @@ export async function getMailboxInfoByEmail(db: D1Database, email: string): Prom
 export async function toggleMailboxStatus(
     db: D1Database,
     mailboxId: number,
-    status: 'active' | 'disabled',
+    status: 1 | 2,
     adminId: number
 ): Promise<void> {
     // 验证管理员权限
@@ -528,7 +532,7 @@ export async function toggleMailboxStatus(
         throw new Error('用户不存在');
     }
 
-    if (userValidation.user!.user_type !== 'admin') {
+    if (userValidation.user!.user_type !== 1) {
         throw new Error('需要管理员权限');
     }
 
@@ -552,7 +556,7 @@ export async function toggleMailboxStatus(
     }
 
     // 记录状态变更历史
-    const actionType = status === 'active' ? 'created' : 'disabled';
+    const actionType = status === 1 ? 'created' : 'disabled';
 
     await recordMailboxAction(
         db,

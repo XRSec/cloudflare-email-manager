@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { cacheInvalidation } from './smartCache'
 
 // 创建 axios 实例
 const api = axios.create({
@@ -328,18 +329,41 @@ export const mailboxApiService = {
     return response.data
   },
 
-  // 获取邮箱申请列表
-  async getMailboxApplications(page = 1, limit = 20): Promise<ApiResponse<any>> {
-    const params = new URLSearchParams()
-    params.append('page', page.toString())
-    params.append('limit', limit.toString())
+  // 获取邮箱申请列表 - 支持对象参数和位置参数
+  async getMailboxApplications(
+    pageOrParams: number | { page?: number; limit?: number; scope?: 'all' } = 1,
+    limit = 20,
+    scope?: 'all'
+  ): Promise<ApiResponse<any>> {
+    let params: { page: number; limit: number; scope?: 'all' }
 
-    const response = await api.get(`/mailbox-applications?${params}`)
+    if (typeof pageOrParams === 'object') {
+      // 对象参数
+      params = {
+        page: pageOrParams.page || 1,
+        limit: pageOrParams.limit || 20,
+        ...pageOrParams
+      }
+    } else {
+      // 位置参数
+      params = {
+        page: pageOrParams,
+        limit,
+        scope
+      }
+    }
+
+    const urlParams = new URLSearchParams()
+    urlParams.append('page', params.page.toString())
+    urlParams.append('limit', params.limit.toString())
+    if (params.scope) urlParams.append('scope', params.scope)
+
+    const response = await api.get(`/mailbox-applications?${urlParams}`)
     return response.data
   },
 
   // 处理邮箱申请
-  async processMailboxApplication(id: number, action: 'approve' | 'reject', reason?: string): Promise<ApiResponse<any>> {
+  async processMailboxApplication(id: number, action: 1 | 2, reason?: string): Promise<ApiResponse<any>> {
     const response = await api.post(`/mailbox-applications/${id}/process`, { action, reason })
     return response.data
   },

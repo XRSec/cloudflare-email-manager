@@ -17,7 +17,7 @@ const DATABASE_SCHEMAS = {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL CHECK(LENGTH(username) >= 3 AND LENGTH(username) <= 50),
       password TEXT NOT NULL CHECK(LENGTH(password) >= 6),
-      user_type TEXT DEFAULT 'user' CHECK(user_type IN ('admin','user')),
+      user_type INTEGER DEFAULT 0 CHECK(user_type IN (0,1)), -- 0=普通用户, 1=管理员
       status INTEGER DEFAULT 1 CHECK(status IN (1,2,3)),
       deleted_at DATETIME,
       webhook_url TEXT CHECK(webhook_url IS NULL OR webhook_url LIKE 'http%'),
@@ -94,7 +94,7 @@ const DATABASE_SCHEMAS = {
       user_id INTEGER NOT NULL,
       requested_address TEXT NOT NULL CHECK(requested_address LIKE '%@%'),
       reason TEXT,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+      status INTEGER DEFAULT 0 CHECK(status IN (0,1,2)),
       admin_comment TEXT,
       processed_by INTEGER,
       processed_at DATETIME,
@@ -110,7 +110,7 @@ const DATABASE_SCHEMAS = {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       action_type INTEGER NOT NULL,
-      resource_type TEXT,
+      resource_type INTEGER, -- 0=mailbox, 1=email, 2=user, 3=system
       resource_id INTEGER,
       request_ip TEXT,
       user_agent TEXT,
@@ -171,7 +171,7 @@ const DATABASE_SCHEMAS = {
       email_id TEXT NOT NULL,
       rule_id INTEGER,
       webhook_url TEXT NOT NULL,
-      status TEXT NOT NULL CHECK(status IN ('success','failed')),
+      status INTEGER NOT NULL CHECK(status IN (0,1)), -- 0=成功, 1=失败
       response_code INTEGER,
       error_message TEXT,
       sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -295,6 +295,10 @@ const DATABASE_INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_emails_to_address ON emails(to_address)',
   'CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject)',
   'CREATE INDEX IF NOT EXISTS idx_emails_is_read ON emails(is_read)',
+  'CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id)',
+  'CREATE INDEX IF NOT EXISTS idx_emails_sender_email ON emails(sender_email)',
+  'CREATE INDEX IF NOT EXISTS idx_emails_recipient_email ON emails(recipient_email)',
+  'CREATE INDEX IF NOT EXISTS idx_emails_received_at ON emails(received_at)',
   'CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at)',
 
   // 附件表索引
@@ -339,7 +343,7 @@ const INITIAL_DATA_SQL = {
   // 测试用户数据
   testUser: `
     INSERT OR IGNORE INTO users (username, password, user_type, status) 
-    VALUES ('test', ?, 'user', 1)
+    VALUES ('test', ?, 0, 1)
   `,
 
   // 测试用户邮箱
@@ -351,7 +355,7 @@ const INITIAL_DATA_SQL = {
   // 管理员用户数据
   adminUser: `
     INSERT OR IGNORE INTO users (username, password, user_type, status) 
-    VALUES ('admin', ?, 'admin', 1)
+    VALUES ('admin', ?, 1, 1)
   `,
 
   // 管理员用户邮箱
@@ -898,7 +902,7 @@ async function getUserStats(db: D1Database) {
     const total = totalResult?.count || 0
 
     // 管理员数量
-    const adminsResult = await db.prepare("SELECT COUNT(*) as count FROM users WHERE user_type = 'admin' AND status = 1").first()
+    const adminsResult = await db.prepare("SELECT COUNT(*) as count FROM users WHERE user_type = 1 AND status = 1").first()
     const admins = adminsResult?.count || 0
 
     // 活跃用户（最近7天有活动的用户）

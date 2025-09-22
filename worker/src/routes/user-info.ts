@@ -25,7 +25,7 @@ app.get('/username/:userId', async (c) => {
     const result = await c.env.DB.prepare(`
             SELECT id, username, user_type
             FROM users 
-            WHERE id = ? AND status = 'active'
+            WHERE id = ? AND status = 1
         `).bind(userId).first();
 
     if (!result) {
@@ -67,10 +67,10 @@ app.post('/usernames', async (c) => {
     const result = await c.env.DB.prepare(`
             SELECT id, username, user_type
             FROM users 
-            WHERE id IN (${placeholders}) AND status = 'active'
+            WHERE id IN (${placeholders}) AND status = 1
         `).bind(...validUserIds).all();
 
-    const userMap = {};
+    const userMap: Record<number, any> = {};
     result.results.forEach((user: any) => {
       userMap[user.id] = {
         id: user.id,

@@ -40,6 +40,11 @@ export const EMAIL_STATUS = {
     FAILED: 'failed'
 } as const;
 
+export const WEBHOOK_STATUS = {
+    SUCCESS: 0,
+    FAILED: 1
+} as const;
+
 /**
  * 转发规则类型
  */

@@ -12,8 +12,7 @@ import {
     updateUserSettings,
     getAllUsers,
     createUser,
-    deleteUser,
-    toggleUserStatus
+    deleteUser
 } from '../services/user';
 import { getPrimaryDomain } from '../services/settings';
 import type { Env, ApiResponse, UserSettingsUpdate } from '../types';
@@ -285,8 +284,8 @@ userRoutes.put('/:id/status', adminAuthMiddleware, async (c) => {
             throw new HTTPException(400, { message: '无效的用户ID' });
         }
 
-        if (!['active', 'disabled'].includes(status)) {
-            throw new HTTPException(400, { message: '无效的状态值' });
+        if (![1, 2].includes(status)) {
+            throw new HTTPException(400, { message: '无效的状态值，必须是1(启用)或2(停用)' });
         }
 
         const userData = await findUserById(c.env.DB, userId);
@@ -294,11 +293,20 @@ userRoutes.put('/:id/status', adminAuthMiddleware, async (c) => {
             throw new HTTPException(404, { message: '用户不存在' });
         }
 
-        await toggleUserStatus(c.env.DB, userId, status);
+        // 直接更新用户状态，不需要转换
+        const result = await c.env.DB.prepare(`
+            UPDATE users 
+            SET status = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `).bind(status, userId).run();
+
+        if (!result.success) {
+            throw new HTTPException(500, { message: '更新用户状态失败' });
+        }
 
         return c.json<ApiResponse>({
             success: true,
-            message: `用户已${status === 'active' ? '启用' : '停用'}`
+            message: `用户已${status === 1 ? '启用' : '停用'}`
         });
     } catch (error) {
         if (error instanceof HTTPException) {

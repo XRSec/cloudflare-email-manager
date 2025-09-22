@@ -26,7 +26,7 @@ export interface User {
     id: number;
     username: string;
     password: string;
-    user_type: 'admin' | 'user';
+    user_type: 0 | 1;
     status: 1 | 2 | 3; // 1=激活, 2=停用, 3=删除
     deleted_at?: string;
     webhook_url?: string;
@@ -41,6 +41,8 @@ export interface Mailbox {
     owner_id: number;
     address: string;
     status: 1 | 2 | 3; // 1=激活, 2=停用, 3=删除
+    user_id?: number; // 兼容字段，等同于owner_id
+    is_default?: number; // 是否为默认邮箱
     deleted_at?: string;
     created_at?: string;
     updated_at?: string;
@@ -66,7 +68,7 @@ export interface MailboxApplication {
     id: number;
     user_id: number;
     email_address: string;
-    status: 1 | 2 | 3; // 1=待审核, 2=已批准, 3=已拒绝
+    status: 0 | 1 | 2; // 0=待审核, 1=已批准, 2=已拒绝
     reason?: string;
     admin_comment?: string;
     applied_at: string;
@@ -148,7 +150,7 @@ export interface ForwardLog {
     email_id: number;
     rule_id?: number;
     webhook_url: string;
-    status: 'success' | 'failed';
+    status: 0 | 1; // 0=成功, 1=失败
     response_code?: number;
     error_message?: string;
     sent_at: string;
@@ -160,7 +162,7 @@ export interface ForwardLog {
 export interface JWTPayload {
     user_id: number;
     username: string;
-    user_type: 'admin' | 'user';
+    user_type: 0 | 1;
     iat: number;
     exp: number;
 }

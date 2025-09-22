@@ -59,8 +59,8 @@
       <!-- 用户信息列 -->
       <template #column-user_info="{ row }">
         <div v-if="isAdminScope" class="user-info">
-          <div class="user-name">{{ row.username || '-' }}</div>
-          <div class="user-type">{{ getUserTypeText(row.user_type) }}</div>
+          <div class="user-name">{{ row.owner_username || '-' }}</div>
+          <div class="user-type">{{ getUserTypeText(row.owner_usertype) }}</div>
         </div>
         <span v-else>-</span>
       </template>
@@ -165,7 +165,7 @@
           </div>
           <div v-if="isAdminScope" class="detail-item">
             <label>所属用户</label>
-            <span>{{ selectedItem.username || '-' }} ({{ getUserTypeText(selectedItem.user_type) }})</span>
+            <span>{{ selectedItem.owner_username || '-' }} ({{ getUserTypeText(selectedItem.owner_usertype) }})</span>
           </div>
           <div class="detail-item">
             <label>状态</label>
@@ -252,17 +252,17 @@
         <template v-else>
           <div class="form-group">
             <label class="form-label">申请理由 *</label>
-            <textarea v-model="form.reason" class="form-control" rows="3" placeholder="请简要说明申请理由（最少20字）"
-              :class="{ 'is-invalid': errors.reason }"></textarea>
+            <textarea v-model="form.reason" class="form-control" rows="3" placeholder="请简要说明申请理由（最少4字，最多200字）"
+              :class="{ 'is-invalid': errors.reason }" maxlength="200"></textarea>
             <div v-if="errors.reason" class="form-error">{{ errors.reason }}</div>
-            <div class="form-help">已输入 {{ form.reason.length }} 字</div>
+            <div class="form-help">已输入 {{ form.reason.length }}/200 字</div>
           </div>
         </template>
 
         <div class="form-group">
           <label class="form-label">有效期</label>
           <select v-model="form.duration" class="form-control">
-            <option v-if="isAdminScope" value="0">永久</option>
+            <option value="0">永久</option>
             <option value="30">30天</option>
             <option value="90">90天</option>
             <option value="180">180天</option>
@@ -270,10 +270,10 @@
           </select>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">{{ isAdminScope ? '备注' : '补充说明' }}</label>
-          <textarea v-model="form.note" class="form-control" rows="2"
-            :placeholder="isAdminScope ? '创建备注（可选）' : '补充说明（可选）'"></textarea>
+        <!-- 管理员创建邮箱的备注字段 -->
+        <div v-if="isAdminScope" class="form-group">
+          <label class="form-label">备注</label>
+          <textarea v-model="form.note" class="form-control" rows="2" placeholder="创建备注（可选）"></textarea>
         </div>
       </form>
     </Modal>
@@ -281,15 +281,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/composables/stores'
+import { useSystemStore } from '@/composables/system'
+import { apiService } from '@/composables/api'
+import { smartCache, CacheKeys, cacheInvalidation } from '@/composables/smartCache'
 import DataTable, { type TableColumn } from '@/layouts/components/DataTable.vue'
 import Modal from '@/layouts/components/Modal.vue'
 import PageHeader from '@/layouts/components/PageHeader.vue'
 
 // 状态管理
 const authStore = useAuthStore()
+const systemStore = useSystemStore()
 const route = useRoute()
 
 // 根据路由判断页面类型 - 关键逻辑
@@ -329,8 +333,8 @@ const form = ref({
 })
 const errors = ref<Record<string, string>>({})
 
-// 模拟数据
-const availableDomains = ref(['temp.mail', 'example.com', 'test.email'])
+// 系统配置数据
+const availableDomains = ref<string[]>([])
 const availableUsers = ref([
   { id: '1', username: 'user1', user_type: 'user' },
   { id: '2', username: 'user2', user_type: 'user' }
@@ -418,52 +422,169 @@ const applicationColumns = computed((): TableColumn[] => {
 })
 
 // 数据加载 - 根据权限使用不同的scope
-const loadMailboxes = async () => {
+const loadMailboxes = async (forceRefresh = false) => {
   loading.value = true
   try {
+    const userId = authStore.user?.id
+    if (!userId) {
+      console.error('用户ID不存在')
+      return
+    }
 
-    // 模拟API调用 - 这里需要根据实际API调整
-    await new Promise(resolve => setTimeout(resolve, 500))
+    const params = {
+      page: currentPage.value,
+      limit: pageSize.value,
+      scope: isAdminScope.value ? 'all' as const : undefined
+    }
 
-    const mockData = Array.from({ length: 15 }, (_, i) => ({
-      id: `mailbox_${i + 1}`,
-      address: `${isAdminScope.value ? 'user' : 'my'}${i + 1}@temp.mail`,
-      username: isAdminScope.value ? `user${i + 1}` : authStore.user?.username,
-      user_type: isAdminScope.value ? (i < 3 ? 'admin' : 'user') : authStore.user?.user_type,
-      status: ['active', 'suspended', 'expired'][Math.floor(Math.random() * 3)],
-      email_count: Math.floor(Math.random() * 50),
-      created_at: new Date(Date.now() - Math.random() * 86400000 * 30).toISOString(),
-      expires_at: Math.random() > 0.3 ? new Date(Date.now() + Math.random() * 86400000 * 365).toISOString() : null
-    }))
+    const cacheKey = CacheKeys.mailboxList(userId, currentPage.value, pageSize.value, params.scope)
 
-    mailboxes.value = mockData
-    total.value = isAdminScope.value ? 47 : 8 // 管理员看到更多
+    // Debug模式：显示缓存键信息
+    if (systemStore.isDebugMode) {
+      console.log('🐛 [DEBUG] 缓存键信息:', {
+        cacheKey,
+        userId,
+        page: currentPage.value,
+        limit: pageSize.value,
+        scope: params.scope,
+        isAdminScope: isAdminScope.value,
+        routeName: routeName.value
+      })
+    }
+
+    // 检查缓存
+    if (!forceRefresh) {
+      const cached = smartCache.get(cacheKey)
+      if (cached) {
+        console.log('📮 从智能缓存加载邮箱数据，缓存键:', cacheKey)
+        mailboxes.value = cached.items || []
+        total.value = cached.total || 0
+        if (cached.available_domains) {
+          availableDomains.value = cached.available_domains
+        }
+        loading.value = false
+        return
+      }
+    }
+
+    console.log('📮 从API加载邮箱数据')
+    const response = await apiService.getMailboxes(params)
+
+    // Debug模式：显示原始JSON响应
+    if (systemStore.isDebugMode) {
+      console.log('🐛 [DEBUG] 邮箱API原始响应:', JSON.stringify(response, null, 2))
+      console.log('🐛 [DEBUG] 请求参数:', JSON.stringify(params, null, 2))
+    }
+
+    if (response.success) {
+      const data = response.data
+      mailboxes.value = data?.items || []
+      total.value = data?.total || 0
+
+      // 更新可用域名
+      if (data?.available_domains && data.available_domains.length > 0) {
+        availableDomains.value = data.available_domains
+      }
+
+      // 缓存数据（10分钟）
+      smartCache.set(cacheKey, data, {
+        ttl: 10 * 60 * 1000,
+        dependencies: ['new_mailbox', 'user_change']
+      })
+
+      console.log('📮 邮箱数据已缓存到智能缓存')
+    } else {
+      console.error('加载邮箱失败:', response.message)
+      mailboxes.value = []
+      total.value = 0
+    }
   } catch (error) {
     console.error('加载邮箱失败:', error)
+    mailboxes.value = []
+    total.value = 0
   } finally {
     loading.value = false
   }
 }
 
-const loadApplications = async () => {
+const loadApplications = async (forceRefresh = false) => {
   loading.value = true
   try {
+    const userId = authStore.user?.id
+    if (!userId) {
+      console.error('用户ID不存在')
+      return
+    }
 
-    await new Promise(resolve => setTimeout(resolve, 500))
+    const params = {
+      page: currentPage.value,
+      limit: pageSize.value,
+      scope: isAdminScope.value ? 'all' as const : undefined
+    }
 
-    const mockData = Array.from({ length: 8 }, (_, i) => ({
-      id: `app_${i + 1}`,
-      email: `${isAdminScope.value ? 'user' : 'my'}${i + 1}@temp.mail`,
-      username: isAdminScope.value ? `user${i + 1}` : authStore.user?.username,
-      status: ['pending', 'approved', 'rejected'][Math.floor(Math.random() * 3)],
-      reason: `我需要这个邮箱用于项目${i + 1}的测试和开发工作`,
-      created_at: new Date(Date.now() - Math.random() * 86400000 * 7).toISOString()
-    }))
+    const cacheKey = CacheKeys.applicationList(userId, currentPage.value, pageSize.value, params.scope)
 
-    applications.value = mockData
-    applicationTotal.value = isAdminScope.value ? 23 : 5
+    // Debug模式：显示缓存键信息
+    if (systemStore.isDebugMode) {
+      console.log('🐛 [DEBUG] 申请缓存键信息:', {
+        cacheKey,
+        userId,
+        page: currentPage.value,
+        limit: pageSize.value,
+        scope: params.scope,
+        isAdminScope: isAdminScope.value,
+        routeName: routeName.value
+      })
+    }
+
+    // 检查缓存
+    if (!forceRefresh) {
+      const cached = smartCache.get(cacheKey)
+      if (cached) {
+        console.log('📋 从智能缓存加载申请数据，缓存键:', cacheKey)
+        applications.value = cached.items || []
+        applicationTotal.value = cached.total || 0
+        loading.value = false
+        return
+      }
+    }
+
+    console.log('📋 从API加载申请数据')
+    const response = await apiService.getMailboxApplications(params)
+
+    // Debug模式：显示原始JSON响应
+    if (systemStore.isDebugMode) {
+      console.log('🐛 [DEBUG] 申请API原始响应:', JSON.stringify(response, null, 2))
+      console.log('🐛 [DEBUG] 请求参数:', JSON.stringify(params, null, 2))
+    }
+
+    if (response.success) {
+      const data = response.data
+      applications.value = data?.items || []
+      applicationTotal.value = data?.total || 0
+
+      // Debug模式：显示处理后的数据
+      if (systemStore.isDebugMode) {
+        console.log('🐛 [DEBUG] 处理后的申请数据:', JSON.stringify(data, null, 2))
+        console.log('🐛 [DEBUG] 申请列表长度:', applications.value.length)
+      }
+
+      // 缓存数据（10分钟）
+      smartCache.set(cacheKey, data, {
+        ttl: 10 * 60 * 1000,
+        dependencies: ['application_change', 'user_change']
+      })
+
+      console.log('📋 申请数据已缓存到智能缓存')
+    } else {
+      console.error('加载申请失败:', response.message)
+      applications.value = []
+      applicationTotal.value = 0
+    }
   } catch (error) {
     console.error('加载申请失败:', error)
+    applications.value = []
+    applicationTotal.value = 0
   } finally {
     loading.value = false
   }
@@ -519,10 +640,11 @@ const switchTab = (tab: string) => {
 }
 
 const refreshData = () => {
+  console.log('🔄 强制刷新数据，跳过缓存')
   if (currentTab.value === 'mailboxes') {
-    loadMailboxes()
+    loadMailboxes(true) // 强制刷新，不使用缓存
   } else {
-    loadApplications()
+    loadApplications(true) // 强制刷新，不使用缓存
   }
 }
 
@@ -660,8 +782,13 @@ const submitForm = async () => {
     return
   }
 
-  if (!isAdminScope.value && form.value.reason.length < 20) {
-    errors.value.reason = '申请理由至少需要20个字符'
+  if (!isAdminScope.value && form.value.reason.length < 4) {
+    errors.value.reason = '申请理由至少需要4个字符'
+    return
+  }
+
+  if (!isAdminScope.value && form.value.reason.length > 200) {
+    errors.value.reason = '申请理由不能超过200个字符'
     return
   }
 
@@ -677,6 +804,12 @@ const submitForm = async () => {
     window.showMessage?.(`邮箱${action}成功: ${fullAddress}`, 'success')
     showCreateModal.value = false
     resetForm()
+
+    // 失效相关缓存
+    if (authStore.user?.id) {
+      cacheInvalidation.onNewMailbox(authStore.user.id)
+    }
+
     refreshData()
   } catch (error: any) {
     window.showMessage?.(error.message || `${isAdminScope.value ? '创建' : '申请'}失败`, 'error')
@@ -688,7 +821,7 @@ const submitForm = async () => {
 const resetForm = () => {
   form.value = {
     prefix: '',
-    domain: availableDomains.value[0] || '',
+    domain: availableDomains.value[0] || 'temp.mail',
     userId: '',
     reason: '',
     duration: 365,
@@ -698,22 +831,48 @@ const resetForm = () => {
 }
 
 // 工具函数
-const getStatusClass = (status: string) => {
-  const classes = {
+const getStatusClass = (status: number | string) => {
+  // 处理数字状态值：1=激活, 2=停用, 3=删除
+  const statusMap: Record<number, string> = {
+    1: 'badge-success',  // 激活
+    2: 'badge-warning',  // 停用
+    3: 'badge-secondary' // 删除
+  }
+
+  // 兼容字符串状态值（向后兼容）
+  const stringMap: Record<string, string> = {
     active: 'badge-success',
     suspended: 'badge-warning',
     expired: 'badge-secondary'
   }
-  return classes[status as keyof typeof classes] || 'badge-secondary'
+
+  if (typeof status === 'number') {
+    return statusMap[status] || 'badge-secondary'
+  } else {
+    return stringMap[status] || 'badge-secondary'
+  }
 }
 
-const getStatusText = (status: string) => {
-  const texts = {
+const getStatusText = (status: number | string) => {
+  // 处理数字状态值：1=激活, 2=停用, 3=删除
+  const statusMap: Record<number, string> = {
+    1: '正常',
+    2: '已停用',
+    3: '已删除'
+  }
+
+  // 兼容字符串状态值（向后兼容）
+  const stringMap: Record<string, string> = {
     active: '正常',
     suspended: '已停用',
     expired: '已过期'
   }
-  return texts[status as keyof typeof texts] || status
+
+  if (typeof status === 'number') {
+    return statusMap[status] || `状态${status}`
+  } else {
+    return stringMap[status] || status
+  }
 }
 
 const getApplicationStatusClass = (status: string) => {
@@ -734,7 +893,12 @@ const getApplicationStatusText = (status: string) => {
   return texts[status as keyof typeof texts] || status
 }
 
-const getUserTypeText = (type: string) => {
+const getUserTypeText = (type: string | number) => {
+  // 处理数字类型：0=普通用户, 1=管理员
+  if (typeof type === 'number') {
+    return type === 1 ? '管理员' : '普通用户'
+  }
+  // 兼容字符串类型（向后兼容）
   return type === 'admin' ? '管理员' : '普通用户'
 }
 
@@ -761,6 +925,28 @@ const refreshCurrentPage = () => {
   console.log('📱 页面级刷新触发')
   refreshData()
 }
+
+
+
+// 监听路由变化，重新加载数据
+watch(routeName, (newRouteName, oldRouteName) => {
+  if (newRouteName !== oldRouteName) {
+    console.log('🔄 路由变化，重新加载数据:', { from: oldRouteName, to: newRouteName })
+    // 重置页面状态
+    currentPage.value = 1
+    searchQuery.value = ''
+    searchResults.value = null
+    selectedItems.value = []
+    batchMode.value = false
+
+    // 重新加载数据
+    if (currentTab.value === 'mailboxes') {
+      loadMailboxes(true) // 强制刷新
+    } else {
+      loadApplications(true) // 强制刷新
+    }
+  }
+}, { immediate: false })
 
 // 页面加载
 onMounted(() => {

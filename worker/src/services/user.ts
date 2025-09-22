@@ -32,8 +32,8 @@ export async function findUserByUsername(db: D1Database, username: string): Prom
         id: result.id as number,
         username: result.username as string,
         password: result.password as string,
-        user_type: result.user_type as 'admin' | 'user',
-        status: result.status as 'active' | 'disabled',
+        user_type: result.user_type as 0 | 1,
+        status: result.status as 1 | 2 | 3,
         webhook_url: result.webhook_url as string | undefined,
         webhook_secret: result.webhook_secret as string | undefined,
         created_at: result.created_at as string | undefined,
@@ -67,8 +67,8 @@ export async function findUserById(db: D1Database, id: number): Promise<User | n
         id: result.id as number,
         username: result.username as string,
         password: result.password as string,
-        user_type: result.user_type as 'admin' | 'user',
-        status: result.status as 'active' | 'disabled',
+        user_type: result.user_type as 0 | 1,
+        status: result.status as 1 | 2 | 3,
         webhook_url: result.webhook_url as string | undefined,
         webhook_secret: result.webhook_secret as string | undefined,
         created_at: result.created_at as string | undefined,
@@ -83,11 +83,11 @@ export async function createUser(
     db: D1Database,
     username: string,
     hashedPassword: string,
-    userType: 'admin' | 'user' = 'user'
+    userType: 0 | 1 = 0
 ): Promise<User> {
     const result = await db.prepare(`
         INSERT INTO users (username, password, user_type, status, created_at, updated_at)
-        VALUES (?, ?, ?, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `).bind(username, hashedPassword, userType).run();
 
     if (!result.success) {
@@ -229,8 +229,8 @@ export async function getAllUsers(
     const users = usersResult.results.map(result => ({
         id: result.id as number,
         username: result.username as string,
-        user_type: result.user_type as 'admin' | 'user',
-        status: result.status as number,
+        user_type: result.user_type as 0 | 1,
+        status: result.status as 1 | 2 | 3,
         webhook_url: result.webhook_url as string | undefined,
         webhook_secret: result.webhook_secret as string | undefined,
         created_at: result.created_at as string | undefined,
@@ -243,21 +243,3 @@ export async function getAllUsers(
     };
 }
 
-/**
- * 切换用户状态
- */
-export async function toggleUserStatus(
-    db: D1Database,
-    userId: number,
-    status: 'active' | 'disabled'
-): Promise<void> {
-    const result = await db.prepare(`
-        UPDATE users 
-        SET status = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-    `).bind(status, userId).run();
-
-    if (!result.success) {
-        throw new Error('Failed to update user status');
-    }
-}

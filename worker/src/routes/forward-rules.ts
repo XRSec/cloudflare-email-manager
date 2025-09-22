@@ -34,7 +34,7 @@ forwardRuleRoutes.get('/', async (c) => {
     const rules = await getForwardRules(c.env.DB, queryParams);
 
     // 普通用户只能看到与自己邮箱相关的规则
-    if (payload.user_type !== 'admin') {
+    if (payload.user_type !== 1) {
       const userMailboxes = await findMailboxesByUserId(c.env.DB, payload.user_id);
       const userEmails = userMailboxes.map(mb => mb.email_address);
 

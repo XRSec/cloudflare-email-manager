@@ -93,7 +93,7 @@ const sidebarOpen = ref(false)
 const refreshing = ref(false)
 
 // 计算属性
-const isAdmin = computed(() => authStore.user?.user_type === 'admin')
+const isAdmin = computed(() => authStore.user?.user_type === 1)
 
 const isDebugMode = computed(() => systemStore.isDebugMode)
 
@@ -113,7 +113,7 @@ const userEmail = computed(() => {
 
 const userType = computed(() => {
   if (authStore.user?.user_type) {
-    return authStore.user.user_type === 'admin' ? '管理员' : '普通用户'
+    return authStore.user.user_type === 1 ? '管理员' : '普通用户'
   }
   return '用户'
 })
@@ -466,7 +466,8 @@ onMounted(async () => {
   flex-direction: column;
   margin-left: 0;
   transition: margin-left 0.3s ease;
-  min-height: 100vh;
+  min-height: 98vh;
+  /* overflow: hidden; */
 }
 
 .main-content.sidebar-open {
@@ -946,7 +947,7 @@ onMounted(async () => {
   padding: 20px;
   overflow-y: auto;
   background: #f8f9fa;
-  min-height: calc(100vh - 60px);
+  min-height: calc(80vh - 60px);
 }
 
 

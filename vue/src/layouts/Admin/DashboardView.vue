@@ -3,7 +3,13 @@
     <!-- 统一页面头部 -->
     <PageHeader :title="`${pageIcon} ${pageTitle}`" :show-search="false" :show-refresh="false" />
 
-    <div class="dashboard-welcome">
+    <!-- 加载状态 -->
+    <div v-if="loading" class="loading-overlay">
+      <div class="loading-spinner"></div>
+      <p>加载仪表板数据中...</p>
+    </div>
+
+    <div v-else class="dashboard-welcome">
       <p>欢迎使用邮箱管理系统</p>
     </div>
 
@@ -12,7 +18,7 @@
       <div v-if="isAdmin" class="stat-card">
         <div class="stat-icon">📧</div>
         <div class="stat-content">
-          <div class="stat-number">{{ emailStats.total }}</div>
+          <div class="stat-number">{{ emailStats?.total }}</div>
           <div class="stat-label">总邮件数</div>
         </div>
       </div>
@@ -21,7 +27,7 @@
       <div class="stat-card clickable" @click="goToMailboxes">
         <div class="stat-icon">📮</div>
         <div class="stat-content">
-          <div class="stat-number">{{ mailboxStats.total }}</div>
+          <div class="stat-number">{{ mailboxStats?.total }}</div>
           <div class="stat-label">我的邮箱</div>
         </div>
       </div>
@@ -30,7 +36,7 @@
       <div v-if="isAdmin" class="stat-card">
         <div class="stat-icon">📝</div>
         <div class="stat-content">
-          <div class="stat-number">{{ applicationStats.total }}</div>
+          <div class="stat-number">{{ applicationStats?.total }}</div>
           <div class="stat-label">待审核申请</div>
         </div>
       </div>
@@ -81,40 +87,92 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/composables/stores'
+import { apiService } from '@/composables/api'
+import { smartCache, CacheKeys } from '@/composables/smartCache'
 import PageHeader from '@/layouts/components/PageHeader.vue'
 // import SecurityWidget from '@/components/SecurityWidget.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
-// 统计数据
+// 数据
 const emailStats = ref({ total: 0 })
 const mailboxStats = ref({ total: 0 })
 const applicationStats = ref({ total: 0 })
 const recentEmails = ref<any[]>([])
 
 // 计算属性
-const isAdmin = computed(() => authStore.user?.user_type === 'admin')
+const isAdmin = computed(() => authStore.user?.user_type === 1)
 
 // 页面标题和图标
 const pageTitle = computed(() => '仪表板')
 const pageIcon = computed(() => '📊')
 const loading = ref(false)
 
+// 智能预加载管理器
+const preloadPageData = async (userId: number, forceRefresh = false) => {
+  console.log('📊 智能预加载页面数据（仪表板复用）')
+
+  // 预加载邮件数据（最近10封）
+  const emailsRes = await loadEmailsData(userId, 1, 10, forceRefresh)
+
+  return { emailsRes }
+}
+
+// 加载邮件数据（带缓存）
+const loadEmailsData = async (userId: number, page: number, limit: number, forceRefresh = false) => {
+  const cacheKey = CacheKeys.emailList(userId, page, limit, 'user')
+
+  if (!forceRefresh) {
+    const cached = smartCache.get(cacheKey)
+    if (cached) {
+      console.log('📧 从缓存加载邮件数据')
+      return { success: true, data: cached }
+    }
+  }
+
+  console.log('📧 从API加载邮件数据')
+  const response = await apiService.getEmails({ page, limit })
+
+  if (response.success) {
+    // 缓存数据（10分钟）
+    smartCache.set(cacheKey, response.data, {
+      ttl: 10 * 60 * 1000,
+      dependencies: ['new_email']
+    })
+  }
+
+  return response
+}
+
+
 // 方法
-const loadDashboardData = async () => {
+const loadDashboardData = async (forceRefresh = false) => {
+  loading.value = true
   try {
-    // 这里可以调用 API 加载数据
-    // 暂时使用模拟数据
-    emailStats.value.total = 0
-    mailboxStats.value.total = 0
-    applicationStats.value.total = 0
-    recentEmails.value = []
+    const userId = authStore.user?.id
+    if (!userId) {
+      console.error('用户ID不存在')
+      return
+    }
+
+    // 智能预加载页面数据
+    const { emailsRes } = await preloadPageData(userId, forceRefresh)
+
+    // 从预加载的数据中提取最近邮件
+    if (emailsRes.success) {
+      const emailsData = emailsRes.data
+      recentEmails.value = emailsData?.items || []
+    }
+
+    console.log('📊 仪表板数据预加载完成，用户点击页面时将直接使用缓存数据')
   } catch (error) {
     console.error('加载仪表板数据失败:', error)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -146,15 +204,6 @@ const goToMailboxes = () => {
   router.push('/mailboxes')
 }
 
-const refreshData = () => {
-  loading.value = true
-  // 刷新仪表盘数据
-  setTimeout(() => {
-    loading.value = false
-    console.log('仪表盘数据已刷新')
-  }, 500)
-}
-
 const goToSettings = () => {
   router.push('/settings')
 }
@@ -163,13 +212,69 @@ const goToAdmin = () => {
   router.push('/admin-users')
 }
 
+// 全局刷新事件处理
+const handleGlobalRefresh = () => {
+  console.log('🔄 仪表板页面收到全局刷新事件')
+  loadDashboardData(true) // 强制刷新
+}
+
+// 暴露刷新方法给全局刷新按钮使用
+const refreshDashboardPage = () => {
+  console.log('📊 DashboardView 页面级刷新触发')
+  loadDashboardData(true) // 强制刷新
+}
+
 // 组件挂载时加载数据
 onMounted(() => {
   loadDashboardData()
+
+  // 监听全局刷新事件
+  window.addEventListener('global:refresh', handleGlobalRefresh)
+
+  // 注册全局刷新函数
+  window.refreshCurrentPage = refreshDashboardPage
+})
+
+// 页面卸载时清理事件监听
+onUnmounted(() => {
+  window.removeEventListener('global:refresh', handleGlobalRefresh)
+  // 清理全局刷新函数
+  if (window.refreshCurrentPage === refreshDashboardPage) {
+    delete window.refreshCurrentPage
+  }
 })
 </script>
 
 <style scoped>
+.loading-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: #6c757d;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #007bff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
 .dashboard-page {
   padding: 20px;
   background: #f8f9fa;
@@ -298,6 +403,35 @@ onMounted(() => {
   min-height: 450px;
   display: flex;
   flex-direction: column;
+}
+
+.security-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.security-stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.security-stat-item:last-child {
+  border-bottom: none;
+}
+
+.security-stat-item .stat-label {
+  color: #6c757d;
+  font-size: 14px;
+}
+
+.security-stat-item .stat-value {
+  color: #2c3e50;
+  font-weight: 600;
+  font-size: 16px;
 }
 
 .content-section h2 {

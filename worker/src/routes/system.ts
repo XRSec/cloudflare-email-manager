@@ -31,6 +31,7 @@ systemRoutes.get('/registration-status', async (c) => {
     }
 });
 
+
 /**
  * 发送健康检查webhook通知
  */
@@ -52,7 +53,7 @@ async function sendHealthWebhook(env: Env, status: 'healthy' | 'unhealthy', deta
         const adminUsers = await env.DB.prepare(`
             SELECT webhook_url, webhook_secret 
             FROM users 
-            WHERE user_type = 'admin' AND webhook_url IS NOT NULL
+            WHERE user_type = 1 AND webhook_url IS NOT NULL
         `).all();
 
         if (adminUsers.results.length === 0) return;
@@ -234,7 +235,7 @@ systemRoutes.get('/config', jwtAuthMiddleware, async (c) => {
         const config = await getSystemConfig(c.env.DB);
         const user = c.get('jwtPayload');
 
-        if (user && user.user_type === 'admin') {
+        if (user && user.user_type === 1) {
             // 管理员可以获取完整配置
             return c.json<ApiResponse>({
                 success: true,
