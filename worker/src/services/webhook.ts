@@ -111,7 +111,7 @@ export function matchForwardRule(email: Email, rule: ForwardRule): boolean {
 /**
  * 处理邮件转发
  */
-export async function handleEmailForwarding(email: Email, userId: number, db: D1Database): Promise<void> {
+export async function handleEmailForwarding(email: Email, userId: number | null, db: D1Database): Promise<void> {
     try {
         // 获取启用的转发规则
         const rulesResult = await db.prepare(`
@@ -123,26 +123,28 @@ export async function handleEmailForwarding(email: Email, userId: number, db: D1
 
         const rules = rulesResult.results as unknown as ForwardRule[];
 
-        // 获取用户信息并检查个人 webhook
-        const userResult = await db.prepare(`
-            SELECT webhook_url, webhook_secret FROM users WHERE id = ?
-        `).bind(userId).first();
+        // 如果找到用户，获取用户信息并检查个人 webhook
+        if (userId !== null) {
+            const userResult = await db.prepare(`
+                SELECT webhook_url, webhook_secret FROM users WHERE id = ?
+            `).bind(userId).first();
 
-        if (userResult && (userResult as any).webhook_url) {
-            const user = userResult as any;
-            console.log(`发送用户个人webhook: ${user.webhook_url}`);
-            const result = await sendWebhook(
-                user.webhook_url,
-                email,
-                user.webhook_secret,
-                'custom'
-            );
+            if (userResult && (userResult as any).webhook_url) {
+                const user = userResult as any;
+                console.log(`发送用户个人webhook: ${user.webhook_url}`);
+                const result = await sendWebhook(
+                    user.webhook_url,
+                    email,
+                    user.webhook_secret,
+                    'custom'
+                );
 
-            // 记录转发日志
-            await logForwardResult(db, email.id, null, user.webhook_url, result);
+                // 记录转发日志
+                await logForwardResult(db, email.id, null, user.webhook_url, result);
+            }
         }
 
-        // 检查全局转发规则
+        // 检查全局转发规则（无论是否有用户都处理）
         for (const rule of rules) {
             if (matchForwardRule(email, rule)) {
                 console.log(`邮件匹配转发规则: ${rule.rule_name}`);

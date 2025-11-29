@@ -136,10 +136,7 @@ const handleLoginSuccess = async () => {
   const urlParams = new URLSearchParams(window.location.search)
   const redirectUrl = urlParams.get('redirect')
   console.log('📍 重定向URL:', redirectUrl)
-  let newUrl = '/'
-  if (redirectUrl && decodeURIComponent(redirectUrl) !== '/') {
-    newUrl = decodeURIComponent(redirectUrl)
-  }
+  let newUrl = decodeURIComponent(redirectUrl ?? '/')
   await loadNextStage('main-preload')
   router.push(newUrl)
 }

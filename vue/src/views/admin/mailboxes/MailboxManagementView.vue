@@ -1,13 +1,13 @@
 <template>
   <div class="mailbox-management-view">
-    <PageHeader title="📮 邮箱管理" :show-refresh="true" :loading="loading" @refresh="refreshData">
+    <PageHeader title="📮 邮箱管理">
       <template #actions>
         <Button variant="primary" size="sm" @click="showCreateForm = true">
           ➕ 创建邮箱
         </Button>
-        <Button variant="secondary" size="sm" @click="refreshData" :disabled="loading">
+        <!-- <Button variant="secondary" size="sm" @click="refreshData" :disabled="loading">
           {{ loading ? '🔄 刷新中...' : '🔄 刷新' }}
-        </Button>
+        </Button> -->
       </template>
     </PageHeader>
 
@@ -45,7 +45,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { usePaginatedPageData } from '@/composables/useUnifiedPageData'
 import { useSystemStore } from '@/composables/system'
-// import { adminApiService } from '@/composables/api'
+import { mailboxApiService } from '@/composables/api'
 import {
   PageHeader,
   DebugInfo,
@@ -123,16 +123,35 @@ const deleteMailbox = async (id: number) => {
 
 // 提交创建
 const submitCreate = async () => {
+  // 表单验证
+  if (!formData.value.address) {
+    alert('请输入邮箱地址')
+    return
+  }
+  if (!formData.value.owner_id || formData.value.owner_id <= 0) {
+    alert('请输入有效的用户ID')
+    return
+  }
+
   submitting.value = true
   try {
-    // TODO: 实现创建邮箱API
-    console.log('创建邮箱:', formData.value)
-    showCreateForm.value = false
-    formData.value = { address: '', owner_id: 0 }
-    await refreshData()
-  } catch (error) {
+    const response = await mailboxApiService.createMailbox({
+      address: formData.value.address,
+      owner_id: formData.value.owner_id
+    })
+
+    if (response.success) {
+      alert(response.message || '邮箱创建成功')
+      showCreateForm.value = false
+      formData.value = { address: '', owner_id: 0 }
+      await refreshData()
+    } else {
+      alert(response.message || '创建失败')
+    }
+  } catch (error: any) {
     console.error('创建邮箱失败:', error)
-    alert('创建失败')
+    const errorMessage = error.response?.data?.message || error.message || '创建失败'
+    alert(errorMessage)
   } finally {
     submitting.value = false
   }

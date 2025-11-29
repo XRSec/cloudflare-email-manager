@@ -67,7 +67,8 @@ export interface MailboxHistory {
 export interface MailboxApplication {
     id: number;
     user_id: number;
-    email_address: string;
+    requested_address: string; // 申请的邮箱地址（数据库字段名）
+    email_address?: string; // 兼容字段，映射自 requested_address
     status: 0 | 1 | 2; // 0=待审核, 1=已批准, 2=已拒绝
     reason?: string;
     admin_comment?: string;
@@ -82,7 +83,7 @@ export interface MailboxApplication {
 export interface Email {
     id: string;
     message_id: string;
-    user_id: number;
+    user_id: number | null; // 允许为 null，用于未找到用户但属于安全邮箱的邮件
     sender_email: string;
     recipient_email: string;
     subject?: string;

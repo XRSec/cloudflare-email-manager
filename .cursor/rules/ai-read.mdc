@@ -57,9 +57,9 @@ alwaysApply: true
 ### 🚀 开发环境
 
 #### 环境配置
-- **前端**：使用 Docker 容器运行，通过 `docker-compose up -d` 启动
-- **后端**：使用 Docker 容器运行，通过 `docker-compose up -d` 启动
-- **数据库**：通过 Docker 容器执行数据库操作，避免字符编码问题
+- **前端**：在宿主机运行 `cd vue && npm run dev`
+- **后端**：在宿主机运行 `cd worker && npx wrangler dev`
+- **数据库**：直接使用 `wrangler d1` 命令执行操作
 
 #### 目录结构
 
@@ -82,7 +82,6 @@ alwaysApply: true
 │   ├── deploy.js 完整部署脚本
 │   ├── dev.js 开发环境启动
 │   └── db.js 数据库操作脚本
-└── docker-compose.yml Docker 配置
 ```
 
 ### 前端目录结构介绍
@@ -94,16 +93,13 @@ MainLayoutView负责 登录后的页面展示
 #### 开发命令
 
 ```bash
-# 启动开发环境
-docker-compose up -d
+# 启动前端
+cd vue && npm run dev
 
-# 查看容器状态
-docker-compose ps
+# 启动 Worker
+cd worker && npx wrangler dev
 
-# 停止容器
-docker-compose down
-
-# 数据库操作（通过 Docker 容器执行）
+# 数据库操作
 npm run db:init        # 初始化数据库
 npm run db:init:remote # 初始化远程数据库
 npm run db:migrate     # 执行数据库迁移
@@ -117,11 +113,11 @@ npm run clean          # 清理所有资源
 
 #### 数据库操作
 
-数据库操作通过 Docker 容器执行：
-- 使用 `docker exec -it worker zsh -c "node scripts/db.js 'SELECT * FROM users'"` 执行 SQL 命令
-- 使用 `docker exec -it worker zsh -c "node scripts/db.js U0VMRUNUICogRlJPTSB1c2Vycwo="` 执行 base64 编码的 SQL
-- 使用 `docker exec -it worker zsh -c "node scripts/db.js init"` 初始化数据库
-- 使用 `docker exec -it worker zsh -c "node scripts/db.js init --remote"` 初始化远程数据库
+数据库操作直接通过 npm 脚本执行：
+- 使用 `npm run db -- "SELECT * FROM users"` 执行 SQL 命令
+- 使用 `npm run db -- U0VMRUNUICogRlJPTSB1c2Vycwo=` 执行 base64 编码的 SQL
+- 使用 `npm run db:init` 初始化数据库
+- 使用 `npm run db:init:remote` 初始化远程数据库
 - 所有数据库操作都通过修改 `db/schema.sql` 完成，无需额外迁移脚本
 
 #### 故障排除

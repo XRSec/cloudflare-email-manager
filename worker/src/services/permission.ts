@@ -171,7 +171,7 @@ export async function validateMailboxApplicationPermission(
 
     // 获取申请信息
     const applicationResult = await db.prepare(`
-            SELECT id, user_id, email_address, status
+            SELECT id, user_id, requested_address, requested_address as email_address, status
             FROM mailbox_applications 
             WHERE id = ?
         `).bind(applicationId).first();

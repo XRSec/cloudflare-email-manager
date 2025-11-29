@@ -13,14 +13,11 @@ scripts/
 
 ### 开发环境
 ```bash
-# 启动 Docker 容器（前端 + 后端）
-docker-compose up -d
+# 启动前端开发服务器
+cd vue && npm run dev
 
-# 查看容器状态
-docker-compose ps
-
-# 停止容器
-docker-compose down
+# 启动 Worker（API + 后台）
+cd worker && npx wrangler dev
 ```
 
 ### 部署
@@ -37,24 +34,15 @@ npm run clean
 
 ### 数据库操作
 ```bash
-# 通过 npm 脚本（在宿主机运行）
+# 本地命令
 npm run db:init
 npm run db:init:remote
 npm run db:migrate
 npm run db:import
 
-# 直接在 Docker 容器内运行
-docker exec -it worker zsh -c "node scripts/db.js init"
-docker exec -it worker zsh -c "node scripts/db.js init --remote"
-docker exec -it worker zsh -c "node scripts/db.js migrate"
-docker exec -it worker zsh -c "node scripts/db.js import"
-
-# 执行 SQL 命令
-docker exec -it worker zsh -c "node scripts/db.js 'SELECT * FROM users'"
-docker exec -it worker zsh -c "node scripts/db.js 'SELECT * FROM users' --remote"
-
-# 执行 base64 编码的 SQL
-docker exec -it worker zsh -c "node scripts/db.js U0VMRUNUICogRlJPTSB1c2Vycwo="
+# 执行 SQL 命令或 base64 SQL
+npm run db -- "SELECT * FROM users"
+npm run db -- U0VMRUNUICogRlJPTSB1c2Vycwo=
 ```
 
 ### 构建
@@ -73,7 +61,7 @@ npm run build
 
 ### 1. 环境检测
 - `env-detector.js` 提供统一的环境检测功能
-- 自动检测本地或 Docker 环境
+- 自动校验本地必需依赖（npx、wrangler）
 - 所有脚本共享环境检测逻辑
 
 ### 2. 部署脚本
@@ -86,7 +74,7 @@ npm run build
 
 ### 3. 数据库脚本
 - `db.js` 支持多种数据库操作
-- 直接在 Docker 容器内运行
+- 直接使用 wrangler 执行命令
 - 支持 base64 编码的 SQL 命令
 - 自动创建和清理临时脚本文件
 
@@ -94,7 +82,7 @@ npm run build
 
 | 功能 | 命令 | 说明 |
 |------|------|------|
-| 开发 | `docker-compose up -d` | 启动前端和后端 |
+| 开发 | `cd vue && npm run dev` / `cd worker && npx wrangler dev` | 启动前端与 Worker |
 | 构建 | `npm run build` | 构建前端和后端 |
 | 部署 | `npm run deploy` | 完整部署（资源创建+构建+部署） |
 | 初始化 | `npm run init` | 同 deploy 命令 |

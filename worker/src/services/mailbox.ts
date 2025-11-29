@@ -275,7 +275,7 @@ export async function createMailboxApplication(
     // 检查是否已有待处理的申请
     const existingApp = await db.prepare(`
         SELECT id FROM mailbox_applications 
-        WHERE user_id = ? AND email_address = ? AND status = 0
+        WHERE user_id = ? AND requested_address = ? AND status = 0
     `).bind(userId, emailAddress).first();
 
     if (existingApp) {
@@ -283,7 +283,7 @@ export async function createMailboxApplication(
     }
 
     const result = await db.prepare(`
-        INSERT INTO mailbox_applications (user_id, email_address, reason, applied_at)
+        INSERT INTO mailbox_applications (user_id, requested_address, reason, applied_at)
         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
     `).bind(userId, emailAddress, reason || '').run();
 
@@ -292,7 +292,7 @@ export async function createMailboxApplication(
     }
 
     const application = await db.prepare(`
-        SELECT id, user_id, email_address, status, reason, admin_comment,
+        SELECT id, user_id, requested_address, requested_address as email_address, status, reason, admin_comment,
                applied_at, processed_at, processed_by, created_at, updated_at
         FROM mailbox_applications
         WHERE id = ?
@@ -311,7 +311,7 @@ export async function createMailboxApplication(
  */
 export async function getUserMailboxApplications(db: D1Database, userId: number): Promise<MailboxApplication[]> {
     const result = await db.prepare(`
-        SELECT id, user_id, email_address, status, reason, admin_comment,
+        SELECT id, user_id, requested_address, requested_address as email_address, status, reason, admin_comment,
                applied_at, processed_at, processed_by, created_at, updated_at
         FROM mailbox_applications
         WHERE user_id = ?
@@ -345,7 +345,8 @@ export async function getAllMailboxApplications(
         SELECT 
             ma.id,
             ma.user_id,
-            ma.email_address,
+            ma.requested_address,
+            ma.requested_address as email_address,
             ma.status,
             ma.reason,
             ma.admin_comment,
@@ -379,7 +380,7 @@ export async function processMailboxApplication(
 ): Promise<void> {
     // 获取申请信息
     const application = await db.prepare(`
-        SELECT id, user_id, email_address, status
+        SELECT id, user_id, requested_address, requested_address as email_address, status
         FROM mailbox_applications
         WHERE id = ?
     `).bind(applicationId).first();
@@ -407,7 +408,7 @@ export async function processMailboxApplication(
 
     // 如果批准，创建邮箱
     if (action === 1) {
-        await createMailbox(db, (application as any).user_id, (application as any).email_address);
+        await createMailbox(db, (application as any).user_id, (application as any).requested_address);
     }
 
     debugLog('[邮箱服务] 申请已处理:', applicationId, '状态:', newStatus);
@@ -473,7 +474,7 @@ export async function getMailboxApplications(
     }
 
     const result = await db.prepare(`
-        SELECT id, user_id, email_address, status, reason, admin_comment,
+        SELECT id, user_id, requested_address, requested_address as email_address, status, reason, admin_comment,
                applied_at, processed_at, processed_by, created_at, updated_at
         FROM mailbox_applications
         ${whereClause}

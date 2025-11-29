@@ -1,6 +1,6 @@
 <template>
   <div class="all-emails-view">
-    <PageHeader title="🌍 全部邮件" :show-refresh="true" :loading="loading" @refresh="refreshData" />
+    <PageHeader title="🌍 全部邮件" />
 
     <DebugInfo :is-debug-mode="isDebugMode" :route-info="routeInfo" :is-supported="isSupported" :has-access="hasAccess"
       :last-updated="lastUpdated ? lastUpdated.toString() : undefined" />
@@ -17,28 +17,76 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { usePaginatedPageData } from '@/composables/useUnifiedPageData'
+import { computed, onMounted, ref } from 'vue'
 import { useSystemStore } from '@/composables/system'
-// import { adminApiService } from '@/composables/api'
+import { apiService } from '@/composables/api'
 import { PageHeader, DebugInfo, PageStates, EmailList, Pagination } from '@/components'
 
 const systemStore = useSystemStore()
 
-// 使用统一页面数据管理
-const {
-  data,
-  loading,
-  error,
-  lastUpdated,
-  routeInfo,
-  isSupported,
-  hasAccess,
-  pagination,
-  // loadData,
-  refreshData,
-  changePage
-} = usePaginatedPageData()
+// 本地页面状态
+const data = ref<any | null>(null)
+const loading = ref(false)
+const error = ref<string | null>(null)
+const lastUpdated = ref<Date | null>(null)
+
+const currentPage = ref(1)
+const pageSize = ref(20)
+
+const pagination = computed(() => {
+  const responseData = data.value?.data
+  const total = responseData?.total || 0
+
+  return {
+    total,
+    page: currentPage.value,
+    limit: pageSize.value,
+    totalPages: Math.ceil(total / pageSize.value)
+  }
+})
+
+// 简单的调试信息
+const routeInfo = computed(() => ({
+  routeName: 'all-emails',
+  description: '全部邮件（管理员）'
+}))
+const isSupported = computed(() => true)
+const hasAccess = computed(() => true)
+
+// 加载全部邮件（管理员）
+const loadData = async (page = currentPage.value) => {
+  if (loading.value) return
+
+  loading.value = true
+  error.value = null
+
+  try {
+    const response = await apiService.getAdminEmails({
+      page,
+      limit: pageSize.value,
+      scope: 'all'
+    })
+
+    data.value = response
+    lastUpdated.value = new Date()
+  } catch (err: any) {
+    console.error('加载全部邮件失败:', err)
+    error.value = err?.message || '加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+// 刷新当前页
+const refreshData = async () => {
+  await loadData(currentPage.value)
+}
+
+// 分页切换
+const changePage = async (page: number) => {
+  currentPage.value = page
+  await loadData(page)
+}
 
 // 调试模式
 const isDebugMode = computed(() => systemStore.systemConfig?.debug_mode === 1)

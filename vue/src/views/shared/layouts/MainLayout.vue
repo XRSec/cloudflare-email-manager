@@ -327,7 +327,10 @@ onMounted(async () => {
   color: black;
   z-index: 1000;
   transition: transform 0.3s ease;
-  overflow-y: auto;
+  /* 使用flex布局，让header在顶部、footer在底部，中间区域可滚动 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .sidebar.hidden {
@@ -348,6 +351,20 @@ onMounted(async () => {
 
 .sidebar-menu {
   padding: 10px 0;
+  /* 占据中间可用空间并单独滚动 */
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  /* 隐藏滚动条但保留滚动功能 */
+  scrollbar-width: none;
+  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE 和 Edge */
+}
+
+/* Chrome, Safari 和 Opera 隐藏滚动条 */
+.sidebar-menu::-webkit-scrollbar {
+  display: none;
 }
 
 .sidebar-menu .active {
@@ -426,12 +443,10 @@ onMounted(async () => {
 }
 
 .sidebar-footer {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 20px;
+  /* 不再绝对定位，交给flex布局，将footer推到底部 */
+  padding: 15px;
   border-top: 1px solid #d2d2d2;
+  flex-shrink: 0;
 }
 
 .sidebar-footer>.btn-secondary,

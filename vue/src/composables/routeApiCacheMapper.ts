@@ -5,18 +5,19 @@
 
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { adminApiService, userApiService, emailApiService, mailboxApiService } from './api'
+import { adminApiService, userApiService, emailApiService, mailboxApiService, systemApiService } from './api'
 import { cacheService } from './cache'
 import { useAuthStore } from './stores'
 
 // API方法类型定义 - 按服务分类
-export type EmailApiMethod = 'getEmails' | 'getAllEmails'
+export type EmailApiMethod = 'getEmails'
 export type MailboxApiMethod = 'getMailboxes' | 'getAllMailboxes'
-export type UserApiMethod = 'getForwardRules' | 'getUserInfo'
-export type AdminApiMethod = 'getUsers' | 'getSystemConfig' | 'getSecurityStats' | 'getMailboxHistory'
+export type UserApiMethod = 'getForwardRules' | 'getUserProfile'
+export type AdminApiMethod = 'getUsers' | 'getSecurityStats' | 'getMailboxHistory' | 'getForwardRules'
+export type SystemApiMethod = 'getSystemConfig'
 
 // 联合类型
-export type ApiMethod = EmailApiMethod | MailboxApiMethod | UserApiMethod | AdminApiMethod
+export type ApiMethod = EmailApiMethod | MailboxApiMethod | UserApiMethod | AdminApiMethod | SystemApiMethod
 
 // API服务映射配置
 interface ApiServiceMapping {
@@ -29,7 +30,7 @@ interface ApiServiceMapping {
 const API_SERVICE_MAPPINGS: ApiServiceMapping[] = [
   {
     service: emailApiService,
-    methods: ['getEmails', 'getAllEmails'],
+    methods: ['getEmails'],
     description: '邮件相关API'
   },
   {
@@ -39,13 +40,18 @@ const API_SERVICE_MAPPINGS: ApiServiceMapping[] = [
   },
   {
     service: userApiService,
-    methods: ['getForwardRules', 'getUserInfo'],
+    methods: ['getForwardRules', 'getUserProfile'],
     description: '用户相关API'
   },
   {
     service: adminApiService,
-    methods: ['getUsers', 'getSystemConfig', 'getSecurityStats', 'getMailboxHistory', 'getAllMailboxes'],
+    methods: ['getUsers', 'getSecurityStats', 'getMailboxHistory', 'getAllMailboxes', 'getForwardRules'],
     description: '管理员相关API'
+  },
+  {
+    service: systemApiService,
+    methods: ['getSystemConfig'],
+    description: '系统配置API'
   }
 ]
 
@@ -92,8 +98,8 @@ export const ROUTE_API_CACHE_MAP: Record<string, RouteConfig> = {
   // 管理员全部邮件页面
   'all-emails': {
     routeName: 'all-emails',
-    apiMethod: 'getAllEmails',
-    apiParams: { page: 1, limit: 20 },
+    apiMethod: 'getEmails',
+    apiParams: { page: 1, limit: 20, scope: 'all' },
     cacheStrategy: { keyPrefix: 'all_emails', ttl: 2 * 60 * 1000 },
     requiresAuth: true,
     adminOnly: true,
@@ -132,7 +138,7 @@ export const ROUTE_API_CACHE_MAP: Record<string, RouteConfig> = {
     description: '用户管理'
   },
 
-  // 转发规则页面
+  // 转发规则页面（普通用户）
   'forward-rules': {
     routeName: 'forward-rules',
     apiMethod: 'getForwardRules',
@@ -142,10 +148,21 @@ export const ROUTE_API_CACHE_MAP: Record<string, RouteConfig> = {
     description: '转发规则'
   },
 
+  // 管理员转发规则页面
+  'admin-rules': {
+    routeName: 'admin-rules',
+    apiMethod: 'getForwardRules',
+    apiParams: { page: 1, limit: 20, scope: 'all' },
+    cacheStrategy: { keyPrefix: 'admin_forward_rules', ttl: 5 * 60 * 1000 },
+    requiresAuth: true,
+    adminOnly: true,
+    description: '转发管理'
+  },
+
   // 个人设置页面
   'personal-settings': {
     routeName: 'personal-settings',
-    apiMethod: 'getUserInfo',
+    apiMethod: 'getUserProfile',
     apiParams: {},
     cacheStrategy: { keyPrefix: 'personal_settings', ttl: 10 * 60 * 1000 },
     requiresAuth: true,

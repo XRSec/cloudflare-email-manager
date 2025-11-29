@@ -143,6 +143,30 @@ class CacheService {
 
     return `${baseKey}_${paramStr}`
   }
+
+  // 按模式清除缓存（支持通配符）
+  clearByPattern(pattern: string): void {
+    try {
+      // 将通配符模式转换为正则表达式
+      // 例如: "system_settings_1_system-settings_*" -> /^system_settings_1_system-settings_.*$/
+      const regexPattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.')
+      const regex = new RegExp(`^${regexPattern}$`)
+
+      const keys = this.keys()
+      let clearedCount = 0
+
+      keys.forEach(key => {
+        if (regex.test(key)) {
+          this.delete(key)
+          clearedCount++
+        }
+      })
+
+      console.log(`🗑️ 按模式清除缓存: ${pattern}, 清除了 ${clearedCount} 项`)
+    } catch (error) {
+      console.error(`按模式清除缓存失败 ${pattern}:`, error)
+    }
+  }
 }
 
 // 全局缓存实例

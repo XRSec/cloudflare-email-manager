@@ -1,5 +1,12 @@
 ### 🔄 最近更新
 
+#### 开发环境去容器化 (2025-11-29)
+- **Docker 资产清理**：彻底删除根目录 `Dockerfile` 与 `docker-compose.yml`，摒弃容器依赖
+- **脚本重构**：`env-detector.js`、`scripts/deploy.js`、`worker/import-emails-to-db-local.js` 全面改为直接调用本地 `wrangler`，移除 `docker exec` 逻辑
+- **使用文档更新**：重写 `.cursor/rules/ai-read.mdc` 与 `scripts/README.md`，统一改为本地开发/数据库操作指引
+- **包脚本精简**：移除遗留的 `#predev` Docker 脚本，确保 `package.json` 仅保留有效命令
+- **知识同步**：强调数据库与部署仍通过 npm / wrangler 本地指令即可完成
+
 #### 组件复用优化和文件夹结构重构 (2025-01-21)
 
 **优化目标：**
@@ -1196,32 +1203,13 @@ MainLayoutView 全局刷新按钮：
 - 确保前后端数据结构一致：后端返回 `{ total: number, items: Email[] }`，前端正确解析
 - 移除调试代码，清理模板中的临时输出
 
-#### 开发环境优化 (2024-01-XX)
-- **Docker 配置完善**：完善 `docker-compose.yml` 配置，前端和后端独立容器
-  - 前端容器：`vue` 服务，运行 Vite 开发服务器
-  - 后端容器：`worker` 服务，运行 wrangler dev
-  - 共享 node_modules 卷，避免依赖冲突
-- **文档清理**：删除过时的文档文件
-  - 删除 `docs/FRONTEND_SEPARATION.md`
-  - 删除 `docs/MIGRATION.md`
-  - 删除 `docs/ENV_CONFIG.md`
-- **数据库操作优化**：直接使用 wrangler d1 execute 命令
-  - 通过 `docker exec -it worker zsh -c "node scripts/db.js 'SQL'"` 执行 SQL 命令
-  - 支持 base64 编码的 SQL 命令
-  - 简化了数据库操作流程，无需复杂的参数传递
-- **文档更新**：更新所有文档反映新的容器化开发环境
-- **脚本整合**：将根目录 `deploy.js` 的功能整合到 `scripts/deploy.js` 中
-- **功能完善**：新的部署脚本包含完整的部署流程
-  - 资源创建（D1、KV、R2）
-  - 用户交互（域名输入、管理员密码等）
-  - 数据库初始化和管理员账户创建
-  - 配置文件更新（wrangler.toml）
-  - 前后端构建和部署
-- **命令统一**：更新 `package.json` 中的脚本引用
-  - `npm run deploy` - 完整部署
-  - `npm run init` - 同 deploy 命令
-  - `npm run clean` - 清理所有 Cloudflare 资源
-- **文档更新**：更新 `docs/SCRIPTS.md` 反映新的脚本功能
+#### 开发环境容器化（已废弃，2024-01-XX）
+> 历史阶段曾短暂依赖 Docker 运行前后端与数据库操作。自 2025-11-29 起，容器化方案已彻底移除，保留以下记录仅用于追溯。
+
+- **容器拓扑**：曾通过 `docker-compose.yml` 启动 `vue`、`worker` 双容器与共享依赖卷
+- **数据库入口**：在容器内部执行 `wrangler d1` 及脚本，现已改为直接在宿主机运行 npm / wrangler 命令
+- **脚本整合**：当时将根目录 `deploy.js` 功能迁移至 `scripts/deploy.js`，并统一 `npm run deploy|init|clean`
+- **文档同步**：关联文档（如 `docs/SCRIPTS.md` 等）随后已更新为本地运行模式，Docker 指南不再适用
 
 #### 后端架构重构 - 前后端分离 (2024-01-XX)
 - **静态资源服务**：移除内嵌HTML模板，改为通过 ASSETS 绑定服务前端

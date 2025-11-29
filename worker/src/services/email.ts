@@ -90,7 +90,7 @@ export async function getEmailById(db: D1Database, id: string): Promise<Email | 
     return {
         id: result.id as string,
         message_id: result.message_id as string,
-        user_id: result.user_id as number,
+        user_id: result.user_id as number | null, // 允许为 null
         sender_email: result.sender_email as string,
         recipient_email: result.recipient_email as string,
         subject: result.subject as string | undefined,
@@ -189,7 +189,7 @@ export async function getUserEmails(
     const emails = emailsResult.results.map(result => ({
         id: result.id as string,
         message_id: result.message_id as string,
-        user_id: result.user_id as number,
+        user_id: result.user_id as number | null, // 允许为 null（虽然此函数查询特定用户，但保持类型一致性）
         sender_email: result.sender_email as string,
         recipient_email: result.recipient_email as string,
         subject: result.subject as string | undefined,
@@ -308,7 +308,7 @@ export async function getAllEmails(
         const emails = emailsResult.results.map(result => ({
             id: result.id as string,
             message_id: result.message_id as string,
-            user_id: result.user_id as number,
+            user_id: result.user_id as number | null, // 允许为 null
             sender_email: result.sender_email as string,
             recipient_email: result.recipient_email as string,
             subject: result.subject as string | undefined,

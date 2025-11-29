@@ -202,6 +202,23 @@ export default {
      * 邮件处理
      */
     async email(message: any, env: Env, ctx: ExecutionContext): Promise<void> {
+        console.log('========== Cloudflare Email Routing 入口 ==========');
+        console.log('时间:', new Date().toISOString());
+        console.log('消息对象类型:', typeof message);
+        console.log('消息对象是否为 null/undefined:', message == null);
+
+        if (message) {
+            console.log('消息对象键:', Object.keys(message));
+            console.log('message.from:', message.from);
+            console.log('message.to:', message.to);
+            console.log('message.headers 类型:', typeof message.headers);
+        }
+
+        console.log('环境变量检查:');
+        console.log('- DB 存在:', !!env.DB);
+        console.log('- R2 存在:', !!env.R2);
+        console.log('==================================================');
+
         await initDebugMode(env);
         await emailHandler.email(message, env, ctx);
     },

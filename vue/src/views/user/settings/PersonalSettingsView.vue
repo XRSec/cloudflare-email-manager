@@ -1,6 +1,6 @@
 <template>
   <div class="personal-settings-view">
-    <PageHeader title="⚙️ 个人设置" :show-refresh="true" :loading="loading" @refresh="refreshData" />
+    <PageHeader title="⚙️ 个人设置" />
 
     <DebugInfo :is-debug-mode="isDebugMode" :route-info="routeInfo" :is-supported="isSupported" :has-access="hasAccess"
       :last-updated="lastUpdated ? lastUpdated.toString() : undefined" />

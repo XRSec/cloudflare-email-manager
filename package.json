@@ -7,8 +7,8 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc && vite build",
+    "dev": "npx vite vue",
+    "build": "npx vue-tsc vue && npx vite build vue",
     "preview": "cd vue && npx vite preview",
     "type-check": "vue-tsc --noEmit",
     "build:vue": "cd vue && npx vite build",
@@ -28,8 +28,7 @@
     "format:vue": "cd vue && npx prettier --write src/",
     "format:worker": "cd worker && npx prettier --write src/",
     "type-check:vue": "cd vue && npx vue-tsc --build",
-    "type-check:worker": "cd worker && npx tsc --noEmit",
-    "#predev": "docker exec node bash -c 'kill -9 $(pidof node) || true'"
+    "type-check:worker": "cd worker && npx tsc --noEmit"
   },
   "keywords": [
     "cloudflare",
@@ -61,7 +60,8 @@
     "unplugin-vue-components": "^29.0.0",
     "vue": "^3.5.18",
     "vue-router": "^4.5.1",
-    "vue-tsc": "^3.0.7"
+    "vue-tsc": "^3.0.7",
+    "wrangler": "^4.51.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250920.0",

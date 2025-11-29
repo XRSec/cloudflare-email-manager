@@ -253,6 +253,9 @@ export async function updateSystemConfig(db: D1Database, config: Partial<SystemC
     for (const update of updates) {
         await setSystemSetting(db, update.key, update.value);
     }
+
+    // 刷新系统设置缓存，确保后续读取使用最新值
+    await refreshSystemSettings(db);
 }
 
 /**

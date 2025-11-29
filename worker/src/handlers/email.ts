@@ -14,20 +14,56 @@ import type { Env, Email } from '../types';
  */
 export async function handleIncomingEmail(message: any, env: Env): Promise<void> {
     try {
-        infoLog('[邮件处理] 开始处理新邮件');
+        infoLog('[邮件处理] ========== 开始处理新邮件 ==========');
+        infoLog('[邮件处理] 时间戳:', new Date().toISOString());
+
+        // 详细记录消息对象
+        infoLog('[邮件处理] 消息对象检查:');
+        infoLog('[邮件处理] - message 存在:', !!message);
+        infoLog('[邮件处理] - message.from:', message?.from);
+        infoLog('[邮件处理] - message.to:', message?.to);
+        infoLog('[邮件处理] - message.headers 存在:', !!message?.headers);
 
         // 提取邮件基本信息
-        const messageId = message.headers.get('Message-ID') || `generated-${Date.now()}-${Math.random()}`;
-        const senderEmail = message.from;
-        const recipientEmail = message.to;
-        const subject = message.headers.get('Subject') || '';
+        let messageId: string;
+        let senderEmail: string;
+        let recipientEmail: string;
+        let subject: string = '';
 
-        infoLog('[邮件处理] 邮件信息:', {
-            messageId,
-            senderEmail,
-            recipientEmail,
-            subject
-        });
+        try {
+            // 尝试多种方式获取 Message-ID
+            if (message.headers) {
+                if (typeof message.headers.get === 'function') {
+                    messageId = message.headers.get('Message-ID') || '';
+                    subject = message.headers.get('Subject') || '';
+                } else if (message.headers instanceof Map) {
+                    messageId = message.headers.get('Message-ID') || '';
+                    subject = message.headers.get('Subject') || '';
+                } else {
+                    messageId = message.headers['Message-ID'] || message.headers['message-id'] || '';
+                    subject = message.headers['Subject'] || message.headers['subject'] || '';
+                }
+            } else {
+                messageId = '';
+            }
+
+            if (!messageId) {
+                messageId = `generated-${Date.now()}-${Math.random()}`;
+                infoLog('[邮件处理] 未找到 Message-ID，生成新的:', messageId);
+            }
+
+            senderEmail = message.from || '';
+            recipientEmail = message.to || '';
+
+            infoLog('[邮件处理] 提取的邮件信息:');
+            infoLog('[邮件处理] - Message-ID:', messageId);
+            infoLog('[邮件处理] - 发件人:', senderEmail);
+            infoLog('[邮件处理] - 收件人:', recipientEmail);
+            infoLog('[邮件处理] - 主题:', subject);
+        } catch (extractError) {
+            errorLog('[邮件处理] 提取邮件基本信息失败:', extractError);
+            throw new Error('无法提取邮件基本信息: ' + (extractError instanceof Error ? extractError.message : String(extractError)));
+        }
 
         // 验证收件人邮箱格式
         if (!recipientEmail || !recipientEmail.includes('@')) {
@@ -54,11 +90,12 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
         // 根据邮箱地址获取用户ID
         const userId = await getUserIdByEmail(env.DB, recipientEmail);
         if (!userId) {
-            debugLog('[邮件处理] 未找到邮箱对应的用户:', recipientEmail);
-            return;
+            // 未找到用户，但域名匹配成功（属于安全邮箱），保存邮件但 user_id 设为 null
+            // 这样管理员可以查看这些邮件
+            infoLog('[邮件处理] 未找到邮箱对应的用户，但域名匹配成功，保存邮件（user_id 为 null）:', recipientEmail);
+        } else {
+            infoLog('[邮件处理] 找到用户ID:', userId);
         }
-
-        infoLog('[邮件处理] 找到用户ID:', userId);
 
         // 获取原始邮件内容
         const rawEmail = await message.raw();
@@ -105,6 +142,7 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
             content: content || undefined,
             content_type: contentType as 'text' | 'html',
             raw_content: rawEmail, // 修复字段名，与数据库一致
+            is_read: 0, // 新邮件默认为未读
             has_attachments: hasAttachments ? 1 : 0,
             received_at: new Date().toISOString()
         };
@@ -126,7 +164,7 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
             }
         }
 
-        // 处理邮件转发
+        // 处理邮件转发（只有找到用户时才处理个人 webhook，全局转发规则始终处理）
         try {
             await handleEmailForwarding(savedEmail, userId, env.DB);
             debugLog('[邮件处理] 邮件转发处理完成');
@@ -149,9 +187,52 @@ export async function handleIncomingEmail(message: any, env: Env): Promise<void>
 export default {
     async email(message: any, env: Env, ctx: any) {
         try {
+            // 详细记录邮件消息对象结构
+            infoLog('[邮件路由] ========== 收到新邮件 ==========');
+            infoLog('[邮件路由] 消息对象类型:', typeof message);
+            infoLog('[邮件路由] 消息对象键:', Object.keys(message || {}));
+
+            // 记录基本属性
+            if (message) {
+                infoLog('[邮件路由] message.from:', message.from);
+                infoLog('[邮件路由] message.to:', message.to);
+                infoLog('[邮件路由] message.headers 类型:', typeof message.headers);
+
+                // 尝试获取 headers
+                if (message.headers) {
+                    if (typeof message.headers.get === 'function') {
+                        infoLog('[邮件路由] Message-ID:', message.headers.get('Message-ID'));
+                        infoLog('[邮件路由] Subject:', message.headers.get('Subject'));
+                        infoLog('[邮件路由] From:', message.headers.get('From'));
+                        infoLog('[邮件路由] To:', message.headers.get('To'));
+                    } else if (message.headers instanceof Map) {
+                        infoLog('[邮件路由] Headers Map 内容:', Array.from(message.headers.entries()));
+                    } else {
+                        infoLog('[邮件路由] Headers 对象:', message.headers);
+                    }
+                }
+
+                // 检查可用的方法
+                const availableMethods = [];
+                if (typeof message.raw === 'function') availableMethods.push('raw');
+                if (typeof message.text === 'function') availableMethods.push('text');
+                if (typeof message.html === 'function') availableMethods.push('html');
+                infoLog('[邮件路由] 可用方法:', availableMethods);
+            }
+
+            infoLog('[邮件路由] 环境变量检查:');
+            infoLog('[邮件路由] - DB 存在:', !!env.DB);
+            infoLog('[邮件路由] - R2 存在:', !!env.R2);
+
             await handleIncomingEmail(message, env);
+
+            infoLog('[邮件路由] ========== 邮件处理完成 ==========');
         } catch (error) {
-            errorLog('[邮件路由] 处理失败:', error);
+            errorLog('[邮件路由] ========== 处理失败 ==========');
+            errorLog('[邮件路由] 错误类型:', error instanceof Error ? error.constructor.name : typeof error);
+            errorLog('[邮件路由] 错误消息:', error instanceof Error ? error.message : String(error));
+            errorLog('[邮件路由] 错误堆栈:', error instanceof Error ? error.stack : '无堆栈信息');
+            errorLog('[邮件路由] 完整错误对象:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
             // 不抛出错误，避免影响邮件路由
         }
     }

@@ -11,6 +11,7 @@ declare module 'vue' {
     Button: typeof import('./src/components/common/Button.vue')['default']
     CheckboxField: typeof import('./src/components/common/CheckboxField.vue')['default']
     DebugInfo: typeof import('./src/components/common/DebugInfo.vue')['default']
+    DomainListInput: typeof import('./src/components/common/DomainListInput.vue')['default']
     EmailList: typeof import('./src/components/business/EmailList.vue')['default']
     FormField: typeof import('./src/components/common/FormField.vue')['default']
     MailboxList: typeof import('./src/components/business/MailboxList.vue')['default']

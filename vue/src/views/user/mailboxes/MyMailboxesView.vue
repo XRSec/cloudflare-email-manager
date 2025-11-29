@@ -1,12 +1,9 @@
 <template>
   <div class="my-mailboxes-view">
-    <PageHeader title="📮 我的邮箱" :show-refresh="true" :loading="loading" @refresh="refreshData">
+    <PageHeader title="📮 我的邮箱">
       <template #actions>
         <Button variant="primary" size="sm" @click="showCreateForm = true">
           ➕ 申请邮箱
-        </Button>
-        <Button variant="secondary" size="sm" @click="refreshData" :disabled="loading">
-          {{ loading ? '🔄 刷新中...' : '🔄 刷新' }}
         </Button>
       </template>
     </PageHeader>
@@ -49,7 +46,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { usePaginatedPageData } from '@/composables/useUnifiedPageData'
 import { useSystemStore } from '@/composables/system'
-// import { userApiService } from '@/composables/api'
+import { mailboxApiService } from '@/composables/api'
 import {
   PageHeader,
   DebugInfo,
@@ -110,16 +107,35 @@ const deleteMailbox = async (id: number) => {
 
 // 提交申请
 const submitApplication = async () => {
+  // 表单验证
+  if (!formData.value.address) {
+    alert('请输入邮箱地址')
+    return
+  }
+  if (!formData.value.reason) {
+    alert('请输入申请理由')
+    return
+  }
+
   submitting.value = true
   try {
-    // TODO: 实现申请邮箱API
-    console.log('申请邮箱:', formData.value)
-    showCreateForm.value = false
-    formData.value = { address: '', reason: '' }
-    await refreshData()
-  } catch (error) {
+    const response = await mailboxApiService.createMailbox({
+      address: formData.value.address,
+      reason: formData.value.reason
+    })
+
+    if (response.success) {
+      alert(response.message || '申请提交成功')
+      showCreateForm.value = false
+      formData.value = { address: '', reason: '' }
+      await refreshData()
+    } else {
+      alert(response.message || '提交失败')
+    }
+  } catch (error: any) {
     console.error('提交申请失败:', error)
-    alert('提交失败')
+    const errorMessage = error.response?.data?.message || error.message || '提交失败'
+    alert(errorMessage)
   } finally {
     submitting.value = false
   }
