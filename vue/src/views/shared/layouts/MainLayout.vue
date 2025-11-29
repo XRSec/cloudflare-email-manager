@@ -7,10 +7,6 @@
         <h2>CEM 邮箱管理系统</h2>
       </div>
       <div class="sidebar-menu">
-        <router-link to="/" class="sidebar-item" :class="{ active: $route.path === '/' }" @click="closeSidebarOnMobile">
-          🏠 仪表板
-        </router-link>
-
         <!-- 使用v-for渲染导航菜单 -->
         <template v-for="section in navigationSections" :key="section.title">
           <div v-if="section.show" class="nav-section">
@@ -45,13 +41,12 @@
             {{ refreshing ? '🔄 刷新中...' : '🔄 刷新' }}
           </Button>
         </div>
-        <div class="user-info">
+        <div class="user-info clickable" @click="openUserInfoModal">
           <div class="user-avatar">
             {{ userInitials }}
           </div>
           <div class="user-details">
-            <div class="user-email">{{ userEmail }}</div>
-            <div class="user-type">{{ userType }}</div>
+            <div class="user-name">{{ authStore.user?.username || '未登录' }}</div>
           </div>
         </div>
       </div>
@@ -61,6 +56,22 @@
         <router-view />
       </div>
     </div>
+
+    <!-- 修改用户信息模态框 -->
+    <Modal :show="showPasswordModal" title="修改用户信息" @close="closePasswordModal" size="small">
+      <form @submit.prevent="handleChangeUserInfo">
+        <FormField v-model="userForm.username" label="用户名" type="text" placeholder="请输入用户名（3-50个字符）" />
+        <FormField v-model="userForm.newPassword" label="新密码" type="password" placeholder="请输入新密码（至少6位，留空则不修改）" />
+        <FormField v-model="userForm.confirmPassword" label="确认密码" type="password" placeholder="请再次输入新密码" />
+        <div v-if="passwordError" class="error-message">{{ passwordError }}</div>
+      </form>
+      <template #footer>
+        <Button variant="secondary" @click="closePasswordModal">取消</Button>
+        <Button variant="primary" @click="handleChangeUserInfo" :disabled="changingPassword">
+          {{ changingPassword ? '修改中...' : '确认修改' }}
+        </Button>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -70,18 +81,13 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/composables/stores'
 import { useSystemStore } from '@/composables/system'
 import { useUnifiedGlobalRefreshManager } from '@/composables/globalRefreshManager'
-import { Button } from '@/components/common'
+import { Button, Modal, FormField } from '@/components/common'
+import { userApiService } from '@/composables/api'
+import { toast } from '@/utils'
 // 在开发模式下导入测试
 if (import.meta.env.DEV) {
   import('@/composables/testRouteApiMapper')
   import('@/composables/testCacheKeys')
-}
-
-// 调试工具函数
-const debugLog = (...args: any[]) => {
-  if (systemStore.isDebugMode) {
-    console.log('[MainLayout]', ...args)
-  }
 }
 
 const authStore = useAuthStore()
@@ -104,136 +110,53 @@ const { executeGlobalRefresh, isRefreshing, getCurrentPageRefreshInfo } = useUni
 const refreshing = isRefreshing
 
 // 计算属性
-const isAdmin = computed(() => authStore.user?.user_type === 1)
-
 const isDebugMode = computed(() => systemStore.isDebugMode)
 
 const userInitials = computed(() => {
   if (authStore.user?.username) {
     return authStore.user.username.charAt(0).toUpperCase()
   }
-  return 'U'
+  return 'A'
 })
 
-const userEmail = computed(() => {
-  if (authStore.user?.email) {
-    return authStore.user.email
+const navigationSections = computed(() => [
+  {
+    title: '',
+    show: true,
+    items: [
+      {
+        path: '/',
+        title: '仪表板',
+        icon: '📊',
+        show: true,
+        exactMatch: true
+      },
+      {
+        path: '/all-emails',
+        title: '全部邮件',
+        icon: '📨',
+        show: true,
+        exactMatch: false
+      },
+      {
+        path: '/system-settings',
+        title: '系统设置',
+        icon: '🛠️',
+        show: true,
+        exactMatch: false
+      },
+      {
+        path: '/debug',
+        title: '调试模式',
+        icon: '🐛',
+        show: isDebugMode.value,
+        exactMatch: true,
+        badge: 'DEV',
+        badgeClass: 'badge-warning'
+      }
+    ]
   }
-  return 'user@example.com'
-})
-
-const userType = computed(() => {
-  if (authStore.user?.user_type) {
-    return authStore.user.user_type === 1 ? '管理员' : '普通用户'
-  }
-  return '用户'
-})
-
-// 导航配置 - 智能化管理
-const navigationSections = computed(() => {
-  debugLog('isDebugMode:', isDebugMode.value, 'type:', typeof isDebugMode.value)
-  return [
-    {
-      title: '', // 主要功能不显示标题
-      show: true,
-      items: [
-        {
-          path: '/my-emails',
-          title: '我的邮件',
-          icon: '📧',
-          show: true,
-          exactMatch: true
-        },
-        {
-          path: '/my-mailboxes',
-          title: '我的邮箱',
-          icon: '📮',
-          show: true,
-          exactMatch: true
-        },
-        {
-          path: '/forward-rules',
-          title: '转发规则',
-          icon: '📤',
-          show: true,
-          exactMatch: true
-        }
-      ]
-    },
-    {
-      title: '系统管理',
-      show: isAdmin,
-      items: [
-        {
-          path: '/admin-users',
-          title: '用户管理',
-          icon: '👥',
-          show: isAdmin,
-          exactMatch: false
-        },
-        {
-          path: '/mailbox-management',
-          title: '邮箱管理',
-          icon: '📮',
-          show: isAdmin,
-          exactMatch: false,
-          badge: '新',
-          badgeClass: 'badge-success'
-        },
-        {
-          path: '/all-emails',
-          title: '全部邮件',
-          icon: '📨',
-          show: isAdmin,
-          exactMatch: false
-        },
-        {
-          path: '/admin-rules',
-          title: '转发管理',
-          icon: '🔄',
-          show: isAdmin,
-          exactMatch: false
-        },
-        {
-          path: '/admin-security-overview',
-          title: '安全概览',
-          icon: '🛡️',
-          show: isAdmin,
-          exactMatch: false
-        },
-        {
-          path: '/system-settings',
-          title: '系统设置',
-          icon: '🛠️',
-          show: isAdmin,
-          exactMatch: false
-        }
-      ]
-    },
-    {
-      title: '其他功能',
-      show: true,
-      items: [
-        {
-          path: '/personal-settings',
-          title: '个人设置',
-          icon: '⚙️',
-          show: true,
-          exactMatch: true
-        },
-        {
-          path: '/debug',
-          title: '调试模式',
-          icon: '🐛',
-          show: isDebugMode.value,
-          exactMatch: true,
-          badge: 'DEV',
-          badgeClass: 'badge-warning'
-        }
-      ]
-    }
-  ]
-})
+])
 
 // 智能路由激活判断
 const isRouteActive = (path: string, exactMatch: boolean = false) => {
@@ -272,6 +195,110 @@ const refreshCurrentPage = async () => {
 // 处理退出登录
 const handleLogout = () => {
   emit('logout')
+}
+
+// 修改用户信息相关
+const showPasswordModal = ref(false)
+const changingPassword = ref(false)
+const passwordError = ref('')
+const userForm = ref({
+  username: '',
+  newPassword: '',
+  confirmPassword: ''
+})
+
+const openUserInfoModal = () => {
+  // 初始化表单，使用当前用户名
+  userForm.value = {
+    username: authStore.user?.username || '',
+    newPassword: '',
+    confirmPassword: ''
+  }
+  showPasswordModal.value = true
+}
+
+const closePasswordModal = () => {
+  showPasswordModal.value = false
+  userForm.value = {
+    username: '',
+    newPassword: '',
+    confirmPassword: ''
+  }
+  passwordError.value = ''
+}
+
+const handleChangeUserInfo = async () => {
+  // 验证：至少需要修改用户名或密码中的一项
+  const hasUsernameChange = userForm.value.username && userForm.value.username !== authStore.user?.username
+  const hasPasswordChange = userForm.value.newPassword || userForm.value.confirmPassword
+
+  if (!hasUsernameChange && !hasPasswordChange) {
+    passwordError.value = '请至少修改用户名或密码中的一项'
+    return
+  }
+
+  // 验证用户名
+  if (hasUsernameChange) {
+    const username = userForm.value.username.trim()
+    if (username.length < 3 || username.length > 50) {
+      passwordError.value = '用户名长度必须在3-50个字符之间'
+      return
+    }
+  }
+
+  // 验证密码（如果填写了密码）
+  if (hasPasswordChange) {
+    if (!userForm.value.newPassword || !userForm.value.confirmPassword) {
+      passwordError.value = '修改密码时，新密码和确认密码都需要填写'
+      return
+    }
+
+    if (userForm.value.newPassword.length < 6) {
+      passwordError.value = '密码长度至少为6位'
+      return
+    }
+
+    if (userForm.value.newPassword !== userForm.value.confirmPassword) {
+      passwordError.value = '两次输入的密码不一致'
+      return
+    }
+  }
+
+  changingPassword.value = true
+  passwordError.value = ''
+
+  try {
+    const updateData: any = {}
+
+    // 如果修改了用户名，添加到更新数据
+    if (hasUsernameChange) {
+      updateData.username = userForm.value.username.trim()
+    }
+
+    // 如果修改了密码，添加到更新数据
+    if (hasPasswordChange) {
+      updateData.password = userForm.value.newPassword
+      updateData.password_confirm = userForm.value.confirmPassword
+    }
+
+    const response = await userApiService.updateUserSettings(updateData)
+
+    if (response.success) {
+      // 如果修改了用户名，刷新用户信息
+      if (hasUsernameChange) {
+        await authStore.fetchCurrentUser()
+      }
+      toast.success('用户信息修改成功')
+      closePasswordModal()
+    } else {
+      passwordError.value = response.message || '用户信息修改失败'
+    }
+  } catch (error: any) {
+    console.error('修改用户信息失败:', error)
+    passwordError.value = error.response?.data?.message || error.message || '用户信息修改失败'
+  } finally {
+    changingPassword.value = false
+  }
 }
 
 // 初始化
@@ -327,7 +354,10 @@ onMounted(async () => {
   color: black;
   z-index: 1000;
   transition: transform 0.3s ease;
-  overflow-y: auto;
+  /* 使用flex布局，让header在顶部、footer在底部，中间区域可滚动 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .sidebar.hidden {
@@ -348,6 +378,20 @@ onMounted(async () => {
 
 .sidebar-menu {
   padding: 10px 0;
+  /* 占据中间可用空间并单独滚动 */
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  /* 隐藏滚动条但保留滚动功能 */
+  scrollbar-width: none;
+  /* Firefox */
+  -ms-overflow-style: none;
+  /* IE 和 Edge */
+}
+
+/* Chrome, Safari 和 Opera 隐藏滚动条 */
+.sidebar-menu::-webkit-scrollbar {
+  display: none;
 }
 
 .sidebar-menu .active {
@@ -426,12 +470,10 @@ onMounted(async () => {
 }
 
 .sidebar-footer {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 20px;
+  /* 不再绝对定位，交给flex布局，将footer推到底部 */
+  padding: 15px;
   border-top: 1px solid #d2d2d2;
+  flex-shrink: 0;
 }
 
 .sidebar-footer>.btn-secondary,
@@ -499,6 +541,15 @@ onMounted(async () => {
   border-radius: 5px;
 }
 
+.user-info.clickable {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.user-info.clickable:hover {
+  background-color: #f0f0f0;
+}
+
 .user-avatar {
   width: 40px;
   height: 40px;
@@ -517,7 +568,7 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-.user-email,
+.user-name,
 .user-type {
   font-size: 0.8rem;
   color: #6c757d;
@@ -549,6 +600,16 @@ onMounted(async () => {
     height: 35px;
     font-size: 14px;
   }
+}
+
+.error-message {
+  color: #e74c3c;
+  font-size: 14px;
+  margin-top: 10px;
+  padding: 8px;
+  background: #fee;
+  border-radius: 4px;
+  border: 1px solid #fcc;
 }
 
 @media (max-width: 480px) {

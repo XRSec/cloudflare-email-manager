@@ -21,7 +21,7 @@ interface Props {
   help?: string
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   disabled: false
 })
 

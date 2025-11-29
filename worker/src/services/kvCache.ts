@@ -34,15 +34,23 @@ export class KVCacheService {
     USER_SETTINGS: 'user:settings',
     EMAIL_LIST: 'emails:list',
     MAILBOX_LIST: 'mailboxes:list',
-    FORWARD_RULES: 'rules:forward'
+    ATTACHMENT: 'attachment:',        // 附件缓存前缀
+    EMAIL_RAW: 'email:raw:'          // 原始邮件缓存前缀
   } as const
 
   // TTL常量
   static readonly TTL = {
-    SHORT: 300,      // 5分钟
-    MEDIUM: 1800,    // 30分钟
-    LONG: 7200,      // 2小时
-    VERY_LONG: 86400 // 24小时
+    SHORT: 300,        // 5分钟
+    MEDIUM: 1800,      // 30分钟
+    LONG: 7200,        // 2小时
+    VERY_LONG: 86400,  // 24小时
+    IMMUTABLE: 604800  // 7天（不可变资源，如附件）
+  } as const
+
+  // 附件缓存配置
+  static readonly ATTACHMENT_CONFIG = {
+    MAX_SIZE: 1024 * 1024,  // 只缓存 < 1MB 的附件（避免占用太多 KV 存储）
+    TTL: 604800              // 7天（附件内容不会变）
   } as const
 
   constructor(private kv: any) { }
@@ -65,7 +73,8 @@ export class KVCacheService {
       return true
     } catch (error) {
       this.metrics.errors++
-      console.error(`[KVCache] 设置缓存失败: ${key}`, error)
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', `设置缓存失败: ${key}`, error);
       return false
     }
   }
@@ -94,7 +103,8 @@ export class KVCacheService {
       return parsed.data
     } catch (error) {
       this.metrics.errors++
-      console.error(`[KVCache] 获取缓存失败: ${key}`, error)
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', `获取缓存失败: ${key}`, error);
       return null
     }
   }
@@ -109,7 +119,8 @@ export class KVCacheService {
       return true
     } catch (error) {
       this.metrics.errors++
-      console.error(`[KVCache] 删除缓存失败: ${key}`, error)
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', `删除缓存失败: ${key}`, error);
       return false
     }
   }
@@ -139,7 +150,8 @@ export class KVCacheService {
       )
       return true
     } catch (error) {
-      console.error('[KVCache] 批量设置缓存失败:', error)
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', '批量设置缓存失败:', error);
       return false
     }
   }
@@ -231,7 +243,8 @@ export class KVCacheService {
       await Promise.all(keys.map(key => this.kv.delete(key)))
       return true
     } catch (error) {
-      console.error('[KVCache] 清理用户缓存失败:', error)
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', '清理用户缓存失败:', error);
       return false
     }
   }
@@ -250,7 +263,8 @@ export class KVCacheService {
       await Promise.all(keys.map(key => this.kv.delete(key)))
       return true
     } catch (error) {
-      console.error('[KVCache] 清理系统缓存失败:', error)
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', '清理系统缓存失败:', error);
       return false
     }
   }
@@ -269,16 +283,112 @@ export class KVCacheService {
         KVCacheService.KEYS.USER_INFO,
         KVCacheService.KEYS.USER_SETTINGS,
         KVCacheService.KEYS.EMAIL_LIST,
-        KVCacheService.KEYS.MAILBOX_LIST,
-        KVCacheService.KEYS.FORWARD_RULES
+        KVCacheService.KEYS.MAILBOX_LIST
       ]
 
       await Promise.all(knownKeys.map(key => this.kv.delete(key)))
       return true
     } catch (error) {
-      console.error('[KVCache] 清理所有缓存失败:', error)
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', '清理所有缓存失败:', error);
       return false
     }
+  }
+
+  /**
+   * 缓存二进制数据（用于附件缓存）
+   * @param key 缓存键
+   * @param data 二进制数据
+   * @param metadata 元数据（contentType、size等）
+   * @param ttl 过期时间（秒）
+   */
+  async setBinary(
+    key: string,
+    data: ArrayBuffer | ReadableStream,
+    metadata?: Record<string, string>,
+    ttl: number = KVCacheService.ATTACHMENT_CONFIG.TTL
+  ): Promise<boolean> {
+    try {
+      // 如果是 ReadableStream，需要先转换为 ArrayBuffer
+      let buffer: ArrayBuffer;
+      if (data instanceof ReadableStream) {
+        const response = new Response(data);
+        buffer = await response.arrayBuffer();
+      } else {
+        buffer = data;
+      }
+
+      // 检查大小限制（只缓存小于 1MB 的附件）
+      if (buffer.byteLength > KVCacheService.ATTACHMENT_CONFIG.MAX_SIZE) {
+        const { debugLog } = await import('../utils/debug');
+        debugLog('KVCache', `附件过大，不缓存: ${key} (${buffer.byteLength} bytes)`);
+        return false;
+      }
+
+      // 存储到 KV（使用 arrayBuffer 类型）
+      await this.kv.put(key, buffer, {
+        expirationTtl: ttl,
+        metadata: {
+          ...metadata,
+          timestamp: Date.now().toString(),
+          size: buffer.byteLength.toString()
+        }
+      });
+
+      this.updateMetrics();
+      const { debugLog } = await import('../utils/debug');
+      debugLog('KVCache', `缓存附件成功: ${key} (${buffer.byteLength} bytes, TTL: ${ttl}s)`);
+      return true;
+    } catch (error) {
+      this.metrics.errors++;
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', `缓存附件失败: ${key}`, error);
+      return false;
+    }
+  }
+
+  /**
+   * 获取二进制数据（用于附件缓存）
+   * @param key 缓存键
+   * @returns 二进制数据和元数据
+   */
+  async getBinary(key: string): Promise<{ data: ArrayBuffer, metadata: Record<string, string> } | null> {
+    try {
+      const result = await this.kv.getWithMetadata(key, 'arrayBuffer');
+
+      if (!result.value || !result.metadata) {
+        this.metrics.misses++;
+        return null;
+      }
+
+      this.metrics.hits++;
+      const { debugLog } = await import('../utils/debug');
+      debugLog('KVCache', `从缓存读取附件: ${key}`);
+
+      return {
+        data: result.value as ArrayBuffer,
+        metadata: result.metadata as Record<string, string>
+      };
+    } catch (error) {
+      this.metrics.errors++;
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', `读取缓存附件失败: ${key}`, error);
+      return null;
+    }
+  }
+
+  /**
+   * 获取附件缓存键
+   */
+  static getAttachmentKey(attachmentId: string): string {
+    return `${KVCacheService.KEYS.ATTACHMENT}${attachmentId}`;
+  }
+
+  /**
+   * 获取原始邮件缓存键
+   */
+  static getEmailRawKey(emailId: string): string {
+    return `${KVCacheService.KEYS.EMAIL_RAW}${emailId}`;
   }
 }
 
@@ -327,7 +437,8 @@ export class CacheStrategyService {
 
       return true
     } catch (error) {
-      console.error('[CacheStrategy] 更新系统配置失败:', error)
+      const { errorLog } = await import('../utils/debug');
+      errorLog('CacheStrategy', '更新系统配置失败:', error);
       return false
     }
   }
@@ -341,10 +452,22 @@ export class CacheStrategyService {
     if (user) return user
 
     // 2. 从数据库获取
-    const { findUserById } = await import('./user')
-    const userResult = await findUserById(this.db, userId)
-    if (!userResult) return null
-    user = userResult
+    const result = await this.db.prepare(`
+      SELECT id, username, status, created_at, updated_at
+      FROM users
+      WHERE id = ? AND status = 1
+    `).bind(userId).first()
+
+    if (!result) return null
+
+    user = {
+      id: result.id as number,
+      username: result.username as string,
+      password: '', // 不返回密码
+      status: result.status as 1 | 2 | 3,
+      created_at: result.created_at as string | undefined,
+      updated_at: result.updated_at as string | undefined,
+    }
 
     // 3. 写入 KV 缓存
     await this.kvCache.setUserInfo(userId, user)
@@ -367,7 +490,8 @@ export class CacheStrategyService {
 
       return true
     } catch (error) {
-      console.error('[CacheStrategy] 更新用户信息失败:', error)
+      const { errorLog } = await import('../utils/debug');
+      errorLog('CacheStrategy', '更新用户信息失败:', error);
       return false
     }
   }

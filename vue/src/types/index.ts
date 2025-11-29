@@ -2,8 +2,6 @@
 export interface UserProfile {
     id: number
     username: string
-    email: string
-    user_type: 0 | 1
     status?: number
     created_at: string
     updated_at: string
@@ -11,24 +9,15 @@ export interface UserProfile {
 }
 
 export interface UserSettings {
-    webhook_url?: string | null
-    webhook_secret?: string | null
+    // 单管理员模式，webhook 配置在系统设置中
 }
 
 export interface UserSettingsUpdate {
     password?: string
-    webhook_url?: string
-    webhook_secret?: string
 }
 
 export interface LoginRequest {
     username: string
-    password: string
-}
-
-export interface RegisterRequest {
-    username: string
-    email: string
     password: string
 }
 
@@ -39,12 +28,6 @@ export interface LoginResponse {
         token: string
         user: UserProfile
     }
-    error?: string
-}
-
-export interface RegisterResponse {
-    success: boolean
-    message?: string
     error?: string
 }
 
@@ -98,6 +81,19 @@ export interface RegistrationStatus {
 // 应用阶段类型
 export type AppStage = 'initial-loading' | 'auth-check' | 'login' | 'main-preload' | 'main'
 
+// 系统配置类型
+export interface SystemConfig {
+    debug_mode?: number
+    allow_registration?: number
+    mail_retention_days?: number
+    attachment_retention_days?: number
+    attachment_max_size?: number
+    cookie_max_age?: number
+    jwt_secret?: string
+    api_rate_limit?: number
+    api_rate_limit_max_requests?: number
+}
+
 // 全局窗口类型扩展
 declare global {
     interface Window {
@@ -106,8 +102,7 @@ declare global {
         CEM_CONFIG?: {
             allow_registration: number
             debug_mode: number
-            supported_domains: string[]
-            max_attachment_size: number
+            attachment_max_size: number
             api_base_url: string
             version: string
             build_time: string
@@ -115,7 +110,6 @@ declare global {
         ConfigManager?: {
             isRegistrationAllowed(): boolean
             isDebugMode(): boolean
-            getSupportedDomains(): string[]
             getMaxAttachmentSize(): number
         }
     }

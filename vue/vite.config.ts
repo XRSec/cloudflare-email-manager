@@ -35,7 +35,34 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:8787',
-        changeOrigin: true
+        changeOrigin: true,
+        // 保留所有响应头，包括缓存头
+        configure: (proxy, _options) => {
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            // 确保缓存相关的头部被正确传递
+            if (proxyRes.headers['etag']) {
+              res.setHeader('ETag', proxyRes.headers['etag']);
+            }
+            if (proxyRes.headers['last-modified']) {
+              res.setHeader('Last-Modified', proxyRes.headers['last-modified']);
+            }
+            if (proxyRes.headers['cache-control']) {
+              res.setHeader('Cache-Control', proxyRes.headers['cache-control']);
+            }
+            if (proxyRes.headers['vary']) {
+              res.setHeader('Vary', proxyRes.headers['vary']);
+            }
+            // 打印缓存相关信息（调试用）
+            if (req.url?.includes('/attachments/') || req.url?.includes('/raw')) {
+              console.log('📦 缓存头:', {
+                url: req.url,
+                status: proxyRes.statusCode,
+                etag: proxyRes.headers['etag'],
+                cacheControl: proxyRes.headers['cache-control']
+              });
+            }
+          });
+        }
       }
     }
   },

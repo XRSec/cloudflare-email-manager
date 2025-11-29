@@ -43,11 +43,9 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useSystemStore } from '@/composables/system'
-import { House, ArrowLeft } from '@element-plus/icons-vue'
 
-const router = useRouter()
 const route = useRoute()
 const systemStore = useSystemStore()
 
@@ -62,18 +60,6 @@ const debugInfo = computed(() => ({
   matched: route.matched.map(m => m.path),
   timestamp: new Date().toISOString()
 }))
-
-const goHome = () => {
-  router.push('/')
-}
-
-const goBack = () => {
-  if (window.history.length > 1) {
-    router.go(-1)
-  } else {
-    router.push('/')
-  }
-}
 </script>
 
 <style scoped>

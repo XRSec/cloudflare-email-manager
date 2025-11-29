@@ -1,113 +1,228 @@
 /**
- * 全局缓存管理系统
- * 用于缓存系统配置、用户信息等
+ * R2 文件缓存工具
+ * 提供 HTTP 缓存机制，避免重复请求
  */
 
-interface CacheItem<T> {
-    data: T;
-    timestamp: number;
-    ttl: number; // Time to live in milliseconds
+import type { Context } from 'hono';
+import type { R2ObjectBody } from '@cloudflare/workers-types';
+
+/**
+ * 生成 ETag
+ * @param identifier 唯一标识符（如文件 ID、路径等）
+ * @param lastModified 最后修改时间
+ */
+export function generateETag(identifier: string, lastModified?: string): string {
+    const content = lastModified ? `${identifier}-${lastModified}` : identifier;
+    return `"${hashString(content)}"`;
 }
 
-class GlobalCache {
-    private cache: Map<string, CacheItem<any>> = new Map();
-    private defaultTTL = 5 * 60 * 1000; // 默认5分钟
-
-    /**
-     * 设置缓存
-     */
-    set<T>(key: string, data: T, ttl?: number): void {
-        this.cache.set(key, {
-            data,
-            timestamp: Date.now(),
-            ttl: ttl || this.defaultTTL
-        });
+/**
+ * 简单的字符串哈希函数
+ */
+function hashString(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
     }
-
-    /**
-     * 获取缓存
-     */
-    get<T>(key: string): T | null {
-        const item = this.cache.get(key);
-        
-        if (!item) {
-            return null;
-        }
-
-        // 检查是否过期
-        if (Date.now() - item.timestamp > item.ttl) {
-            this.cache.delete(key);
-            return null;
-        }
-
-        return item.data as T;
-    }
-
-    /**
-     * 删除特定缓存
-     */
-    delete(key: string): void {
-        this.cache.delete(key);
-    }
-
-    /**
-     * 清空所有缓存
-     */
-    clear(): void {
-        this.cache.clear();
-        console.log('[Cache] 所有缓存已清空');
-    }
-
-    /**
-     * 刷新特定缓存（删除以便下次重新获取）
-     */
-    refresh(key: string): void {
-        this.cache.delete(key);
-        console.log(`[Cache] 缓存已刷新: ${key}`);
-    }
-
-    /**
-     * 获取所有缓存键
-     */
-    keys(): string[] {
-        return Array.from(this.cache.keys());
-    }
-
-    /**
-     * 检查缓存是否存在且有效
-     */
-    has(key: string): boolean {
-        const item = this.cache.get(key);
-        if (!item) return false;
-        
-        if (Date.now() - item.timestamp > item.ttl) {
-            this.cache.delete(key);
-            return false;
-        }
-        
-        return true;
-    }
+    return Math.abs(hash).toString(36);
 }
 
-// 导出全局缓存实例
-export const cache = new GlobalCache();
+/**
+ * 检查缓存是否有效
+ * @param c Hono Context
+ * @param etag 资源的 ETag
+ * @param lastModified 资源的最后修改时间
+ * @returns 如果缓存有效返回 true
+ */
+export function isCacheValid(c: Context, etag: string, lastModified?: Date): boolean {
+    // 检查 If-None-Match (ETag)
+    const ifNoneMatch = c.req.header('If-None-Match');
+    if (ifNoneMatch) {
+        // 支持多个 ETag，用逗号分隔
+        const etags = ifNoneMatch.split(',').map(e => e.trim());
+        if (etags.includes(etag) || etags.includes('*')) {
+            return true;
+        }
+    }
 
-// 缓存键常量
-export const CACHE_KEYS = {
-    SYSTEM_CONFIG: 'system_config',
-    USER_INFO: 'user_info',
-    DEBUG_MODE: 'debug_mode',
-    ALLOW_REGISTRATION: 'allow_registration',
-    DOMAINS: 'domains',
-    EMAIL_LIST: 'email_list',
-    ADMIN_USERS: 'admin_users',
-    FORWARD_RULES: 'forward_rules'
-};
+    // 检查 If-Modified-Since
+    if (lastModified) {
+        const ifModifiedSince = c.req.header('If-Modified-Since');
+        if (ifModifiedSince) {
+            try {
+                const ifModifiedSinceDate = new Date(ifModifiedSince);
+                // 如果资源未修改（修改时间 <= If-Modified-Since）
+                if (lastModified.getTime() <= ifModifiedSinceDate.getTime()) {
+                    return true;
+                }
+            } catch (e) {
+                // 忽略无效的日期格式
+            }
+        }
+    }
 
-// 缓存TTL配置（毫秒）
-export const CACHE_TTL = {
-    SHORT: 60 * 1000,           // 1分钟
-    MEDIUM: 5 * 60 * 1000,       // 5分钟
-    LONG: 30 * 60 * 1000,        // 30分钟
-    VERY_LONG: 60 * 60 * 1000    // 1小时
-};
+    return false;
+}
+
+/**
+ * 创建带缓存头的响应
+ * @param body 响应体
+ * @param options 选项
+ */
+export function createCachedResponse(
+    body: ReadableStream | ArrayBuffer | string | null,
+    options: {
+        contentType: string;
+        contentDisposition?: string;
+        contentLength?: number;
+        etag: string;
+        lastModified?: Date;
+        maxAge?: number; // 缓存时间（秒），默认 1 年
+        immutable?: boolean; // 是否为不可变资源
+    }
+): Response {
+    const {
+        contentType,
+        contentDisposition,
+        contentLength,
+        etag,
+        lastModified,
+        maxAge = 31536000, // 默认 1 年
+        immutable = false
+    } = options;
+
+    const headers: Record<string, string> = {
+        'Content-Type': contentType,
+        'ETag': etag,
+        'Cache-Control': immutable
+            ? `public, max-age=${maxAge}, immutable`
+            : `public, max-age=${maxAge}`
+    };
+
+    if (contentDisposition) {
+        headers['Content-Disposition'] = contentDisposition;
+    }
+
+    if (contentLength !== undefined) {
+        headers['Content-Length'] = contentLength.toString();
+    }
+
+    if (lastModified) {
+        headers['Last-Modified'] = lastModified.toUTCString();
+    }
+
+    // 添加 Vary 头，确保根据认证状态正确缓存
+    headers['Vary'] = 'Authorization';
+
+    return new Response(body, {
+        status: 200,
+        headers
+    });
+}
+
+/**
+ * 创建 304 Not Modified 响应
+ * @param etag ETag 值
+ * @param lastModified 最后修改时间
+ */
+export function createNotModifiedResponse(etag: string, lastModified?: Date): Response {
+    const headers: Record<string, string> = {
+        'ETag': etag,
+        'Cache-Control': 'public, max-age=31536000'
+    };
+
+    if (lastModified) {
+        headers['Last-Modified'] = lastModified.toUTCString();
+    }
+
+    return new Response(null, {
+        status: 304,
+        headers
+    });
+}
+
+/**
+ * 处理 R2 对象的缓存响应
+ * @param c Hono Context
+ * @param r2Object R2 对象
+ * @param options 选项
+ */
+export function handleR2ObjectCache(
+    c: Context,
+    r2Object: any, // 使用 any 避免类型冲突
+    options: {
+        contentType: string;
+        contentDisposition?: string;
+        identifier: string; // 唯一标识符（用于生成 ETag）
+        immutable?: boolean;
+        body?: ReadableStream; // 可选的自定义 body（用于 tee 后的 stream）
+    }
+): Response {
+    const { contentType, contentDisposition, identifier, immutable = true, body } = options;
+
+    // R2 对象的 uploaded 时间作为 lastModified
+    const lastModified = r2Object.uploaded ? new Date(r2Object.uploaded) : undefined;
+
+    // 生成 ETag（使用 R2 的 etag 或自己生成）
+    const etag = r2Object.etag
+        ? `"${r2Object.etag}"`
+        : generateETag(identifier, lastModified?.toISOString());
+
+    // 检查缓存是否有效
+    if (isCacheValid(c, etag, lastModified)) {
+        return createNotModifiedResponse(etag, lastModified);
+    }
+
+    // 返回带缓存头的完整响应，使用自定义 body 或原始 body
+    return createCachedResponse((body || r2Object.body) as any, {
+        contentType,
+        contentDisposition,
+        contentLength: r2Object.size,
+        etag,
+        lastModified,
+        immutable
+    });
+}
+
+/**
+ * 处理文本内容的缓存响应
+ * @param c Hono Context
+ * @param content 文本内容
+ * @param options 选项
+ */
+export function handleTextContentCache(
+    c: Context,
+    content: string,
+    options: {
+        contentType: string;
+        contentDisposition?: string;
+        identifier: string; // 唯一标识符
+        lastModified?: Date;
+        immutable?: boolean;
+    }
+): Response {
+    const { contentType, contentDisposition, identifier, lastModified, immutable = true } = options;
+
+    // 生成 ETag
+    const etag = generateETag(identifier, lastModified?.toISOString());
+
+    // 检查缓存是否有效
+    if (isCacheValid(c, etag, lastModified)) {
+        return createNotModifiedResponse(etag, lastModified);
+    }
+
+    // 返回带缓存头的完整响应
+    const encoder = new TextEncoder();
+    const contentBytes = encoder.encode(content);
+
+    return createCachedResponse(contentBytes.buffer, {
+        contentType,
+        contentDisposition,
+        contentLength: contentBytes.length,
+        etag,
+        lastModified,
+        immutable
+    });
+}

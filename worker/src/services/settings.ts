@@ -29,15 +29,16 @@ export async function initializeSystemSettings(db: D1Database): Promise<void> {
         }
 
         // 设置默认值（仅用于初始化）
+        // 注意：所有配置项统一使用数字格式存储到数据库（开关配置：1=启用/开启，0=禁用/关闭）
         const defaultSettings = {
-            'allow_registration': String(SYSTEM_DEFAULTS.ALLOW_REGISTRATION ? 1 : 0),
-            'cleanup_days': String(SYSTEM_DEFAULTS.CLEANUP_DAYS),
+            'allow_registration': String(SYSTEM_DEFAULTS.ALLOW_REGISTRATION),
+            'mail_retention_days': String(SYSTEM_DEFAULTS.MAIL_RETENTION_DAYS),
+            'attachment_retention_days': String(SYSTEM_DEFAULTS.ATTACHMENT_RETENTION_DAYS),
             'max_attachment_size': String(SYSTEM_DEFAULTS.MAX_ATTACHMENT_SIZE),
             'cookie_max_age': String(SYSTEM_DEFAULTS.COOKIE_MAX_AGE),
-            'debug_mode': String(SYSTEM_DEFAULTS.DEBUG_MODE ? 1 : 0),
-            'auto_approve_mailbox': String(SYSTEM_DEFAULTS.AUTO_APPROVE_MAILBOX ? 1 : 0),
-            'admin_email': SYSTEM_DEFAULTS.ADMIN_EMAIL,
-            // 注意：domains 和 primary_domain 需要用户配置，没有默认值
+            'debug_mode': String(SYSTEM_DEFAULTS.DEBUG_MODE),
+            'api_rate_limit': String(SYSTEM_DEFAULTS.API_RATE_LIMIT),
+            'api_rate_limit_max_requests': String(SYSTEM_DEFAULTS.API_RATE_LIMIT_MAX_REQUESTS),
         };
 
         // 特殊处理 JWT Secret
@@ -50,7 +51,8 @@ export async function initializeSystemSettings(db: D1Database): Promise<void> {
                 INSERT OR REPLACE INTO system_settings (key, value, description, updated_at)
                 VALUES ('jwt_secret', ?, 'JWT签名密钥（自动生成）', CURRENT_TIMESTAMP)
             `).bind(newJwtSecret).run();
-            console.log('🔑 已生成新的安全 JWT Secret');
+            const { debugLog } = await import('../utils/debug');
+            debugLog('系统设置', '🔑 已生成新的安全 JWT Secret');
         }
 
         // 处理其他设置
@@ -65,9 +67,11 @@ export async function initializeSystemSettings(db: D1Database): Promise<void> {
         }
 
         cacheInitialized = true;
-        console.log('系统设置缓存已初始化');
+        const { debugLog } = await import('../utils/debug');
+        debugLog('系统设置', '系统设置缓存已初始化');
     } catch (error) {
-        console.error('初始化系统设置缓存失败:', error);
+        const { errorLog } = await import('../utils/debug');
+        errorLog('系统设置', '初始化系统设置缓存失败:', error);
     }
 }
 
@@ -135,60 +139,44 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
     try {
         // 必需配置项
         const allowRegistration = parseInt(getRequiredSetting('allow_registration')) === 1;
-        const cleanupDays = parseInt(getRequiredSetting('cleanup_days'));
         const maxAttachmentSize = parseInt(getRequiredSetting('max_attachment_size'));
         const cookieMaxAge = parseInt(getRequiredSetting('cookie_max_age'));
 
         // 可选配置项
-        const debugMode = parseInt(getOptionalSetting('debug_mode', '0')) === 1;
-        const autoApproveMailbox = parseInt(getOptionalSetting('auto_approve_mailbox', '0')) === 1;
-        const adminEmail = getOptionalSetting('admin_email', '');
+        const debugMode = parseInt(getOptionalSetting('debug_mode', String(SYSTEM_DEFAULTS.DEBUG_MODE))) === 1;
+        const apiRateLimit = parseInt(getOptionalSetting('api_rate_limit', String(SYSTEM_DEFAULTS.API_RATE_LIMIT))) === 1;
+        const apiRateLimitMaxRequests = parseInt(getOptionalSetting('api_rate_limit_max_requests', String(SYSTEM_DEFAULTS.API_RATE_LIMIT_MAX_REQUESTS)));
 
-        // 获取域名列表
-        let domains: string[] = [];
-        const domainsStr = systemSettingsCache.get('domains');
-        if (domainsStr) {
-            try {
-                domains = JSON.parse(domainsStr);
-            } catch (error) {
-                console.error('解析域名配置失败:', error);
-            }
-        }
-
-        // 如果没有配置多域名，尝试单个域名
-        if (domains.length === 0) {
-            const singleDomain = systemSettingsCache.get('domain');
-            if (singleDomain) {
-                domains = [singleDomain];
-            } else {
-                throw new Error('未配置任何域名');
-            }
-        }
+        // 邮件和附件保留天数
+        const mailRetentionDays = parseInt(getRequiredSetting('mail_retention_days'));
+        const attachmentRetentionDays = parseInt(getOptionalSetting('attachment_retention_days', String(mailRetentionDays)));
 
         // 获取 JWT 密钥 - 必须存在且有效
         const jwtSecret = await getJWTSecret(db);
         const maskedJWTSecret = maskJWTSecret(jwtSecret);
 
-        // 主域名
-        const primaryDomain = getOptionalSetting('primary_domain', domains[0]);
+        // 获取默认Webhook配置
+        const defaultWebhookUrl = getOptionalSetting('default_webhook_url', '');
+        const defaultWebhookSecret = getOptionalSetting('default_webhook_secret', '');
+        const defaultWebhookType = getOptionalSetting('default_webhook_type', '') as 'dingtalk' | 'feishu' | 'bark' | undefined;
 
         return {
             allow_registration: allowRegistration ? 1 : 0,
-            cleanup_days: cleanupDays,
-            max_attachment_size: maxAttachmentSize,
-            attachment_max_size: maxAttachmentSize, // 兼容字段
+            mail_retention_days: mailRetentionDays,
+            attachment_retention_days: attachmentRetentionDays,
+            attachment_max_size: maxAttachmentSize,
             debug_mode: debugMode ? 1 : 0,
-            auto_approve_mailbox: autoApproveMailbox ? 1 : 0,
-            supported_domains: domains, // 必需字段
-            domains, // 兼容字段
-            mail_retention_days: cleanupDays, // 兼容字段
             cookie_max_age: cookieMaxAge,
             jwt_secret: maskedJWTSecret, // 显示前后各四位
-            admin_email: adminEmail,
-            primary_domain: primaryDomain
+            api_rate_limit: apiRateLimit ? 1 : 0,
+            api_rate_limit_max_requests: apiRateLimitMaxRequests,
+            default_webhook_url: defaultWebhookUrl || undefined,
+            default_webhook_secret: defaultWebhookSecret || undefined,
+            default_webhook_type: defaultWebhookType || undefined
         };
     } catch (error) {
-        console.error('获取系统配置失败:', error);
+        const { errorLog } = await import('../utils/debug');
+        errorLog('系统设置', '获取系统配置失败:', error);
         throw error;
     }
 }
@@ -203,24 +191,28 @@ export async function updateSystemConfig(db: D1Database, config: Partial<SystemC
         updates.push({ key: 'allow_registration', value: config.allow_registration.toString() });
     }
 
-    if (config.cleanup_days !== undefined) {
-        updates.push({ key: 'cleanup_days', value: config.cleanup_days.toString() });
+    if (config.mail_retention_days !== undefined) {
+        updates.push({ key: 'mail_retention_days', value: config.mail_retention_days.toString() });
     }
 
-    if (config.max_attachment_size !== undefined) {
-        updates.push({ key: 'max_attachment_size', value: config.max_attachment_size.toString() });
+    if (config.attachment_retention_days !== undefined) {
+        updates.push({ key: 'attachment_retention_days', value: config.attachment_retention_days.toString() });
+    }
+
+    if (config.attachment_max_size !== undefined) {
+        updates.push({ key: 'max_attachment_size', value: config.attachment_max_size.toString() });
     }
 
     if (config.debug_mode !== undefined) {
         updates.push({ key: 'debug_mode', value: config.debug_mode.toString() });
     }
 
-    if (config.auto_approve_mailbox !== undefined) {
-        updates.push({ key: 'auto_approve_mailbox', value: config.auto_approve_mailbox.toString() });
+    if (config.api_rate_limit !== undefined) {
+        updates.push({ key: 'api_rate_limit', value: config.api_rate_limit.toString() });
     }
 
-    if (config.domains !== undefined) {
-        updates.push({ key: 'domains', value: JSON.stringify(config.domains) });
+    if (config.api_rate_limit_max_requests !== undefined) {
+        updates.push({ key: 'api_rate_limit_max_requests', value: config.api_rate_limit_max_requests.toString() });
     }
 
     if (config.cookie_max_age !== undefined) {
@@ -233,26 +225,34 @@ export async function updateSystemConfig(db: D1Database, config: Partial<SystemC
             // 空字符串表示自动生成新密钥
             const newSecret = generateJWTSecret();
             updates.push({ key: 'jwt_secret', value: newSecret });
-            console.log('🔑 自动生成新的 JWT 密钥');
+            const { infoLog } = await import('../utils/debug');
+            infoLog('系统设置', '🔑 自动生成新的 JWT 密钥');
         } else {
             // 非空则使用提供的值
             updates.push({ key: 'jwt_secret', value: config.jwt_secret });
-            console.log('🔑 使用提供的 JWT 密钥');
+            const { infoLog } = await import('../utils/debug');
+            infoLog('系统设置', '🔑 使用提供的 JWT 密钥');
         }
     }
 
-    if (config.admin_email !== undefined) {
-        updates.push({ key: 'admin_email', value: config.admin_email });
+    // 默认 Webhook 配置
+    if (config.default_webhook_url !== undefined) {
+        updates.push({ key: 'default_webhook_url', value: config.default_webhook_url || '' });
     }
-
-    if (config.primary_domain !== undefined) {
-        updates.push({ key: 'primary_domain', value: config.primary_domain });
+    if (config.default_webhook_secret !== undefined) {
+        updates.push({ key: 'default_webhook_secret', value: config.default_webhook_secret || '' });
+    }
+    if (config.default_webhook_type !== undefined) {
+        updates.push({ key: 'default_webhook_type', value: config.default_webhook_type || '' });
     }
 
     // 批量更新
     for (const update of updates) {
         await setSystemSetting(db, update.key, update.value);
     }
+
+    // 刷新系统设置缓存，确保后续读取使用最新值
+    await refreshSystemSettings(db);
 }
 
 /**
@@ -300,7 +300,8 @@ export async function getJWTSecret(db: D1Database): Promise<string> {
 
     // 检查密钥是否有效
     if (!jwtSecret || !isValidJWTSecret(jwtSecret)) {
-        console.warn('⚠️ JWT Secret 不存在或无效，生成新的密钥...');
+        const { debugLog } = await import('../utils/debug');
+        debugLog('系统设置', '⚠️ JWT Secret 不存在或无效，生成新的密钥...');
 
         // 生成新的密钥
         jwtSecret = generateJWTSecret();
@@ -312,7 +313,8 @@ export async function getJWTSecret(db: D1Database): Promise<string> {
         `).bind(jwtSecret).run();
 
         systemSettingsCache.set('jwt_secret', jwtSecret);
-        console.log('✅ 新的 JWT Secret 已生成并保存');
+        const { infoLog } = await import('../utils/debug');
+        infoLog('系统设置', '✅ 新的 JWT Secret 已生成并保存');
     }
 
     return jwtSecret;
@@ -321,51 +323,3 @@ export async function getJWTSecret(db: D1Database): Promise<string> {
 /**
  * 获取主域名（从数据库读取）
  */
-export async function getPrimaryDomain(db: D1Database): Promise<string> {
-    await initializeSystemSettings(db);
-
-    const primaryDomain = systemSettingsCache.get('primary_domain');
-    if (!primaryDomain) {
-        // 尝试获取第一个域名
-        const domainsStr = systemSettingsCache.get('domains');
-        if (domainsStr) {
-            try {
-                const domains = JSON.parse(domainsStr);
-                if (Array.isArray(domains) && domains.length > 0) {
-                    return domains[0];
-                }
-            } catch (error) {
-                console.error('解析域名列表失败:', error);
-            }
-        }
-
-        // 尝试单个域名配置
-        const singleDomain = systemSettingsCache.get('domain');
-        if (singleDomain) {
-            return singleDomain;
-        }
-
-        throw new Error('未找到任何可用域名配置');
-    }
-
-    return primaryDomain;
-}
-
-/**
- * 根据邮件地址自动匹配域名
- */
-export async function matchDomainForEmail(db: D1Database, emailAddress: string): Promise<string | null> {
-    const config = await getSystemConfig(db);
-    const emailDomain = emailAddress.split('@')[1]?.toLowerCase();
-
-    if (!emailDomain) {
-        return null;
-    }
-
-    // 查找匹配的域名
-    const matchedDomain = config.domains?.find(domain =>
-        domain.toLowerCase() === emailDomain
-    );
-
-    return matchedDomain || null;
-}

@@ -7,8 +7,8 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc && vite build",
+    "dev": "concurrently \"npx wrangler dev\" \"npx vite vue\"",
+    "build": "cd vue && npx vue-tsc --noEmit && npx vite build && wrangler deploy",
     "preview": "cd vue && npx vite preview",
     "type-check": "vue-tsc --noEmit",
     "build:vue": "cd vue && npx vite build",
@@ -29,7 +29,7 @@
     "format:worker": "cd worker && npx prettier --write src/",
     "type-check:vue": "cd vue && npx vue-tsc --build",
     "type-check:worker": "cd worker && npx tsc --noEmit",
-    "#predev": "docker exec node bash -c 'kill -9 $(pidof node) || true'"
+    "test:email": "node test-email-parsing.js"
   },
   "keywords": [
     "cloudflare",
@@ -54,18 +54,23 @@
     "dayjs": "^1.11.18",
     "element-plus": "^2.11.3",
     "hono": "^4.9.8",
+    "html-to-text": "^9.0.5",
     "naive-ui": "^2.43.1",
     "pinia": "^3.0.3",
+    "postal-mime": "^2.6.1",
     "typescript": "^5.9.2",
     "unplugin-auto-import": "^20.1.0",
     "unplugin-vue-components": "^29.0.0",
     "vue": "^3.5.18",
     "vue-router": "^4.5.1",
-    "vue-tsc": "^3.0.7"
+    "vue-tsc": "^3.1.5",
+    "wrangler": "^4.51.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250920.0",
+    "@types/html-to-text": "^9.0.4",
     "@vitejs/plugin-vue": "^6.0.1",
+    "concurrently": "^9.2.1",
     "vite": "^7.1.5",
     "vite-plugin-vue-devtools": "^8.0.0"
   },

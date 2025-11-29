@@ -1,0 +1,10 @@
+From: sender@example.com
+To: test@example.com
+Subject: 测试邮件
+Date: Mon, 01 Dec 2025 02:04:58 +0000
+Message-ID: <test-1764554698703-gkfjvcnoo@debug.local>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+这是一封测试邮件，用于验证邮件发送功能。

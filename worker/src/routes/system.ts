@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { debugLog, errorLog } from '../utils/debug';
 import { getSystemConfig, updateSystemConfig } from '../services/settings';
-import { jwtAuthMiddleware, adminAuthMiddleware } from '../middleware/auth';
+import { jwtAuthMiddleware } from '../middleware/auth';
 import type { Env, ApiResponse, SystemConfig } from '../types';
 
 const systemRoutes = new Hono<{ Bindings: Env }>();
@@ -49,14 +49,17 @@ async function sendHealthWebhook(env: Env, status: 'healthy' | 'unhealthy', deta
         // 更新状态缓存（5分钟过期）
         await env.KV?.put(lastStatusKey, status, { expirationTtl: 300 });
 
-        // 获取管理员webhook配置
-        const adminUsers = await env.DB.prepare(`
-            SELECT webhook_url, webhook_secret 
-            FROM users 
-            WHERE user_type = 1 AND webhook_url IS NOT NULL
-        `).all();
+        // 获取系统级别的 webhook 配置
+        const webhookUrl = await env.DB.prepare(`
+            SELECT value FROM system_settings WHERE key = 'default_webhook_url'
+        `).first();
 
-        if (adminUsers.results.length === 0) return;
+        const webhookSecret = await env.DB.prepare(`
+            SELECT value FROM system_settings WHERE key = 'default_webhook_secret'
+        `).first();
+
+        const url = (webhookUrl?.value as string)?.trim();
+        if (!url) return; // 没有配置 webhook，直接返回
 
         const webhookData = {
             status,
@@ -65,30 +68,26 @@ async function sendHealthWebhook(env: Env, status: 'healthy' | 'unhealthy', deta
             details
         };
 
-        // 发送到所有管理员webhook
-        const webhookPromises = adminUsers.results.map(async (admin: any) => {
-            try {
-                const response = await fetch(admin.webhook_url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Webhook-Secret': admin.webhook_secret || '',
-                        'User-Agent': 'CEM-HealthCheck/1.0'
-                    },
-                    body: JSON.stringify(webhookData)
-                });
+        // 发送到系统 webhook
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Webhook-Secret': (webhookSecret?.value as string) || '',
+                    'User-Agent': 'CEM-HealthCheck/1.0'
+                },
+                body: JSON.stringify(webhookData)
+            });
 
-                if (!response.ok) {
-                    errorLog(`[Webhook] 发送失败: ${admin.webhook_url}`, response.status);
-                } else {
-                    debugLog(`[Webhook] 健康状态通知已发送: ${status}`);
-                }
-            } catch (error) {
-                errorLog(`[Webhook] 发送异常: ${admin.webhook_url}`, error);
+            if (!response.ok) {
+                errorLog(`[Webhook] 发送失败: ${url}`, response.status);
+            } else {
+                debugLog(`[Webhook] 健康状态通知已发送: ${status}`);
             }
-        });
-
-        await Promise.allSettled(webhookPromises);
+        } catch (error) {
+            errorLog(`[Webhook] 发送异常: ${url}`, error);
+        }
     } catch (error) {
         errorLog('[Webhook] 健康检查通知失败:', error);
     }
@@ -235,36 +234,13 @@ systemRoutes.get('/config', jwtAuthMiddleware, async (c) => {
         const config = await getSystemConfig(c.env.DB);
         const user = c.get('jwtPayload');
 
-        if (user && user.user_type === 1) {
-            // 管理员可以获取完整配置
-            return c.json<ApiResponse>({
-                success: true,
-                data: {
-                    config,
-                    user_role: 'admin'
-                }
-            });
-        } else {
-            // 普通用户获取部分配置
-            const userConfig = {
-                allow_registration: config.allow_registration,
-                allow_user_send: config.allow_user_send,
-                max_mailboxes_per_user: config.max_mailboxes_per_user,
-                storage_provider: config.storage_provider,
-                supported_domains: config.supported_domains,
-                max_attachment_size: config.attachment_max_size,
-                mail_retention_days: config.mail_retention_days,
-                debug_mode: config.debug_mode // 普通用户也可以看到debug模式状态
-            };
-
-            return c.json<ApiResponse>({
-                success: true,
-                data: {
-                    config: userConfig,
-                    user_role: 'user'
-                }
-            });
-        }
+        // 返回完整配置
+        return c.json<ApiResponse>({
+            success: true,
+            data: {
+                config
+            }
+        });
     } catch (error) {
         errorLog('[系统配置] 获取失败:', error);
         throw new HTTPException(500, { message: '获取系统配置失败' });
@@ -272,10 +248,10 @@ systemRoutes.get('/config', jwtAuthMiddleware, async (c) => {
 });
 
 /**
- * 更新系统配置（仅管理员）
+ * 更新系统配置
  * PUT /api/system/config
  */
-systemRoutes.put('/config', jwtAuthMiddleware, adminAuthMiddleware, async (c) => {
+systemRoutes.put('/config', jwtAuthMiddleware, async (c) => {
     try {
         const updates = await c.req.json() as Partial<SystemConfig>;
 

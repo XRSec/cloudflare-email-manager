@@ -15,19 +15,9 @@ export const SYSTEM_CONFIG = {
 
     // 邮件配置
     MAX_ATTACHMENT_SIZE: 'max_attachment_size',
-    DOMAINS: 'domains',
 
     // 默认值
-    DEFAULT_MAX_ATTACHMENT_SIZE: 50 * 1024 * 1024, // 50MB
-    DEFAULT_DOMAINS: ['example.com']
-} as const;
-
-/**
- * 用户类型
- */
-export const USER_TYPES = {
-    USER: 'user',
-    ADMIN: 'admin'
+    DEFAULT_MAX_ATTACHMENT_SIZE: 50 * 1024 * 1024 // 50MB
 } as const;
 
 /**
@@ -45,13 +35,6 @@ export const WEBHOOK_STATUS = {
     FAILED: 1
 } as const;
 
-/**
- * 转发规则类型
- */
-export const FORWARD_RULE_TYPES = {
-    EMAIL: 'email',
-    WEBHOOK: 'webhook'
-} as const;
 
 /**
  * API端点
