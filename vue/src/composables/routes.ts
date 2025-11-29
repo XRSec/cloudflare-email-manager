@@ -8,18 +8,10 @@ const MainLayout = () => import('@/views/shared/layouts/MainLayout.vue')
 // 共享视图
 const DashboardView = () => import('@/views/shared/dashboard/DashboardView.vue')
 
-// 用户视图
-const UserMyEmailsView = () => import('@/views/user/emails/MyEmailsView.vue')
-const UserMyMailboxesView = () => import('@/views/user/mailboxes/MyMailboxesView.vue')
-const UserPersonalSettingsView = () => import('@/views/user/settings/PersonalSettingsView.vue')
-
-// 管理员视图
+// 管理员视图（精简）
 const AdminAllEmailsView = () => import('@/views/admin/emails/AllEmailsView.vue')
-const AdminMailboxManagementView = () => import('@/views/admin/mailboxes/MailboxManagementView.vue')
-const AdminSystemSettingsView = () => import('@/views/admin/settings/SystemSettingsView.vue')
-const AdminUsersView = () => import('@/views/admin/users/UsersView.vue')
 const AdminForwardRulesView = () => import('@/views/admin/mailboxes/ForwardRulesView.vue')
-const AdminSecurityOverviewView = () => import('@/views/admin/security/SecurityOverviewView.vue')
+const AdminSystemSettingsView = () => import('@/views/admin/settings/SystemSettingsView.vue')
 const AdminDebugView = () => import('@/views/admin/settings/DebugView.vue')
 
 // 错误页面
@@ -46,28 +38,6 @@ const router = createRouter({
           component: DashboardView
         },
 
-        // 用户页面
-        {
-          path: 'my-emails',
-          name: 'my-emails',
-          component: UserMyEmailsView
-        },
-        {
-          path: 'my-mailboxes',
-          name: 'my-mailboxes',
-          component: UserMyMailboxesView
-        },
-        {
-          path: 'forward-rules',
-          name: 'forward-rules',
-          component: AdminForwardRulesView
-        },
-        {
-          path: 'personal-settings',
-          name: 'personal-settings',
-          component: UserPersonalSettingsView
-        },
-
         // 管理员页面
         {
           path: 'all-emails',
@@ -75,24 +45,9 @@ const router = createRouter({
           component: AdminAllEmailsView
         },
         {
-          path: 'mailbox-management',
-          name: 'mailbox-management',
-          component: AdminMailboxManagementView
-        },
-        {
-          path: 'admin-users',
-          name: 'admin-users',
-          component: AdminUsersView
-        },
-        {
-          path: 'admin-rules',
-          name: 'admin-rules',
+          path: 'forward-rules',
+          name: 'forward-rules',
           component: AdminForwardRulesView
-        },
-        {
-          path: 'admin-security-overview',
-          name: 'admin-security-overview',
-          component: AdminSecurityOverviewView
         },
         {
           path: 'system-settings',

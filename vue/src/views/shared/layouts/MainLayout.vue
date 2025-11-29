@@ -7,10 +7,6 @@
         <h2>CEM 邮箱管理系统</h2>
       </div>
       <div class="sidebar-menu">
-        <router-link to="/" class="sidebar-item" :class="{ active: $route.path === '/' }" @click="closeSidebarOnMobile">
-          🏠 仪表板
-        </router-link>
-
         <!-- 使用v-for渲染导航菜单 -->
         <template v-for="section in navigationSections" :key="section.title">
           <div v-if="section.show" class="nav-section">
@@ -104,136 +100,70 @@ const { executeGlobalRefresh, isRefreshing, getCurrentPageRefreshInfo } = useUni
 const refreshing = isRefreshing
 
 // 计算属性
-const isAdmin = computed(() => authStore.user?.user_type === 1)
-
 const isDebugMode = computed(() => systemStore.isDebugMode)
 
 const userInitials = computed(() => {
   if (authStore.user?.username) {
     return authStore.user.username.charAt(0).toUpperCase()
   }
-  return 'U'
+  return 'A'
 })
 
 const userEmail = computed(() => {
   if (authStore.user?.email) {
     return authStore.user.email
   }
-  return 'user@example.com'
+  return 'admin@example.com'
 })
 
-const userType = computed(() => {
-  if (authStore.user?.user_type) {
-    return authStore.user.user_type === 1 ? '管理员' : '普通用户'
+const userType = computed(() => '管理员')
+
+// 导航配置 - 精简为单管理员模式
+const navigationSections = computed(() => [
+  {
+    title: '',
+    show: true,
+    items: [
+      {
+        path: '/',
+        title: '仪表板',
+        icon: '📊',
+        show: true,
+        exactMatch: true
+      },
+      {
+        path: '/all-emails',
+        title: '全部邮件',
+        icon: '📨',
+        show: true,
+        exactMatch: false
+      },
+      {
+        path: '/forward-rules',
+        title: '转发管理',
+        icon: '🔄',
+        show: true,
+        exactMatch: false
+      },
+      {
+        path: '/system-settings',
+        title: '系统设置',
+        icon: '🛠️',
+        show: true,
+        exactMatch: false
+      },
+      {
+        path: '/debug',
+        title: '调试模式',
+        icon: '🐛',
+        show: isDebugMode.value,
+        exactMatch: true,
+        badge: 'DEV',
+        badgeClass: 'badge-warning'
+      }
+    ]
   }
-  return '用户'
-})
-
-// 导航配置 - 智能化管理
-const navigationSections = computed(() => {
-  debugLog('isDebugMode:', isDebugMode.value, 'type:', typeof isDebugMode.value)
-  return [
-    {
-      title: '', // 主要功能不显示标题
-      show: true,
-      items: [
-        {
-          path: '/my-emails',
-          title: '我的邮件',
-          icon: '📧',
-          show: true,
-          exactMatch: true
-        },
-        {
-          path: '/my-mailboxes',
-          title: '我的邮箱',
-          icon: '📮',
-          show: true,
-          exactMatch: true
-        },
-        {
-          path: '/forward-rules',
-          title: '转发规则',
-          icon: '📤',
-          show: true,
-          exactMatch: true
-        }
-      ]
-    },
-    {
-      title: '系统管理',
-      show: isAdmin,
-      items: [
-        {
-          path: '/admin-users',
-          title: '用户管理',
-          icon: '👥',
-          show: isAdmin,
-          exactMatch: false
-        },
-        {
-          path: '/mailbox-management',
-          title: '邮箱管理',
-          icon: '📮',
-          show: isAdmin,
-          exactMatch: false,
-          badge: '新',
-          badgeClass: 'badge-success'
-        },
-        {
-          path: '/all-emails',
-          title: '全部邮件',
-          icon: '📨',
-          show: isAdmin,
-          exactMatch: false
-        },
-        {
-          path: '/admin-rules',
-          title: '转发管理',
-          icon: '🔄',
-          show: isAdmin,
-          exactMatch: false
-        },
-        {
-          path: '/admin-security-overview',
-          title: '安全概览',
-          icon: '🛡️',
-          show: isAdmin,
-          exactMatch: false
-        },
-        {
-          path: '/system-settings',
-          title: '系统设置',
-          icon: '🛠️',
-          show: isAdmin,
-          exactMatch: false
-        }
-      ]
-    },
-    {
-      title: '其他功能',
-      show: true,
-      items: [
-        {
-          path: '/personal-settings',
-          title: '个人设置',
-          icon: '⚙️',
-          show: true,
-          exactMatch: true
-        },
-        {
-          path: '/debug',
-          title: '调试模式',
-          icon: '🐛',
-          show: isDebugMode.value,
-          exactMatch: true,
-          badge: 'DEV',
-          badgeClass: 'badge-warning'
-        }
-      ]
-    }
-  ]
-})
+])
 
 // 智能路由激活判断
 const isRouteActive = (path: string, exactMatch: boolean = false) => {

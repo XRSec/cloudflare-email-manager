@@ -5,7 +5,6 @@ import axios, { type AxiosResponse } from 'axios'
 import type {
   UserProfile,
   LoginResponse,
-  RegisterResponse,
   ApiResponse
 } from '@/types'
 
@@ -228,26 +227,6 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // 注册
-  const register = async (username: string, email: string, password: string) => {
-    loading.value = true
-    try {
-      const response = await authApiService.register(username, email, password)
-      if (response.success) {
-        return { success: true, message: response.message || '注册成功' }
-      } else {
-        return { success: false, error: response.message || '注册失败' }
-      }
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.response?.data?.message || '网络错误'
-      }
-    } finally {
-      loading.value = false
-    }
-  }
-
   return {
     // 状态
     user,
@@ -259,7 +238,6 @@ export const useAuthStore = defineStore('auth', () => {
 
     // 方法
     login,
-    register,
     logout,
     fetchCurrentUser,
     initAuth

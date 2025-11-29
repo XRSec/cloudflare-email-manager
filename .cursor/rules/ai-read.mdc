@@ -37,6 +37,12 @@ alwaysApply: true
 - 使用 pinia element-plus typescript vite Axios dayjs vueuse
 - Using dynamic import() to code-split the application
 
+### 最新架构说明（2025-11-29）
+- 旧版 UI 迁移到 `vue-legacy/`，新 `vue/` 目录仅保留：仪表板、全部邮件、转发管理、系统设置、调试模式、统一登录页，继续沿用动态加载与统一刷新机制。
+- 项目切换到 **单管理员模式**：系统中只存在一个管理员账号，用户注册、邮箱申请/私信、用户管理、安全概览等功能全部移除。
+- `/api/auth/register`、`/api/admin/**`、`/api/mailboxes/**`、`/api/user-info/**`、`/api/security-audit/**` 等接口均已下线，请以 `api/api-doc.yml` 最新版为准。
+- 登录页仍根据 `allow_registration` 字段展示提示，但该字段只读，用于未来是否重新开放注册的判断；后端始终拒绝注册请求。
+
 ### 📋 开发规则
 
 1. **数据库操作** - 无需复杂迁移，直接修改 `db/schema.sql` 后执行 `npm run db:init`

@@ -6,18 +6,14 @@
         <p>现代化的邮件管理解决方案</p>
       </div>
 
-      <div class="tabs">
-        <button class="tab" :class="{ active: activeTab === 'login' }" @click="switchTab('login')">
-          登录
-        </button>
-        <button v-if="allowRegistration" class="tab" :class="{ active: activeTab === 'register' }"
-          @click="switchTab('register')">
-          注册
-        </button>
+      <div class="status-banner" :class="{ open: allowRegistration, closed: !allowRegistration }">
+        <span>
+          {{ allowRegistration ? '注册配置为开放（前端禁用，未来可能启用）' : '注册已关闭，仅管理员可登录' }}
+        </span>
       </div>
 
       <!-- 登录表单 -->
-      <div v-if="activeTab === 'login'" class="tab-content active">
+      <div class="tab-content active">
         <!-- 错误消息显示 -->
         <div v-if="errorMessage" class="alert alert-error">
           {{ errorMessage }}
@@ -35,32 +31,6 @@
           <button type="submit" class="btn btn-primary" :disabled="loading">
             {{ loading ? '登录中...' : '登录' }}
           </button>
-        </form>
-      </div>
-
-      <!-- 注册表单 -->
-      <div v-if="activeTab === 'register'" class="tab-content active">
-        <form @submit.prevent="handleRegister">
-          <div class="form-group">
-            <label class="form-label">用户名</label>
-            <input v-model="registerForm.username" type="text" class="form-control"
-              placeholder="请输入用户名（只允许英文、数字、下划线、连字符）" pattern="^[a-zA-Z0-9_-]+$" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">邮箱</label>
-            <input v-model="registerForm.email" type="email" class="form-control" placeholder="请输入邮箱地址" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">设置密码</label>
-            <input v-model="registerForm.password" type="password" class="form-control" placeholder="设置密码（至少6位）"
-              minlength="6" required>
-          </div>
-          <button type="submit" class="btn btn-primary" :disabled="loading">
-            {{ loading ? '注册中...' : '注册' }}
-          </button>
-          <p class="help-text">
-            请填写您想要的用户名，系统将验证其唯一性
-          </p>
         </form>
       </div>
     </div>
@@ -109,7 +79,6 @@ declare global {
   }
 }
 
-const activeTab = ref<'login' | 'register'>('login')
 const loading = ref(false)
 const errorMessage = ref('')
 
@@ -117,13 +86,6 @@ const errorMessage = ref('')
 const loginForm = ref({
   username: 'admin',
   password: '123456'
-})
-
-// 注册表单
-const registerForm = ref({
-  username: '',
-  email: '',
-  password: ''
 })
 
 // 是否允许注册
@@ -162,10 +124,6 @@ onMounted(async () => {
   await loadRegistrationStatus()
 })
 
-const switchTab = (tab: 'login' | 'register') => {
-  activeTab.value = tab
-}
-
 const handleLogin = async () => {
   loading.value = true
   errorMessage.value = '' // 清空之前的错误消息
@@ -203,33 +161,6 @@ const handleLogin = async () => {
   // 注意：登录成功时不重置 loading 状态，让页面切换时自然隐藏
 }
 
-const handleRegister = async () => {
-  loading.value = true
-  try {
-    const result = await authStore.register(
-      registerForm.value.username,
-      registerForm.value.email,
-      registerForm.value.password
-    )
-    if (result.success) {
-      alert(result.message || '注册成功，请登录')
-      switchTab('login')
-      // 清空注册表单
-      registerForm.value = {
-        username: '',
-        email: '',
-        password: ''
-      }
-    } else {
-      alert(result.error || '注册失败')
-    }
-  } catch (error) {
-    console.error('注册错误:', error)
-    alert('注册时发生错误')
-  } finally {
-    loading.value = false
-  }
-}
 </script>
 
 <style scoped>
@@ -273,34 +204,27 @@ const handleRegister = async () => {
   font-size: 14px;
 }
 
-.tabs {
+.status-banner {
   display: flex;
-  border-bottom: 2px solid #ecf0f1;
+  justify-content: center;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
   margin-bottom: 20px;
+  font-weight: 500;
 }
 
-.tab {
-  flex: 1;
-  padding: 10px 20px;
-  cursor: pointer;
-  background: none;
-  border: none;
-  color: #7f8c8d;
-  font-size: 16px;
-  transition: all 0.3s;
+.status-banner.open {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
 }
 
-.tab.active {
-  color: #3498db;
-  border-bottom: 2px solid #3498db;
-}
-
-.tab-content {
-  display: none;
-}
-
-.tab-content.active {
-  display: block;
+.status-banner.closed {
+  background: #fff3e0;
+  color: #ef6c00;
+  border: 1px solid #ffcc80;
 }
 
 /* 表单样式 - 登录页面专用，因为登录时MainLayoutView还没加载 */

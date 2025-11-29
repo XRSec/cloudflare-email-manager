@@ -71,11 +71,6 @@ export const systemApiService = {
     return response.data
   },
 
-  // 清除系统缓存
-  async clearSystemCache(): Promise<ApiResponse<any>> {
-    const response = await api.post('/system/clear-cache')
-    return response.data
-  }
 }
 
 // 用户相关 API
@@ -184,12 +179,6 @@ export const authApiService = {
   async logout(): Promise<ApiResponse<any>> {
     const response = await api.post('/auth/logout')
     return response.data
-  },
-
-  // 用户注册
-  async register(userData: { username: string; password: string; email: string }): Promise<ApiResponse<any>> {
-    const response = await api.post('/auth/register', userData)
-    return response.data
   }
 }
 
@@ -275,306 +264,25 @@ export const emailApiService = {
   }
 }
 
-// 邮箱相关 API
-export const mailboxApiService = {
-  // 获取邮箱列表 - 支持对象参数和位置参数
-  async getMailboxes(
-    pageOrParams: number | { page?: number; limit?: number; scope?: 'all' } = 1,
-    limit = 20,
-    scope?: 'all'
-  ): Promise<ApiResponse<any>> {
-    let params: { page: number; limit: number; scope?: 'all' }
-
-    if (typeof pageOrParams === 'object') {
-      // 对象参数
-      params = {
-        page: pageOrParams.page || 1,
-        limit: pageOrParams.limit || 20,
-        ...pageOrParams
-      }
-    } else {
-      // 位置参数
-      params = {
-        page: pageOrParams,
-        limit,
-        scope
-      }
-    }
-
-    const urlParams = new URLSearchParams()
-    urlParams.append('page', params.page.toString())
-    urlParams.append('limit', params.limit.toString())
-    if (params.scope) urlParams.append('scope', params.scope)
-
-    const response = await api.get(`/mailboxes?${urlParams}`)
-    return response.data
-  },
-
-  // 获取邮箱详情
-  async getMailbox(id: number): Promise<ApiResponse<any>> {
-    const response = await api.get(`/mailboxes/${id}`)
-    return response.data
-  },
-
-  // 创建邮箱
-  async createMailbox(mailboxData: any): Promise<ApiResponse<any>> {
-    const response = await api.post('/mailboxes', mailboxData)
-    return response.data
-  },
-
-  // 删除邮箱
-  async deleteMailbox(id: number): Promise<ApiResponse<any>> {
-    const response = await api.delete(`/mailboxes/${id}`)
-    return response.data
-  },
-
-  // 获取邮箱申请列表 - 支持对象参数和位置参数
-  async getMailboxApplications(
-    pageOrParams: number | { page?: number; limit?: number; scope?: 'all' } = 1,
-    limit = 20,
-    scope?: 'all'
-  ): Promise<ApiResponse<any>> {
-    let params: { page: number; limit: number; scope?: 'all' }
-
-    if (typeof pageOrParams === 'object') {
-      // 对象参数
-      params = {
-        page: pageOrParams.page || 1,
-        limit: pageOrParams.limit || 20,
-        ...pageOrParams
-      }
-    } else {
-      // 位置参数
-      params = {
-        page: pageOrParams,
-        limit,
-        scope
-      }
-    }
-
-    const urlParams = new URLSearchParams()
-    urlParams.append('page', params.page.toString())
-    urlParams.append('limit', params.limit.toString())
-    if (params.scope) urlParams.append('scope', params.scope)
-
-    const response = await api.get(`/mailbox-applications?${urlParams}`)
-    return response.data
-  },
-
-  // 处理邮箱申请
-  async processMailboxApplication(id: number, action: 1 | 2, reason?: string): Promise<ApiResponse<any>> {
-    const response = await api.post(`/mailbox-applications/${id}/process`, { action, reason })
-    return response.data
-  },
-
-  // 切换邮箱状态
-  async toggleMailboxStatus(id: number, status: string): Promise<ApiResponse<any>> {
-    const response = await api.put(`/mailboxes/${id}/status`, { status })
-    return response.data
-  },
-
-  // 获取邮箱历史记录
-  async getMailboxHistory(mailboxId: number, page = 1, limit = 20): Promise<ApiResponse<any>> {
-    const params = new URLSearchParams()
-    params.append('page', page.toString())
-    params.append('limit', limit.toString())
-
-    const response = await api.get(`/mailbox-history/${mailboxId}?${params}`)
-    return response.data
-  },
-
-  // 获取当前用户的邮箱历史记录
-  async getUserMailboxHistory(page = 1, limit = 20): Promise<ApiResponse<any>> {
-    const params = new URLSearchParams()
-    params.append('page', page.toString())
-    params.append('limit', limit.toString())
-
-    const response = await api.get(`/mailbox-history/user/me?${params}`)
-    return response.data
-  },
-
-  // 获取所有邮箱历史记录（仅管理员）
-  async getAllMailboxHistory(page = 1, limit = 20): Promise<ApiResponse<any>> {
-    const params = new URLSearchParams()
-    params.append('page', page.toString())
-    params.append('limit', limit.toString())
-
-    const response = await api.get(`/mailbox-history/admin/all?${params}`)
-    return response.data
-  }
-}
-
-// 管理员相关 API
-export const adminApiService = {
-  // 获取所有邮件（管理员）- 支持对象参数和位置参数
-  async getEmails(
-    pageOrParams: number | { page?: number; limit?: number; scope?: 'all'; search?: string; status?: string } = 1,
-    limit = 20,
-    scope?: 'all',
-    search?: string,
-    status?: string
-  ): Promise<ApiResponse<any>> {
-    let params: { page: number; limit: number; scope?: 'all'; search?: string; status?: string }
-
-    if (typeof pageOrParams === 'object') {
-      // 对象参数
-      params = {
-        page: pageOrParams.page || 1,
-        limit: pageOrParams.limit || 20,
-        ...pageOrParams
-      }
-    } else {
-      // 位置参数
-      params = {
-        page: pageOrParams,
-        limit,
-        scope,
-        search,
-        status
-      }
-    }
-
-    const urlParams = new URLSearchParams()
-    urlParams.append('page', params.page.toString())
-    urlParams.append('limit', params.limit.toString())
-    if (params.scope) urlParams.append('scope', params.scope)
-    if (params.search) urlParams.append('search', params.search)
-    if (params.status) urlParams.append('status', params.status)
-
-    const response = await api.get(`/emails?${urlParams}`)
-    return response.data
-  },
-
-  // 获取所有用户列表 - 支持对象参数和位置参数
-  async getAllUsers(
-    pageOrParams: number | { page?: number; limit?: number; search?: string } = 1,
-    limit = 20,
-    search?: string
-  ): Promise<ApiResponse<any>> {
-    let params: { page: number; limit: number; search?: string }
-
-    if (typeof pageOrParams === 'object') {
-      // 对象参数
-      params = {
-        page: pageOrParams.page || 1,
-        limit: pageOrParams.limit || 20,
-        ...pageOrParams
-      }
-    } else {
-      // 位置参数
-      params = {
-        page: pageOrParams,
-        limit,
-        search
-      }
-    }
-
-    const urlParams = new URLSearchParams()
-    urlParams.append('page', params.page.toString())
-    urlParams.append('limit', params.limit.toString())
-    if (params.search) urlParams.append('search', params.search)
-
-    const url = `/admin/users?${urlParams}`
-
-    // Debug mode logging
-    const isDebugMode = import.meta.env.DEV || import.meta.env.VITE_DEBUG === 'true'
-    if (isDebugMode) {
-      console.log(`🌐 adminApiService.getAllUsers: 发起请求 ${url}`, params)
-    }
-
-    try {
-      const response = await api.get(url)
-      if (isDebugMode) {
-        console.log(`🌐 adminApiService.getAllUsers: 请求成功`, response.data)
-      }
-      return response.data
-    } catch (error) {
-      if (isDebugMode) {
-        console.error(`🌐 adminApiService.getAllUsers: 请求失败`, error)
-      }
-      throw error
-    }
-  },
-
-  // 获取用户详情
-  async getUser(id: number): Promise<ApiResponse<any>> {
-    const response = await api.get(`/admin/users/${id}`)
-    return response.data
-  },
-
-  // 更新用户信息
-  async updateUser(id: number, userData: any): Promise<ApiResponse<any>> {
-    const response = await api.put(`/admin/users/${id}`, userData)
-    return response.data
-  },
-
-  // 删除用户
-  async deleteUser(id: number): Promise<ApiResponse<any>> {
-    const response = await api.delete(`/admin/users/${id}`)
-    return response.data
-  },
-
-  // 获取所有邮箱（管理员）- 支持对象参数和位置参数
-  async getAllMailboxes(
-    pageOrParams: number | { page?: number; limit?: number; search?: string } = 1,
-    limit = 20,
-    search?: string
-  ): Promise<ApiResponse<any>> {
-    let params: { page: number; limit: number; search?: string }
-
-    if (typeof pageOrParams === 'object') {
-      // 对象参数
-      params = {
-        page: pageOrParams.page || 1,
-        limit: pageOrParams.limit || 20,
-        ...pageOrParams
-      }
-    } else {
-      // 位置参数
-      params = {
-        page: pageOrParams,
-        limit,
-        search
-      }
-    }
-
-    const urlParams = new URLSearchParams()
-    urlParams.append('page', params.page.toString())
-    urlParams.append('limit', params.limit.toString())
-    if (params.search) urlParams.append('search', params.search)
-
-    const response = await api.get(`/mailboxes?${urlParams}&scope=all`)
-    return response.data
-  },
-
-  // 获取安全审计统计
-  async getSecurityStats(days = 7): Promise<ApiResponse<any>> {
-    const response = await api.get(`/security-audit/attack-stats?days=${days}`)
-    return response.data
-  },
-
-  // 获取转发规则 - 支持对象参数和位置参数
+// 转发规则 API
+export const forwardRuleApiService = {
   async getForwardRules(
-    pageOrParams: number | { page?: number; limit?: number; scope?: 'all'; search?: string } = 1,
+    pageOrParams: number | { page?: number; limit?: number; search?: string } = 1,
     limit = 20,
-    scope?: 'all',
     search?: string
   ): Promise<ApiResponse<any>> {
-    let params: { page: number; limit: number; scope?: 'all'; search?: string }
+    let params: { page: number; limit: number; search?: string }
 
     if (typeof pageOrParams === 'object') {
-      // 对象参数
       params = {
         page: pageOrParams.page || 1,
         limit: pageOrParams.limit || 20,
         ...pageOrParams
       }
     } else {
-      // 位置参数
       params = {
         page: pageOrParams,
         limit,
-        scope,
         search
       }
     }
@@ -582,26 +290,22 @@ export const adminApiService = {
     const urlParams = new URLSearchParams()
     urlParams.append('page', params.page.toString())
     urlParams.append('limit', params.limit.toString())
-    if (params.scope) urlParams.append('scope', params.scope)
     if (params.search) urlParams.append('search', params.search)
 
     const response = await api.get(`/forward-rules?${urlParams}`)
     return response.data
   },
 
-  // 创建转发规则
   async createForwardRule(ruleData: any): Promise<ApiResponse<any>> {
     const response = await api.post('/forward-rules', ruleData)
     return response.data
   },
 
-  // 更新转发规则
   async updateForwardRule(id: number, ruleData: any): Promise<ApiResponse<any>> {
     const response = await api.put(`/forward-rules/${id}`, ruleData)
     return response.data
   },
 
-  // 删除转发规则
   async deleteForwardRule(id: number): Promise<ApiResponse<any>> {
     const response = await api.delete(`/forward-rules/${id}`)
     return response.data
@@ -614,44 +318,23 @@ export const apiService = {
   ...userApiService,
   ...authApiService,
   ...emailApiService,
-  ...mailboxApiService,
-  ...adminApiService,
-  // 添加别名方法
+  ...forwardRuleApiService,
   getUserProfile: userApiService.getUserProfile,
   updateUserSettings: userApiService.updateUserSettings,
   getSystemHealth: systemApiService.getSystemHealth,
   getRegistrationStatus: systemApiService.getRegistrationStatus,
   getSystemConfig: systemApiService.getSystemConfig,
   updateSystemConfig: systemApiService.updateSystemConfig,
-  clearSystemCache: systemApiService.clearSystemCache,
   login: authApiService.login,
   logout: authApiService.logout,
-  register: authApiService.register,
   getEmails: emailApiService.getEmails,
   getEmail: emailApiService.getEmail,
   deleteEmail: emailApiService.deleteEmail,
   sendEmail: emailApiService.sendEmail,
-  getMailboxes: mailboxApiService.getMailboxes,
-  getMailbox: mailboxApiService.getMailbox,
-  createMailbox: mailboxApiService.createMailbox,
-  deleteMailbox: mailboxApiService.deleteMailbox,
-  getMailboxApplications: mailboxApiService.getMailboxApplications,
-  processMailboxApplication: mailboxApiService.processMailboxApplication,
-  toggleMailboxStatus: mailboxApiService.toggleMailboxStatus,
-  getMailboxHistory: mailboxApiService.getMailboxHistory,
-  // 管理员方法
-  getAllUsers: adminApiService.getAllUsers,
-  getUser: adminApiService.getUser,
-  updateUser: adminApiService.updateUser,
-  deleteUser: adminApiService.deleteUser,
-  getAllMailboxes: adminApiService.getAllMailboxes,
-  getSecurityStats: adminApiService.getSecurityStats,
-  getForwardRules: adminApiService.getForwardRules,
-  createForwardRule: adminApiService.createForwardRule,
-  updateForwardRule: adminApiService.updateForwardRule,
-  deleteForwardRule: adminApiService.deleteForwardRule,
-  // 管理员邮件方法
-  getAdminEmails: adminApiService.getEmails,
+  getForwardRules: forwardRuleApiService.getForwardRules,
+  createForwardRule: forwardRuleApiService.createForwardRule,
+  updateForwardRule: forwardRuleApiService.updateForwardRule,
+  deleteForwardRule: forwardRuleApiService.deleteForwardRule,
   // 数据库管理方法
   getDatabaseInfo: async (): Promise<ApiResponse<any>> => {
     const response = await api.get('/database/info')

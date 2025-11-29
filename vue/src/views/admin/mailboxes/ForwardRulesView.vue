@@ -37,8 +37,8 @@
     <div v-else class="rules-list">
       <div v-for="rule in rules" :key="rule.id" class="rule-item">
         <div class="rule-info">
-          <div class="rule-name">{{ rule.name }}</div>
-          <div class="rule-description">{{ rule.description }}</div>
+          <div class="rule-name">{{ rule.rule_name }}</div>
+          <div class="rule-description">{{ rule.description || rule.webhook_url }}</div>
           <div class="rule-details">
             <span class="rule-status" :class="rule.enabled ? 'status-enabled' : 'status-disabled'">
               {{ rule.enabled ? '已启用' : '已禁用' }}
@@ -65,6 +65,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { usePaginatedPageData } from '@/composables/useUnifiedPageData'
 import { useSystemStore } from '@/composables/system'
 import { usePageRefreshRegistry, useGlobalRefreshEventListener } from '@/composables/globalRefreshManager'
+import { apiService } from '@/composables/api'
 import LoadingOverlay from '@/views/shared/components/AppLoadingSpinner.vue'
 import { PageHeader, Pagination } from '@/components'
 
@@ -95,11 +96,10 @@ const searchResults = ref<any>(null)
 // 提取数据
 const rules = computed(() => {
   const items = data.value?.data?.items || []
-  // 如果有搜索关键词，进行客户端过滤
   if (searchKeyword.value) {
     const keyword = searchKeyword.value.toLowerCase()
     return items.filter((rule: any) => {
-      const name = (rule.name || '').toLowerCase()
+      const name = (rule.rule_name || '').toLowerCase()
       const description = (rule.description || '').toLowerCase()
       return name.includes(keyword) || description.includes(keyword)
     })
@@ -150,26 +150,81 @@ const pageRefresh = async () => {
 }
 
 // 规则操作
-const createRule = () => {
-  console.log('创建新规则')
-  // TODO: 实现创建规则逻辑
+const createRule = async () => {
+  const name = window.prompt('请输入规则名称')
+  if (!name?.trim()) {
+    return
+  }
+
+  const url = window.prompt('请输入 Webhook URL')
+  if (!url?.trim()) {
+    return
+  }
+
+  const recipient = window.prompt('可选：收件人过滤（按邮件地址关键字匹配）') || ''
+
+  try {
+    await apiService.createForwardRule({
+      rule_name: name.trim(),
+      webhook_url: url.trim(),
+      recipient_filter: recipient.trim() || undefined,
+      enabled: 1
+    })
+    await refreshData()
+  } catch (error) {
+    console.error('创建规则失败:', error)
+    alert('创建规则失败，请检查输入')
+  }
 }
 
-const editRule = (rule: any) => {
-  console.log('编辑规则:', rule)
-  // TODO: 实现编辑规则逻辑
+const editRule = async (rule: any) => {
+  const name = window.prompt('规则名称', rule.rule_name)
+  if (!name?.trim()) {
+    return
+  }
+
+  const url = window.prompt('Webhook URL', rule.webhook_url)
+  if (!url?.trim()) {
+    return
+  }
+
+  const recipient = window.prompt('收件人过滤（可选）', rule.recipient_filter || '') || ''
+
+  try {
+    await apiService.updateForwardRule(rule.id, {
+      rule_name: name.trim(),
+      webhook_url: url.trim(),
+      recipient_filter: recipient.trim() || undefined
+    })
+    await refreshData()
+  } catch (error) {
+    console.error('更新规则失败:', error)
+    alert('更新规则失败，请稍后重试')
+  }
 }
 
-const toggleRule = (rule: any) => {
-  console.log('切换规则状态:', rule)
-  rule.enabled = !rule.enabled
-  // TODO: 实现切换规则状态逻辑
+const toggleRule = async (rule: any) => {
+  const nextState = rule.enabled ? 0 : 1
+  try {
+    await apiService.updateForwardRule(rule.id, { enabled: nextState })
+    await refreshData()
+  } catch (error) {
+    console.error('切换规则状态失败:', error)
+    alert('切换规则状态失败')
+  }
 }
 
-const deleteRule = (rule: any) => {
-  if (confirm(`确定要删除规则 "${rule.name}" 吗？`)) {
-    console.log('删除规则:', rule)
-    // TODO: 实现删除规则逻辑
+const deleteRule = async (rule: any) => {
+  if (!confirm(`确定要删除规则 "${rule.rule_name}" 吗？`)) {
+    return
+  }
+
+  try {
+    await apiService.deleteForwardRule(rule.id)
+    await refreshData()
+  } catch (error) {
+    console.error('删除规则失败:', error)
+    alert('删除规则失败')
   }
 }
 
