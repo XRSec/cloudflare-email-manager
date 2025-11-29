@@ -1,5 +1,12 @@
 ### 🔄 最近更新
 
+#### 单管理员模式重构与前后端同步精简 (2025-11-29)
+- **前端重建**：将旧版 UI 迁移到 `vue-legacy/` 备份，新 `vue/` 仅保留仪表板、全部邮件、转发管理、系统设置、调试模式与登录页，重写导航、Dashboard 统计以及转发规则管理流程。
+- **认证与路由**：彻底取消用户注册与个人页面，登录页仅展示注册状态提示；路由精简为单管理员场景，MainLayout 侧边栏/刷新逻辑与统一缓存体系保持不变。
+- **业务页面**：`AllEmailsView` 接入统一邮件 API 并支持实时删除，Dashboard 新增转发规则统计卡片，Debug/ForwardRules 页面直接操作后台接口。
+- **API 层**：移除 mailbox/admin 相关服务与映射，新增 `forwardRuleApiService`，`routeApiCacheMapper` 只保留 `all-emails / forward-rules / system-settings`，确保缓存键与权限判定更简单。
+- **后端同步**：关闭 `/api/auth/register`、`/api/admin/**`、`/api/mailboxes/**` 等旧接口，`forward-rules` 路由改为管理员专用并简化逻辑；`api/api-doc.yml` 全量改写为单管理员版 OpenAPI 3.0 规范，`.cursor/rules/ai-read.mdc` 记录最新规则。
+
 #### 开发环境去容器化 (2025-11-29)
 - **Docker 资产清理**：彻底删除根目录 `Dockerfile` 与 `docker-compose.yml`，摒弃容器依赖
 - **脚本重构**：`env-detector.js`、`scripts/deploy.js`、`worker/import-emails-to-db-local.js` 全面改为直接调用本地 `wrangler`，移除 `docker exec` 逻辑

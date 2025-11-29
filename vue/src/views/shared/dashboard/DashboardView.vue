@@ -14,8 +14,7 @@
     </div>
 
     <div class="dashboard-stats">
-      <!-- 管理员专用统计 -->
-      <div v-if="isAdmin" class="stat-card">
+      <div class="stat-card clickable" @click="goToEmails">
         <div class="stat-icon">📧</div>
         <div class="stat-content">
           <div class="stat-number">{{ emailStats?.total }}</div>
@@ -23,36 +22,19 @@
         </div>
       </div>
 
-      <!-- 我的邮箱 - 所有用户可见，可点击 -->
-      <div class="stat-card clickable" @click="goToMailboxes">
-        <div class="stat-icon">📮</div>
+      <div class="stat-card clickable" @click="goToForwardRules">
+        <div class="stat-icon">🔄</div>
         <div class="stat-content">
-          <div class="stat-number">{{ mailboxStats?.total }}</div>
-          <div class="stat-label">我的邮箱</div>
+          <div class="stat-number">{{ forwardRuleStats?.total }}</div>
+          <div class="stat-label">转发规则</div>
         </div>
       </div>
 
-      <!-- 管理员专用申请统计 -->
-      <div v-if="isAdmin" class="stat-card">
-        <div class="stat-icon">📝</div>
+      <div class="stat-card clickable action-card" @click="goToSettings">
+        <div class="stat-icon">🛠️</div>
         <div class="stat-content">
-          <div class="stat-number">{{ applicationStats?.total }}</div>
-          <div class="stat-label">待审核申请</div>
-        </div>
-      </div>
-
-      <!-- 管理员快捷操作 -->
-      <div v-if="isAdmin" class="stat-card clickable action-card" @click="goToAdmin">
-        <div class="stat-icon">👥</div>
-        <div class="stat-content">
-          <div class="action-label">用户管理</div>
-        </div>
-      </div>
-
-      <div v-if="isAdmin" class="stat-card clickable action-card" @click="goToSettings">
-        <div class="stat-icon">⚙️</div>
-        <div class="stat-content">
-          <div class="action-label">系统设置</div>
+          <div class="stat-number">{{ isDebugMode ? 'ON' : 'OFF' }}</div>
+          <div class="stat-label">调试模式</div>
         </div>
       </div>
     </div>
@@ -76,11 +58,6 @@
           </div>
         </div>
 
-        <!-- 安全概览 - 管理员专用 -->
-        <div v-if="isAdmin" class="content-section security-section">
-          <h2>安全概览</h2>
-          <p>安全概览组件将在这里显示</p>
-        </div>
       </div>
     </div>
   </div>
@@ -100,13 +77,10 @@ const authStore = useAuthStore()
 
 // 数据
 const emailStats = ref({ total: 0 })
-const mailboxStats = ref({ total: 0 })
-const applicationStats = ref({ total: 0 })
+const forwardRuleStats = ref({ total: 0 })
 const recentEmails = ref<any[]>([])
 
 // 计算属性
-const isAdmin = computed(() => authStore.user?.user_type === 1)
-
 // 页面标题和图标
 const pageTitle = computed(() => '仪表板')
 const pageIcon = computed(() => '📊')
@@ -148,6 +122,17 @@ const loadEmailsData = async (userId: number, page: number, limit: number, force
   return response
 }
 
+const loadForwardRuleStats = async () => {
+  try {
+    const response = await apiService.getForwardRules({ page: 1, limit: 1 })
+    if (response.success) {
+      forwardRuleStats.value.total = response.data?.total || 0
+    }
+  } catch (error) {
+    console.error('加载转发规则统计失败:', error)
+  }
+}
+
 
 // 方法
 const loadDashboardData = async (forceRefresh = false) => {
@@ -165,8 +150,11 @@ const loadDashboardData = async (forceRefresh = false) => {
     // 从预加载的数据中提取最近邮件
     if (emailsRes.success) {
       const emailsData = emailsRes.data
+      emailStats.value.total = emailsData?.total || 0
       recentEmails.value = emailsData?.items || []
     }
+
+    await loadForwardRuleStats()
 
     console.log('📊 仪表板数据预加载完成，用户点击页面时将直接使用缓存数据')
   } catch (error) {
@@ -193,23 +181,19 @@ const formatTime = (dateString: string) => {
 }
 
 const viewEmail = (emailId: string) => {
-  router.push({ name: 'my-emails', query: { email: emailId } })
+  router.push({ name: 'all-emails', query: { email: emailId } })
 }
 
-// const goToEmails = () => {
-//   router.push('/emails')
-// }
+const goToEmails = () => {
+  router.push('/all-emails')
+}
 
-const goToMailboxes = () => {
-  router.push('/my-mailboxes')
+const goToForwardRules = () => {
+  router.push('/forward-rules')
 }
 
 const goToSettings = () => {
   router.push('/system-settings')
-}
-
-const goToAdmin = () => {
-  router.push('/admin-users')
 }
 
 // 全局刷新事件处理

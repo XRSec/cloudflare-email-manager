@@ -5,19 +5,18 @@
 
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { adminApiService, userApiService, emailApiService, mailboxApiService, systemApiService } from './api'
+import { forwardRuleApiService, userApiService, emailApiService, systemApiService } from './api'
 import { cacheService } from './cache'
 import { useAuthStore } from './stores'
 
 // API方法类型定义 - 按服务分类
 export type EmailApiMethod = 'getEmails'
-export type MailboxApiMethod = 'getMailboxes' | 'getAllMailboxes'
-export type UserApiMethod = 'getForwardRules' | 'getUserProfile'
-export type AdminApiMethod = 'getUsers' | 'getSecurityStats' | 'getMailboxHistory' | 'getForwardRules'
+export type ForwardRuleMethod = 'getForwardRules'
+export type UserApiMethod = 'getUserProfile'
 export type SystemApiMethod = 'getSystemConfig'
 
 // 联合类型
-export type ApiMethod = EmailApiMethod | MailboxApiMethod | UserApiMethod | AdminApiMethod | SystemApiMethod
+export type ApiMethod = EmailApiMethod | ForwardRuleMethod | UserApiMethod | SystemApiMethod
 
 // API服务映射配置
 interface ApiServiceMapping {
@@ -34,19 +33,14 @@ const API_SERVICE_MAPPINGS: ApiServiceMapping[] = [
     description: '邮件相关API'
   },
   {
-    service: mailboxApiService,
-    methods: ['getMailboxes'],
-    description: '用户邮箱相关API'
-  },
-  {
     service: userApiService,
-    methods: ['getForwardRules', 'getUserProfile'],
+    methods: ['getUserProfile'],
     description: '用户相关API'
   },
   {
-    service: adminApiService,
-    methods: ['getUsers', 'getSecurityStats', 'getMailboxHistory', 'getAllMailboxes', 'getForwardRules'],
-    description: '管理员相关API'
+    service: forwardRuleApiService,
+    methods: ['getForwardRules'],
+    description: '转发规则API'
   },
   {
     service: systemApiService,
@@ -85,16 +79,6 @@ export interface RouteConfig {
 
 // 路由API缓存映射配置 - 简化版本
 export const ROUTE_API_CACHE_MAP: Record<string, RouteConfig> = {
-  // 用户邮件页面
-  'my-emails': {
-    routeName: 'my-emails',
-    apiMethod: 'getEmails',
-    apiParams: { page: 1, limit: 20 },
-    cacheStrategy: { keyPrefix: 'my_emails', ttl: 2 * 60 * 1000 },
-    requiresAuth: true,
-    description: '我的邮件'
-  },
-
   // 管理员全部邮件页面
   'all-emails': {
     routeName: 'all-emails',
@@ -106,67 +90,15 @@ export const ROUTE_API_CACHE_MAP: Record<string, RouteConfig> = {
     description: '全部邮件'
   },
 
-  // 用户邮箱页面
-  'my-mailboxes': {
-    routeName: 'my-mailboxes',
-    apiMethod: 'getMailboxes',
-    apiParams: { page: 1, limit: 20 },
-    cacheStrategy: { keyPrefix: 'my_mailboxes', ttl: 2 * 60 * 1000 },
-    requiresAuth: true,
-    description: '我的邮箱'
-  },
-
-  // 管理员邮箱管理页面
-  'mailbox-management': {
-    routeName: 'mailbox-management',
-    apiMethod: 'getAllMailboxes',
-    apiParams: { page: 1, limit: 20 },
-    cacheStrategy: { keyPrefix: 'mailbox_management', ttl: 2 * 60 * 1000 },
-    requiresAuth: true,
-    adminOnly: true,
-    description: '邮箱管理'
-  },
-
-  // 用户管理页面
-  'admin-users': {
-    routeName: 'admin-users',
-    apiMethod: 'getUsers',
-    apiParams: { page: 1, limit: 20 },
-    cacheStrategy: { keyPrefix: 'admin_users', ttl: 5 * 60 * 1000 },
-    requiresAuth: true,
-    adminOnly: true,
-    description: '用户管理'
-  },
-
-  // 转发规则页面（普通用户）
+  // 转发规则页面
   'forward-rules': {
     routeName: 'forward-rules',
     apiMethod: 'getForwardRules',
     apiParams: { page: 1, limit: 20 },
     cacheStrategy: { keyPrefix: 'forward_rules', ttl: 5 * 60 * 1000 },
     requiresAuth: true,
-    description: '转发规则'
-  },
-
-  // 管理员转发规则页面
-  'admin-rules': {
-    routeName: 'admin-rules',
-    apiMethod: 'getForwardRules',
-    apiParams: { page: 1, limit: 20, scope: 'all' },
-    cacheStrategy: { keyPrefix: 'admin_forward_rules', ttl: 5 * 60 * 1000 },
-    requiresAuth: true,
     adminOnly: true,
     description: '转发管理'
-  },
-
-  // 个人设置页面
-  'personal-settings': {
-    routeName: 'personal-settings',
-    apiMethod: 'getUserProfile',
-    apiParams: {},
-    cacheStrategy: { keyPrefix: 'personal_settings', ttl: 10 * 60 * 1000 },
-    requiresAuth: true,
-    description: '个人设置'
   },
 
   // 系统设置页面
@@ -178,28 +110,6 @@ export const ROUTE_API_CACHE_MAP: Record<string, RouteConfig> = {
     requiresAuth: true,
     adminOnly: true,
     description: '系统设置'
-  },
-
-  // 安全统计页面
-  'admin-security': {
-    routeName: 'admin-security',
-    apiMethod: 'getSecurityStats',
-    apiParams: { days: 7 },
-    cacheStrategy: { keyPrefix: 'admin_security', ttl: 2 * 60 * 1000 },
-    requiresAuth: true,
-    adminOnly: true,
-    description: '安全统计'
-  },
-
-  // 邮箱历史页面
-  'admin-mailbox-history': {
-    routeName: 'admin-mailbox-history',
-    apiMethod: 'getMailboxHistory',
-    apiParams: { page: 1, limit: 20 },
-    cacheStrategy: { keyPrefix: 'mailbox_history', ttl: 5 * 60 * 1000 },
-    requiresAuth: true,
-    adminOnly: true,
-    description: '邮箱历史'
   }
 }
 

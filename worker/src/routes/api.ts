@@ -4,21 +4,15 @@
 
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { jwtAuthMiddleware, adminAuthMiddleware } from '../middleware/auth';
+import { jwtAuthMiddleware } from '../middleware/auth';
 import { getPaginationParams } from '../config/constants';
 import { debugLog, errorLog } from '../utils/debug';
 
 // 导入各个功能模块
 import { authRoutes } from './auth';
 import { userRoutes } from './user';
-import { adminRoutes } from './admin';
 import { systemRoutes } from './system';
-import { mailboxRoutes } from './mailbox';
 import { forwardRuleRoutes } from './forward-rules';
-import mailboxHistoryRoutes from './mailbox-history';
-import userInfoRoutes from './user-info';
-import securityAuditRoutes from './security-audit';
-import { cache } from './cache';
 import { databaseRoutes } from './database';
 
 // 导入服务
@@ -30,7 +24,6 @@ import {
   getAttachmentById,
   sendEmail
 } from '../services/email';
-import { findUserById } from '../services/user';
 import { getSystemConfig } from '../services/settings';
 
 import type { Env, ApiResponse, EmailQueryParams } from '../types';
@@ -250,30 +243,11 @@ api.post('/emails/send', jwtAuthMiddleware, async (c) => {
   }
 });
 
-// ==================== 邮箱相关 ====================
-api.route('/mailboxes', mailboxRoutes);
-
-// ==================== 邮箱历史相关 ====================
-api.route('/mailbox-history', mailboxHistoryRoutes);
-
-// ==================== 用户信息相关 ====================
-api.route('/user-info', userInfoRoutes);
-
-// ==================== 安全审计相关 ====================
-api.route('/security-audit', securityAuditRoutes);
-
 // ==================== 转发规则相关 ====================
 api.route('/forward-rules', forwardRuleRoutes);
 
 // ==================== 系统相关 ====================
 api.route('/system', systemRoutes);
-
-// ==================== 管理员相关 ====================
-api.route('/admin', adminRoutes);
-
-
-// ==================== 缓存管理 ====================
-api.route('/cache', cache);
 
 // ==================== 数据库管理 ====================
 api.route('/database', databaseRoutes);

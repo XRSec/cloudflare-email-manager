@@ -14,13 +14,13 @@ import {
   updateForwardRule,
   deleteForwardRule
 } from '../services/webhook';
-import { findMailboxesByUserId } from '../services/mailbox';
 import type { Env, ApiResponse, ForwardRule } from '../types';
 
 const forwardRuleRoutes = new Hono<{ Bindings: Env }>();
 
-// 应用JWT认证中间件
+// 仅允许已认证的管理员访问
 forwardRuleRoutes.use('*', jwtAuthMiddleware);
+forwardRuleRoutes.use('*', adminAuthMiddleware);
 
 /**
  * 获取转发规则列表
@@ -28,32 +28,9 @@ forwardRuleRoutes.use('*', jwtAuthMiddleware);
  */
 forwardRuleRoutes.get('/', async (c) => {
   try {
-    const payload = c.get('jwtPayload');
     const queryParams = getPaginationParams(c.req.query());
 
     const rules = await getForwardRules(c.env.DB, queryParams);
-
-    // 普通用户只能看到与自己邮箱相关的规则
-    if (payload.user_type !== 1) {
-      const userMailboxes = await findMailboxesByUserId(c.env.DB, payload.user_id);
-      const userEmails = userMailboxes.map(mb => mb.email_address);
-
-      const userRules = rules.filter(rule => {
-        // 如果规则有收件人过滤，检查是否包含用户的邮箱
-        if (rule.recipient_filter) {
-          return userEmails.some(email => email.includes(rule.recipient_filter!));
-        }
-        return true; // 没有收件人过滤的规则，用户可以看到
-      });
-
-      return c.json<ApiResponse>({
-        success: true,
-        data: {
-          total: userRules.length,
-          items: userRules
-        }
-      });
-    }
 
     return c.json<ApiResponse>({
       success: true,
@@ -74,23 +51,11 @@ forwardRuleRoutes.get('/', async (c) => {
  */
 forwardRuleRoutes.post('/', async (c) => {
   try {
-    const payload = c.get('jwtPayload');
     const ruleData = await c.req.json() as Omit<ForwardRule, 'id' | 'created_at' | 'updated_at'>;
 
     // 验证必填字段
     if (!ruleData.rule_name || !ruleData.webhook_url) {
       throw new HTTPException(400, { message: '规则名称和Webhook URL不能为空' });
-    }
-
-    // 普通用户需要验证收件人过滤是否包含自己的邮箱
-    if (payload.user_type !== 'admin' && ruleData.recipient_filter) {
-      const userMailboxes = await findMailboxesByUserId(c.env.DB, payload.user_id);
-      const userEmails = userMailboxes.map(mb => mb.email_address);
-      const hasUserEmail = userEmails.some(email => email.includes(ruleData.recipient_filter!));
-
-      if (!hasUserEmail) {
-        throw new HTTPException(400, { message: '收件人过滤必须包含您的邮箱地址' });
-      }
     }
 
     const rule = await createForwardRule(c.env.DB, ruleData);
@@ -115,7 +80,6 @@ forwardRuleRoutes.post('/', async (c) => {
  */
 forwardRuleRoutes.get('/:id', async (c) => {
   try {
-    const payload = c.get('jwtPayload');
     const ruleId = parseInt(c.req.param('id'));
 
     if (isNaN(ruleId)) {
@@ -125,17 +89,6 @@ forwardRuleRoutes.get('/:id', async (c) => {
     const rule = await getForwardRuleById(c.env.DB, ruleId);
     if (!rule) {
       throw new HTTPException(404, { message: '转发规则不存在' });
-    }
-
-    // 普通用户需要验证权限
-    if (payload.user_type !== 'admin' && rule.recipient_filter) {
-      const userMailboxes = await findMailboxesByUserId(c.env.DB, payload.user_id);
-      const userEmails = userMailboxes.map(mb => mb.email_address);
-      const hasUserEmail = userEmails.some(email => email.includes(rule.recipient_filter!));
-
-      if (!hasUserEmail) {
-        throw new HTTPException(403, { message: '您没有权限访问此转发规则' });
-      }
     }
 
     return c.json<ApiResponse>({
@@ -157,7 +110,6 @@ forwardRuleRoutes.get('/:id', async (c) => {
  */
 forwardRuleRoutes.put('/:id', async (c) => {
   try {
-    const payload = c.get('jwtPayload');
     const ruleId = parseInt(c.req.param('id'));
 
     if (isNaN(ruleId)) {
@@ -169,29 +121,7 @@ forwardRuleRoutes.put('/:id', async (c) => {
       throw new HTTPException(404, { message: '转发规则不存在' });
     }
 
-    // 普通用户需要验证权限
-    if (payload.user_type !== 'admin' && rule.recipient_filter) {
-      const userMailboxes = await findMailboxesByUserId(c.env.DB, payload.user_id);
-      const userEmails = userMailboxes.map(mb => mb.email_address);
-      const hasUserEmail = userEmails.some(email => email.includes(rule.recipient_filter!));
-
-      if (!hasUserEmail) {
-        throw new HTTPException(403, { message: '您没有权限修改此转发规则' });
-      }
-    }
-
     const updates = await c.req.json() as Partial<ForwardRule>;
-
-    // 普通用户需要验证更新后的收件人过滤
-    if (payload.user_type !== 'admin' && updates.recipient_filter) {
-      const userMailboxes = await findMailboxesByUserId(c.env.DB, payload.user_id);
-      const userEmails = userMailboxes.map(mb => mb.email_address);
-      const hasUserEmail = userEmails.some(email => email.includes(updates.recipient_filter!));
-
-      if (!hasUserEmail) {
-        throw new HTTPException(400, { message: '收件人过滤必须包含您的邮箱地址' });
-      }
-    }
 
     await updateForwardRule(c.env.DB, ruleId, updates);
 
@@ -214,7 +144,6 @@ forwardRuleRoutes.put('/:id', async (c) => {
  */
 forwardRuleRoutes.delete('/:id', async (c) => {
   try {
-    const payload = c.get('jwtPayload');
     const ruleId = parseInt(c.req.param('id'));
 
     if (isNaN(ruleId)) {
@@ -224,17 +153,6 @@ forwardRuleRoutes.delete('/:id', async (c) => {
     const rule = await getForwardRuleById(c.env.DB, ruleId);
     if (!rule) {
       throw new HTTPException(404, { message: '转发规则不存在' });
-    }
-
-    // 普通用户需要验证权限
-    if (payload.user_type !== 'admin' && rule.recipient_filter) {
-      const userMailboxes = await findMailboxesByUserId(c.env.DB, payload.user_id);
-      const userEmails = userMailboxes.map(mb => mb.email_address);
-      const hasUserEmail = userEmails.some(email => email.includes(rule.recipient_filter!));
-
-      if (!hasUserEmail) {
-        throw new HTTPException(403, { message: '您没有权限删除此转发规则' });
-      }
     }
 
     await deleteForwardRule(c.env.DB, ruleId);

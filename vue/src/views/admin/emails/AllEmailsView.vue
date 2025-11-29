@@ -61,7 +61,7 @@ const loadData = async (page = currentPage.value) => {
   error.value = null
 
   try {
-    const response = await apiService.getAdminEmails({
+    const response = await apiService.getEmails({
       page,
       limit: pageSize.value,
       scope: 'all'
@@ -101,8 +101,7 @@ const deleteEmail = async (id: number) => {
   if (!confirm('确定要删除这封邮件吗？')) return
 
   try {
-    // TODO: 实现删除邮件API
-    console.log('删除邮件:', id)
+    await apiService.deleteEmail(String(id))
     await refreshData()
   } catch (error) {
     console.error('删除邮件失败:', error)
@@ -113,6 +112,7 @@ const deleteEmail = async (id: number) => {
 // 页面初始化
 onMounted(() => {
   console.log('🌍 全部邮件页面初始化')
+  loadData()
 })
 </script>
 
