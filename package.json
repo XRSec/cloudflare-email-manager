@@ -71,7 +71,7 @@
     "@types/html-to-text": "^9.0.4",
     "@vitejs/plugin-vue": "^6.0.1",
     "concurrently": "^9.2.1",
-    "vite": "^7.1.5",
+    "vite": "^7.2.4",
     "vite-plugin-vue-devtools": "^8.0.0"
   },
   "repository": {
