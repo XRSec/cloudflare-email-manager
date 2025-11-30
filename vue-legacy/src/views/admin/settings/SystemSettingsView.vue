@@ -14,7 +14,7 @@
 
           <!-- 特殊处理：安全域名列表使用自定义组件 -->
           <template v-if="section.title === '安全配置'">
-            <DomainListInput v-model="formData.emailDomains" label="安全域名列表" placeholder="输入域名后按回车或点击加号添加"
+            <DomainListInput v-model="formData.supported_domains" label="安全域名列表" placeholder="输入域名后按回车或点击加号添加"
               help="邮件接收时只处理这些域名下的邮件地址" :required="true" :disabled="saving" />
           </template>
 
@@ -79,11 +79,9 @@ const saving = ref(false)
 const formData = ref({
   systemName: '',
   systemDescription: '',
-  defaultDomain: '',
   maxEmailSize: 10,
   emailRetentionDays: 30,
   attachmentRetentionDays: 7,
-  maxMailboxesPerUser: 5,
   allowUserRegistration: true,
   requireEmailVerification: false,
   debugMode: false,
@@ -91,8 +89,7 @@ const formData = ref({
   sessionTimeout: 60,
   systemNotifications: true,
   emailNotifications: true,
-  adminNotificationEmail: '',
-  emailDomains: [] as string[]
+  supported_domains: [] as string[]
 })
 
 // 原始数据备份
@@ -154,13 +151,6 @@ const settingsSections = computed(() => [
     title: '用户配置',
     fields: [
       {
-        key: 'maxMailboxesPerUser',
-        label: '用户最大邮箱数量',
-        type: 'number' as const,
-        min: 1,
-        required: true
-      },
-      {
         key: 'allowUserRegistration',
         label: '允许新用户注册',
         type: 'checkbox' as const
@@ -189,9 +179,10 @@ const settingsSections = computed(() => [
         key: 'sessionTimeout',
         label: '会话超时时间 (分钟)',
         type: 'number' as const,
-        min: 5,
-        max: 1440,
-        required: true
+        min: 60,  // 1小时
+        max: 2880,  // 48小时 = 48 * 60 = 2880 分钟
+        required: true,
+        help: '范围：60-2880 分钟（1小时-48小时），默认：2880 分钟（48小时）'
       }
     ]
   },
@@ -207,11 +198,6 @@ const settingsSections = computed(() => [
         key: 'emailNotifications',
         label: '启用邮件通知',
         type: 'checkbox' as const
-      },
-      {
-        key: 'adminNotificationEmail',
-        label: '管理员通知邮箱',
-        type: 'email' as const
       }
     ]
   }
@@ -228,11 +214,9 @@ watch(data, (newData) => {
     formData.value = {
       systemName: config.system_name || '',
       systemDescription: config.system_description || '',
-      defaultDomain: config.primary_domain || config.default_domain || '',
       maxEmailSize: config.max_attachment_size ? Math.floor(config.max_attachment_size / 1024 / 1024) : (config.max_email_size || 10),
-      emailRetentionDays: config.cleanup_days || config.mail_retention_days || config.email_retention_days || 30,
+      emailRetentionDays: config.mail_retention_days || config.email_retention_days || 30,
       attachmentRetentionDays: config.attachment_retention_days || 7,
-      maxMailboxesPerUser: config.max_mailboxes_per_user || 5,
       allowUserRegistration: config.allow_registration === 1 || config.allow_user_registration === 1,
       requireEmailVerification: config.require_email_verification === 1 || config.require_email_verification === true,
       debugMode: config.debug_mode === 1,
@@ -240,8 +224,7 @@ watch(data, (newData) => {
       sessionTimeout: config.cookie_max_age ? Math.floor(config.cookie_max_age / 60) : (config.session_timeout || 60),
       systemNotifications: config.system_notifications === 1 || config.system_notifications !== false,
       emailNotifications: config.email_notifications === 1 || config.email_notifications !== false,
-      adminNotificationEmail: config.admin_email || config.admin_notification_email || '',
-      emailDomains: (config.domains || config.supported_domains || []) as string[]
+      supported_domains: config.supported_domains || []
     }
     originalData.value = { ...formData.value } as any
     console.log('✅ 表单数据已更新，debugMode:', formData.value.debugMode)
@@ -269,17 +252,14 @@ const saveSettings = async (data: any) => {
       updateData.debug_mode = data.debugMode ? 1 : 0
     }
 
-    if (data.defaultDomain !== undefined && data.defaultDomain) {
-      updateData.primary_domain = data.defaultDomain
-    }
-
-    if (data.adminNotificationEmail !== undefined) {
-      updateData.admin_email = data.adminNotificationEmail
-    }
-
-    // 邮件保留天数映射到 cleanup_days
+    // 邮件保留天数
     if (data.emailRetentionDays !== undefined) {
-      updateData.cleanup_days = data.emailRetentionDays
+      updateData.mail_retention_days = data.emailRetentionDays
+    }
+
+    // 附件保留天数
+    if (data.attachmentRetentionDays !== undefined) {
+      updateData.attachment_retention_days = data.attachmentRetentionDays
     }
 
     // 最大邮件大小映射到 max_attachment_size (单位：MB，需要转换为字节)
@@ -293,13 +273,13 @@ const saveSettings = async (data: any) => {
     }
 
     // 安全域名列表：直接使用数组
-    if (data.emailDomains !== undefined && Array.isArray(data.emailDomains) && data.emailDomains.length > 0) {
+    if (data.supported_domains !== undefined && Array.isArray(data.supported_domains) && data.supported_domains.length > 0) {
       // 过滤空值并转换为小写
-      const domains = data.emailDomains
+      const domains = data.supported_domains
         .map((domain: string) => domain.trim().toLowerCase())
         .filter((domain: string) => domain.length > 0)
       if (domains.length > 0) {
-        updateData.domains = domains
+        updateData.supported_domains = domains
       }
     }
 
@@ -307,7 +287,6 @@ const saveSettings = async (data: any) => {
     // - systemName (system_name)
     // - systemDescription (system_description)
     // - attachmentRetentionDays (attachment_retention_days)
-    // - maxMailboxesPerUser (max_mailboxes_per_user)
     // - requireEmailVerification (require_email_verification)
     // - apiRateLimit (api_rate_limit)
     // - systemNotifications (system_notifications)

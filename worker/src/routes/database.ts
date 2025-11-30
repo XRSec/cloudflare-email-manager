@@ -22,6 +22,8 @@ const DATABASE_SCHEMAS = {
       deleted_at DATETIME,
       webhook_url TEXT CHECK(webhook_url IS NULL OR webhook_url LIKE 'http%'),
       webhook_secret TEXT,
+      webhook_type TEXT DEFAULT 'custom' CHECK(webhook_type IN ('dingtalk', 'feishu', 'bark', 'custom')),
+      webhook_custom_message TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -44,33 +46,60 @@ const DATABASE_SCHEMAS = {
       sender_filter TEXT,
       keyword_filter TEXT,
       recipient_filter TEXT,
-      webhook_url TEXT NOT NULL,
-      webhook_secret TEXT,
-      webhook_type TEXT DEFAULT 'custom',
+      exact_match INTEGER DEFAULT 0 CHECK(exact_match IN (0,1)), -- 是否精确匹配（0=包含匹配，1=精确匹配）
+      skip_default_webhook INTEGER DEFAULT 0 CHECK(skip_default_webhook IN (0,1)), -- 是否跳过默认推送渠道（0=不跳过，1=跳过）
       enabled INTEGER DEFAULT 1 CHECK(enabled IN (0,1)),
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `,
 
+  forward_rule_webhooks: `
+    CREATE TABLE IF NOT EXISTS forward_rule_webhooks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rule_id INTEGER NOT NULL,
+      webhook_url TEXT NOT NULL CHECK(webhook_url LIKE 'http%'),
+      webhook_secret TEXT,
+      webhook_type TEXT DEFAULT 'custom' CHECK(webhook_type IN ('dingtalk', 'feishu', 'bark', 'custom')),
+      custom_message TEXT, -- 自定义消息模板，支持变量：{{from}}, {{to}}, {{subject}}, {{content}}, {{received_at}}, {{attachment_count}}
+      enabled INTEGER DEFAULT 1 CHECK(enabled IN (0,1)),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (rule_id) REFERENCES forward_rules(id) ON DELETE CASCADE
+    )
+  `,
+
+  // 邮件表
+  // ID 字段说明：
+  // - id: 邮件在数据库中的主键，使用 crypto.randomUUID() 生成的 UUID
+  //       格式如 "550e8400-e29b-41d4-a716-446655440000"（标准 UUID v4 格式）
+  //       R2 文件路径为 email:{id}.eml
+  // 注意：
+  // 1. 所有基础数据从 message.raw 直接提取并存入数据库
+  // 2. emailId 使用 crypto.randomUUID() 生成，不再使用 Message-ID 的哈希值
+  // 3. 当前使用 TEXT 类型作为主键，UUID 保证 ID 的唯一性
   emails: `
     CREATE TABLE IF NOT EXISTS emails (
-      id TEXT PRIMARY KEY,
-      message_id TEXT,
-      subject TEXT NOT NULL,
-      from_address TEXT NOT NULL,
-      to_address TEXT NOT NULL,
-      reply_to TEXT,
-      cc TEXT,
-      bcc TEXT,
-      content_type TEXT DEFAULT 'text/plain',
-      content TEXT,
-      raw_content TEXT,
+      id TEXT PRIMARY KEY, -- 邮件ID（数据库主键），使用 crypto.randomUUID() 生成的 UUID
+      user_id INTEGER, -- 用户ID（单用户模式下，默认为管理员用户ID）
+      subject TEXT, -- 主题
+      from_address TEXT, -- 发件人
+      to_address TEXT, -- 收件人
+      content TEXT, -- 内容概览/预览（用于快速查看，完整内容在 R2）
       is_read INTEGER DEFAULT 0 CHECK(is_read IN (0,1)),
-      has_attachments INTEGER DEFAULT 0 CHECK(has_attachments IN (0,1)),
-      size_bytes INTEGER DEFAULT 0,
+      attachment_count INTEGER DEFAULT 0, -- 附件数量（0表示无附件）
+      message_id TEXT, -- 原始邮件头中的 Message-ID（从 message.raw 提取）
+      headers_json TEXT, -- 完整的邮件头信息（JSON 格式，包含 DKIM、SPF 等，从 message.raw 提取）
+      size_bytes INTEGER, -- 剔除附件后的邮件大小（字节）
+      date TEXT, -- 邮件日期（从 headers 提取）
+      reply_to TEXT, -- 回复地址（从 headers 提取）
+      cc TEXT, -- 抄送地址（从 headers 提取）
+      bcc TEXT, -- 密送地址（从 headers 提取）
+      content_type TEXT, -- 邮件内容类型（从 headers 提取）
+      received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `,
 
@@ -121,21 +150,6 @@ const DATABASE_SCHEMAS = {
     )
   `,
 
-  user_webhooks: `
-    CREATE TABLE IF NOT EXISTS user_webhooks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      webhook_name TEXT NOT NULL,
-      webhook_url TEXT NOT NULL,
-      webhook_secret TEXT,
-      webhook_type TEXT DEFAULT 'custom',
-      enabled INTEGER DEFAULT 1 CHECK(enabled IN (0,1)),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `,
-
   // 依赖多个表的表
   mailbox_history: `
     CREATE TABLE IF NOT EXISTS mailbox_history (
@@ -159,6 +173,7 @@ const DATABASE_SCHEMAS = {
       content_type TEXT,
       size_bytes INTEGER DEFAULT 0,
       r2_key TEXT NOT NULL,
+      content_id TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
@@ -233,12 +248,12 @@ BEGIN
     UPDATE forward_rules SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END`,
 
-  `CREATE TRIGGER update_user_webhooks_updated_at
-    AFTER UPDATE ON user_webhooks
+  `CREATE TRIGGER update_forward_rule_webhooks_updated_at
+    AFTER UPDATE ON forward_rule_webhooks
     FOR EACH ROW
     WHEN NEW.updated_at = OLD.updated_at
 BEGIN
-    UPDATE user_webhooks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    UPDATE forward_rule_webhooks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END`,
 
   `CREATE TRIGGER update_system_settings_updated_at
@@ -296,8 +311,6 @@ const DATABASE_INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject)',
   'CREATE INDEX IF NOT EXISTS idx_emails_is_read ON emails(is_read)',
   'CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id)',
-  'CREATE INDEX IF NOT EXISTS idx_emails_sender_email ON emails(sender_email)',
-  'CREATE INDEX IF NOT EXISTS idx_emails_recipient_email ON emails(recipient_email)',
   'CREATE INDEX IF NOT EXISTS idx_emails_received_at ON emails(received_at)',
   'CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at)',
 
@@ -308,12 +321,11 @@ const DATABASE_INDEXES = [
 
   // 转发规则表索引
   'CREATE INDEX IF NOT EXISTS idx_forward_rules_enabled ON forward_rules(enabled)',
-  'CREATE INDEX IF NOT EXISTS idx_forward_rules_webhook_type ON forward_rules(webhook_type)',
 
-  // 用户Webhook表索引
-  'CREATE INDEX IF NOT EXISTS idx_user_webhooks_user_id ON user_webhooks(user_id)',
-  'CREATE INDEX IF NOT EXISTS idx_user_webhooks_enabled ON user_webhooks(enabled)',
-  'CREATE INDEX IF NOT EXISTS idx_user_webhooks_webhook_type ON user_webhooks(webhook_type)',
+  // 转发规则 Webhook 配置表索引
+  'CREATE INDEX IF NOT EXISTS idx_forward_rule_webhooks_rule_id ON forward_rule_webhooks(rule_id)',
+  'CREATE INDEX IF NOT EXISTS idx_forward_rule_webhooks_enabled ON forward_rule_webhooks(enabled)',
+  'CREATE INDEX IF NOT EXISTS idx_forward_rule_webhooks_webhook_type ON forward_rule_webhooks(webhook_type)',
 
   // 转发日志表索引
   'CREATE INDEX IF NOT EXISTS idx_forward_logs_email_id ON forward_logs(email_id)',
@@ -327,17 +339,14 @@ const INITIAL_DATA_SQL = {
   systemSettings: `
     INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
     ('allow_registration', '0', '是否允许用户自由注册 (1=是, 0=否)'),
-    ('cleanup_days', '7', '邮件自动清理天数'),
+    ('mail_retention_days', '7', '邮件保留天数'),
+    ('attachment_retention_days', '7', '附件保留天数'),
     ('max_attachment_size', '52428800', '最大附件大小（50MB）'),
-    ('domain', 'example.com', '邮件域名'),
-    ('admin_email', 'admin@example.com', '管理员邮箱'),
-    ('primary_domain', 'example.com', '主域名'),
-    ('cookie_max_age', '604800', 'Cookie过期时间（秒）'),
-    ('debug_mode', '0', '调试模式开关 (1=开启, 0=关闭)'),
-    ('domains', '["example.com"]', '支持的域名列表（JSON格式）'),
-    ('auto_approve_mailbox', '0', '是否自动批准邮箱申请 (1=是, 0=否)'),
-    ('reserved_mailboxes', '["admin","administrator","root","postmaster","abuse","noreply","no-reply","support","info","contact","webmaster","mail","email","help","security","privacy","legal","billing","sales","marketing","news","newsletter","updates","alerts","notifications"]', '保留邮箱列表（JSON格式）'),
-    ('max_mailboxes_per_user', '5', '每个用户最大邮箱数量')
+    ('cookie_max_age', '172800', 'Cookie过期时间（秒，48小时）'),
+    ('debug_mode', '1', '调试模式开关 (1=开启, 0=关闭)'),
+    ('api_rate_limit', '0', 'API访问频率限制开关 (1=启用, 0=禁用)'),
+    ('api_rate_limit_max_requests', '100', '每分钟最大请求数（10-10000）'),
+    ('supported_domains', '["example.com", "doubi.tech"]', '支持的域名列表（JSON格式，用于匹配接收的邮件域名）')
   `,
 
   // 测试用户数据
@@ -362,6 +371,22 @@ const INITIAL_DATA_SQL = {
   adminUserMailbox: `
     INSERT INTO mailboxes (owner_id, address, status) 
     VALUES (?, 'admin@example.com', 1)
+  `,
+
+  // 默认转发规则（未启用，仅作示例）
+  defaultForwardRules: `
+    INSERT OR IGNORE INTO forward_rules (rule_name, sender_filter, keyword_filter, recipient_filter, exact_match, skip_default_webhook, enabled) VALUES
+    ('飞书推送示例', NULL, NULL, NULL, 0, 0, 0),
+    ('钉钉推送示例', NULL, NULL, NULL, 0, 0, 0),
+    ('Bark推送示例', NULL, NULL, NULL, 0, 0, 0)
+  `,
+
+  // 默认转发规则 Webhook 配置（未启用，仅作示例）
+  defaultForwardRuleWebhooks: `
+    INSERT OR IGNORE INTO forward_rule_webhooks (rule_id, webhook_url, webhook_secret, webhook_type, custom_message, enabled) VALUES
+    (1, 'https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', NULL, 'feishu', '{"msg_type":"interactive","card":{"header":{"template":"blue","title":{"content":"📧 新邮件通知","tag":"plain_text"}},"elements":[{"tag":"div","fields":[{"is_short":true,"text":{"tag":"lark_md","content":"**发件人：**{{from}}"}},{"is_short":true,"text":{"tag":"lark_md","content":"**收件人：**{{to}}"}},{"is_short":true,"text":{"tag":"lark_md","content":"**主题：**{{subject}}"}},{"is_short":true,"text":{"tag":"lark_md","content":"**附件数：**{{attachment_count}}"}}]},{"tag":"div","text":{"tag":"lark_md","content":"**内容：**\n{{content}}"}}]}}', 0),
+    (2, 'https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', NULL, 'dingtalk', '{"msgtype":"markdown","markdown":{"title":"新邮件通知","text":"## 📧 新邮件通知\n\n**发件人：**{{from}}\n\n**收件人：**{{to}}\n\n**主题：**{{subject}}\n\n**附件数：**{{attachment_count}}\n\n**内容：**\n{{content}}"}}', 0),
+    (3, 'https://api.day.app/xxxxxxxxxxxxxxxxxxxxxxxx', NULL, 'bark', '{"title":"新邮件通知","body":"发件人：{{from}}\n收件人：{{to}}\n主题：{{subject}}\n内容：{{content}}","group":"email","icon":"https://example.com/icon.png"}', 0)
   `
 }
 
@@ -537,6 +562,231 @@ databaseRoutes.post('/init', async (c) => {
       throw error
     }
     throw new HTTPException(500, { message: '数据库初始化失败: ' + (error as Error).message })
+  }
+})
+
+// 获取 R2 文件列表
+databaseRoutes.get('/r2-files', async (c) => {
+  try {
+    // 调试模式检查已由中间件处理
+
+    // 获取查询参数
+    const prefix = c.req.query('prefix') || ''
+    const limit = parseInt(c.req.query('limit') || '100')
+    const cursor = c.req.query('cursor') || undefined
+
+    // 检查 R2 是否可用
+    if (!c.env.R2) {
+      throw new HTTPException(500, { message: 'R2 存储不可用' })
+    }
+
+    // 列出 R2 文件
+    const listOptions: any = {
+      limit: Math.min(limit, 1000), // 最大限制 1000
+    }
+
+    if (prefix) {
+      listOptions.prefix = prefix
+    }
+
+    if (cursor) {
+      listOptions.cursor = cursor
+    }
+
+    const result = await c.env.R2.list(listOptions)
+
+    // 处理所有文件（包括 meta.json）
+    const files = []
+    for (const obj of result.objects || []) {
+      const fileInfo: any = {
+        key: obj.key,
+        size: obj.size,
+        etag: obj.etag,
+        uploaded: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
+        httpEtag: obj.httpEtag,
+        httpMetadata: obj.httpMetadata ? {
+          contentType: obj.httpMetadata.contentType,
+          contentLanguage: obj.httpMetadata.contentLanguage,
+          contentEncoding: obj.httpMetadata.contentEncoding,
+          contentDisposition: obj.httpMetadata.contentDisposition,
+          cacheControl: obj.httpMetadata.cacheControl,
+          cacheExpiry: obj.httpMetadata.cacheExpiry,
+        } : null,
+        customMetadata: obj.customMetadata || {},
+      }
+
+      // 注意：不再读取 .meta.json，后续需要时可以从 .eml 文件解析
+
+      files.push(fileInfo)
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        files,
+        truncated: result.truncated || false,
+        cursor: (result as any).cursor || null,
+        delimitedPrefixes: result.delimitedPrefixes || [],
+      }
+    })
+  } catch (error) {
+    console.error('获取 R2 文件列表失败:', error)
+    if (error instanceof HTTPException) {
+      throw error
+    }
+    throw new HTTPException(500, { message: '获取 R2 文件列表失败: ' + (error as Error).message })
+  }
+})
+
+// 批量删除 R2 文件
+databaseRoutes.delete('/r2-files', async (c) => {
+  try {
+    // 调试模式检查已由中间件处理
+
+    const body = await c.req.json()
+    const keys = body.keys || []
+
+    if (!Array.isArray(keys) || keys.length === 0) {
+      throw new HTTPException(400, { message: '请提供要删除的文件列表' })
+    }
+
+    // 检查 R2 是否可用
+    if (!c.env.R2) {
+      throw new HTTPException(500, { message: 'R2 存储不可用' })
+    }
+
+    let deletedCount = 0
+    let deletedDbRecords = 0
+    const errors: string[] = []
+
+    // 批量删除文件
+    for (const key of keys) {
+      try {
+        // 删除主文件
+        await c.env.R2.delete(key)
+        deletedCount++
+
+        // 注意：不再删除 .meta.json（已不再使用）
+
+        // 如果是邮件文件，检查是否有对应的数据库记录，如果有则删除
+        if (key.startsWith('email:') && key.endsWith('.eml')) {
+          try {
+            // 从 key 中提取 emailId: email:{id}.eml -> {id}
+            const emailId = key.replace('email:', '').replace('.eml', '')
+
+            // 检查数据库中是否存在该邮件
+            const email = await c.env.DB.prepare(`
+              SELECT id FROM emails WHERE id = ?
+            `).bind(emailId).first()
+
+            if (email) {
+              // 如果存在，删除数据库记录和附件
+              const attachments = await c.env.DB.prepare(`
+                SELECT r2_key FROM attachments WHERE email_id = ?
+              `).bind(email.id).all()
+
+              // 删除附件文件
+              for (const att of attachments.results) {
+                try {
+                  await c.env.R2.delete(att.r2_key as string)
+                } catch (attError) {
+                  console.warn(`删除附件失败: ${att.r2_key}`, attError)
+                }
+              }
+
+              // 删除数据库记录
+              await c.env.DB.prepare(`DELETE FROM emails WHERE id = ?`).bind(email.id).run()
+              deletedDbRecords++
+            }
+          } catch (dbError) {
+            console.warn(`删除数据库记录失败: ${key}`, dbError)
+            // 不抛出错误，文件已删除
+          }
+        }
+      } catch (error) {
+        const errorMsg = `删除文件失败: ${key} - ${(error as Error).message}`
+        console.error(errorMsg, error)
+        errors.push(errorMsg)
+      }
+    }
+
+    return c.json({
+      success: true,
+      message: `成功删除 ${deletedCount} 个文件${deletedDbRecords > 0 ? `，${deletedDbRecords} 条数据库记录` : ''}${errors.length > 0 ? `，${errors.length} 个失败` : ''}`,
+      data: {
+        deletedCount,
+        deletedDbRecords,
+        errors: errors.length > 0 ? errors : undefined
+      }
+    })
+  } catch (error) {
+    console.error('批量删除 R2 文件失败:', error)
+    if (error instanceof HTTPException) {
+      throw error
+    }
+    throw new HTTPException(500, { message: '批量删除 R2 文件失败: ' + (error as Error).message })
+  }
+})
+
+// 删除单个 R2 文件（保留用于兼容）
+databaseRoutes.delete('/r2-files/:key', async (c) => {
+  try {
+    // 调试模式检查已由中间件处理
+
+    const key = decodeURIComponent(c.req.param('key'))
+
+    // 检查 R2 是否可用
+    if (!c.env.R2) {
+      throw new HTTPException(500, { message: 'R2 存储不可用' })
+    }
+
+    // 删除文件
+    await c.env.R2.delete(key)
+    // 如果是邮件文件，检查是否有对应的数据库记录，如果有则删除
+    if (key.startsWith('email:') && key.endsWith('.eml')) {
+      try {
+        // 从 key 中提取 emailId: email:{id}.eml -> {id}
+        const emailId = key.replace('email:', '').replace('.eml', '')
+
+        // 检查数据库中是否存在该邮件
+        const email = await c.env.DB.prepare(`
+          SELECT id FROM emails WHERE id = ?
+        `).bind(emailId).first()
+
+        if (email) {
+          // 如果存在，删除数据库记录和附件
+          const attachments = await c.env.DB.prepare(`
+            SELECT r2_key FROM attachments WHERE email_id = ?
+          `).bind(email.id).all()
+
+          // 删除附件文件
+          for (const att of attachments.results) {
+            try {
+              await c.env.R2.delete(att.r2_key as string)
+            } catch (attError) {
+              console.warn(`删除附件失败: ${att.r2_key}`, attError)
+            }
+          }
+
+          // 删除数据库记录
+          await c.env.DB.prepare(`DELETE FROM emails WHERE id = ?`).bind(email.id).run()
+        }
+      } catch (dbError) {
+        console.warn(`删除数据库记录失败: ${key}`, dbError)
+        // 不抛出错误，文件已删除
+      }
+    }
+
+    return c.json({
+      success: true,
+      message: '文件删除成功'
+    })
+  } catch (error) {
+    console.error('删除 R2 文件失败:', error)
+    if (error instanceof HTTPException) {
+      throw error
+    }
+    throw new HTTPException(500, { message: '删除 R2 文件失败: ' + (error as Error).message })
   }
 })
 
@@ -814,6 +1064,12 @@ async function insertInitialData(db: D1Database) {
   if (testId) {
     await db.prepare(INITIAL_DATA_SQL.testUserMailbox).bind(testId).run()
   }
+
+  // 插入默认转发规则（未启用，仅作示例）
+  await db.prepare(INITIAL_DATA_SQL.defaultForwardRules).run()
+
+  // 插入默认转发规则 Webhook 配置（未启用，仅作示例）
+  await db.prepare(INITIAL_DATA_SQL.defaultForwardRuleWebhooks).run()
 }
 
 

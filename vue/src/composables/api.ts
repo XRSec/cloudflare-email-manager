@@ -3,7 +3,7 @@ import axios from 'axios'
 // 创建 axios 实例
 const api = axios.create({
   baseURL: '/api',
-  timeout: 10000,
+  timeout: 60000, // 增加到 60 秒，因为邮件详情可能需要解析大文件
   headers: {
     'Content-Type': 'application/json'
   },
@@ -116,6 +116,23 @@ export const userApiService = {
     return response.data
   },
 
+  // 获取默认转发渠道配置
+  async getDefaultWebhook(): Promise<ApiResponse<any>> {
+    const response = await api.get('/forward-rules/default-webhook')
+    return response.data
+  },
+
+  // 更新默认转发渠道配置
+  async updateDefaultWebhook(config: {
+    default_webhook_url?: string
+    default_webhook_secret?: string
+    default_webhook_type?: 'dingtalk' | 'feishu' | 'bark' | 'custom'
+    default_webhook_custom_message?: string
+  }): Promise<ApiResponse<any>> {
+    const response = await api.put('/forward-rules/default-webhook', config)
+    return response.data
+  },
+
   // ===== 管理员功能 =====
 
   // 获取用户列表（仅管理员）
@@ -184,15 +201,24 @@ export const authApiService = {
 
 // 邮件相关 API
 export const emailApiService = {
-  // 获取邮件列表 - 支持对象参数和位置参数
+  /**
+   * 获取邮件列表
+   * 
+   * 单用户模式：系统中只有一个管理员用户，所有邮件都关联到该管理员。
+   * scope 参数已废弃，不再使用。
+   * 
+   * @param pageOrParams 页码或参数对象
+   * @param limit 每页数量（当 pageOrParams 为数字时使用）
+   * @param search 搜索关键词（已废弃，使用对象参数）
+   * @param status 邮件状态（已废弃，使用对象参数）
+   */
   async getEmails(
-    pageOrParams: number | { page?: number; limit?: number; scope?: 'all'; search?: string; status?: string } = 1,
+    pageOrParams: number | { page?: number; limit?: number; search?: string; status?: string } = 1,
     limit = 20,
-    scope?: 'all',
     search?: string,
     status?: string
   ): Promise<ApiResponse<any>> {
-    let params: { page: number; limit: number; scope?: 'all'; search?: string; status?: string }
+    let params: { page: number; limit: number; search?: string; status?: string }
 
     if (typeof pageOrParams === 'object') {
       // 对象参数
@@ -206,7 +232,6 @@ export const emailApiService = {
       params = {
         page: pageOrParams,
         limit,
-        scope,
         search,
         status
       }
@@ -215,7 +240,7 @@ export const emailApiService = {
     const urlParams = new URLSearchParams()
     urlParams.append('page', params.page.toString())
     urlParams.append('limit', params.limit.toString())
-    if (params.scope) urlParams.append('scope', params.scope)
+    // 注意：scope 参数已移除，单用户模式下不再需要
     if (params.search) urlParams.append('search', params.search)
     if (params.status) urlParams.append('status', params.status)
 
@@ -232,6 +257,24 @@ export const emailApiService = {
   // 删除邮件
   async deleteEmail(id: string): Promise<ApiResponse<any>> {
     const response = await api.delete(`/emails/${id}`)
+    return response.data
+  },
+
+  // 批量删除邮件
+  async batchDeleteEmails(emailIds: string[]): Promise<ApiResponse<any>> {
+    const response = await api.delete('/emails/batch', { data: { emailIds } })
+    return response.data
+  },
+
+  // 更新邮件已读状态
+  async updateEmailReadStatus(id: string, isRead: boolean): Promise<ApiResponse<any>> {
+    const response = await api.patch(`/emails/${id}/read-status`, { is_read: isRead })
+    return response.data
+  },
+
+  // 批量更新邮件已读状态
+  async batchUpdateEmailReadStatus(emailIds: string[], isRead: boolean): Promise<ApiResponse<any>> {
+    const response = await api.patch('/emails/batch/read-status', { emailIds, is_read: isRead })
     return response.data
   },
 
@@ -306,8 +349,70 @@ export const forwardRuleApiService = {
     return response.data
   },
 
+  async getForwardRule(id: number): Promise<ApiResponse<any>> {
+    const response = await api.get(`/forward-rules/${id}`)
+    return response.data
+  },
+
   async deleteForwardRule(id: number): Promise<ApiResponse<any>> {
     const response = await api.delete(`/forward-rules/${id}`)
+    return response.data
+  }
+}
+
+// 管理员相关 API（管理员专用功能）
+// 注意：单用户模式下，这些 API 实际上与普通 API 相同，因为系统中只有一个管理员用户
+export const adminApiService = {
+  /**
+   * 获取邮件列表（管理员视图）
+   * 
+   * 单用户模式：系统中只有一个管理员用户，所有邮件都关联到该管理员。
+   * scope 参数已废弃，不再使用。
+   */
+  async getEmails(
+    pageOrParams: number | { page?: number; limit?: number; search?: string; status?: string } = 1,
+    limit = 20,
+    search?: string,
+    status?: string
+  ): Promise<ApiResponse<any>> {
+    let params: { page: number; limit: number; search?: string; status?: string }
+
+    if (typeof pageOrParams === 'object') {
+      params = {
+        page: pageOrParams.page || 1,
+        limit: pageOrParams.limit || 20,
+        ...pageOrParams
+      }
+    } else {
+      params = {
+        page: pageOrParams,
+        limit,
+        search,
+        status
+      }
+    }
+
+    const urlParams = new URLSearchParams()
+    urlParams.append('page', params.page.toString())
+    urlParams.append('limit', params.limit.toString())
+    // 注意：scope 参数已移除，单用户模式下不再需要
+    if (params.search) urlParams.append('search', params.search)
+    if (params.status) urlParams.append('status', params.status)
+
+    const response = await api.get(`/emails?${urlParams}`)
+    return response.data
+  },
+
+  // 获取所有用户列表（仅管理员）
+  async getAllUsers(page = 1, limit = 20, query?: string): Promise<ApiResponse<any>> {
+    const params = new URLSearchParams()
+    params.append('page', page.toString())
+    params.append('limit', limit.toString())
+    if (query) {
+      params.append('query', query)
+    }
+
+    const response = await api.get(`/users?${params}`)
     return response.data
   }
 }
@@ -332,9 +437,12 @@ export const apiService = {
   deleteEmail: emailApiService.deleteEmail,
   sendEmail: emailApiService.sendEmail,
   getForwardRules: forwardRuleApiService.getForwardRules,
+  getForwardRule: forwardRuleApiService.getForwardRule,
   createForwardRule: forwardRuleApiService.createForwardRule,
   updateForwardRule: forwardRuleApiService.updateForwardRule,
   deleteForwardRule: forwardRuleApiService.deleteForwardRule,
+  getDefaultWebhook: userApiService.getDefaultWebhook,
+  updateDefaultWebhook: userApiService.updateDefaultWebhook,
   // 数据库管理方法
   getDatabaseInfo: async (): Promise<ApiResponse<any>> => {
     const response = await api.get('/database/info')

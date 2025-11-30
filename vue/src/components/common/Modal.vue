@@ -1,6 +1,6 @@
 <template>
   <div v-if="show" class="modal-overlay" @click="handleOverlayClick">
-    <div class="modal-content" @click.stop>
+    <div class="modal-content" :data-size="size" @click.stop>
       <div class="modal-header">
         <h3>{{ title }}</h3>
         <button v-if="showClose" class="modal-close" @click="$emit('close')">×</button>
@@ -21,11 +21,13 @@ interface Props {
   title: string
   showClose?: boolean
   closeOnOverlay?: boolean
+  size?: 'small' | 'medium' | 'large'
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showClose: true,
-  closeOnOverlay: true
+  closeOnOverlay: true,
+  size: 'medium'
 })
 
 const emit = defineEmits<{
@@ -50,16 +52,27 @@ const handleOverlayClick = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 2000;
 }
 
 .modal-content {
   background: white;
   border-radius: 8px;
   width: 90%;
-  max-width: 500px;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+.modal-content[data-size="small"] {
+  max-width: 400px;
+}
+
+.modal-content[data-size="medium"] {
+  max-width: 600px;
+}
+
+.modal-content[data-size="large"] {
+  max-width: 900px;
 }
 
 .modal-header {

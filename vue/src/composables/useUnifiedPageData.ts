@@ -4,8 +4,7 @@
  */
 
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { useRouteApiCacheMapper } from './routeApiCacheMapper'
+import { useRouteApiManager } from './routeApiManager'
 import { usePageRefreshRegistry, useGlobalRefreshEventListener } from './globalRefreshManager'
 
 // 页面数据状态
@@ -18,8 +17,7 @@ interface PageDataState {
 
 // 统一页面数据管理 Hook
 export function useUnifiedPageData(customParams?: any) {
-  const route = useRoute()
-  const { callApiMethod, isSupportedRoute, hasPermission, getRouteInfo } = useRouteApiCacheMapper()
+  const { callApiMethod, isSupportedRoute, hasPermission, getRouteInfo } = useRouteApiManager()
   const { registerPageRefresh, unregisterPageRefresh } = usePageRefreshRegistry()
   const { addGlobalRefreshListener, removeGlobalRefreshListener } = useGlobalRefreshEventListener()
 
@@ -79,10 +77,34 @@ export function useUnifiedPageData(customParams?: any) {
     await refreshData()
   }
 
-  // 全局刷新事件处理
-  const handleGlobalRefresh = (event: CustomEvent) => {
+  // 全局刷新完成事件处理
+  // 当全局刷新完成后，页面组件需要重新加载数据以更新显示
+  const handleGlobalRefreshComplete = async (event: CustomEvent) => {
+    console.log('🎉 收到全局刷新完成事件', event.detail)
+
+    if (!isSupported.value || !hasAccess.value) {
+      console.log('⚠️ 当前路由不支持或无权限，跳过数据加载')
+      return
+    }
+
+    console.log('📊 重新加载数据以更新页面显示')
+    // 从缓存中重新加载数据（全局刷新已经更新了缓存）
+    await loadData(false) // 不强制刷新，使用缓存中的最新数据
+    console.log('✅ 页面数据已更新')
+  }
+
+  // 旧的全局刷新事件处理（保留用于不支持统一管理的路由）
+  const handleGlobalRefresh = async (event: CustomEvent) => {
     console.log('🌍 收到全局刷新事件', event.detail)
-    refreshData()
+
+    // 只有不支持统一管理的路由才需要响应此事件
+    if (isSupported.value && hasAccess.value) {
+      console.log('📋 路由支持统一管理，等待 global:refresh:complete 事件')
+      return
+    }
+
+    console.log('🔧 路由不支持统一管理，通过强制刷新获取数据')
+    await refreshData() // 强制刷新
   }
 
   // 页面初始化
@@ -90,8 +112,12 @@ export function useUnifiedPageData(customParams?: any) {
     // 注册页面级刷新方法
     registerPageRefresh(pageRefresh)
 
-    // 监听全局刷新事件
+    // 监听全局刷新事件（旧事件，用于不支持统一管理的路由）
     addGlobalRefreshListener(handleGlobalRefresh)
+
+    // 监听全局刷新完成事件（新事件，用于支持统一管理的路由）
+    window.addEventListener('global:refresh:complete', handleGlobalRefreshComplete as unknown as EventListener)
+    console.log('👂 已添加 global:refresh:complete 事件监听器')
 
     // 初始加载数据
     loadData()
@@ -104,6 +130,10 @@ export function useUnifiedPageData(customParams?: any) {
 
     // 移除全局刷新事件监听
     removeGlobalRefreshListener(handleGlobalRefresh)
+
+    // 移除全局刷新完成事件监听
+    window.removeEventListener('global:refresh:complete', handleGlobalRefreshComplete as unknown as EventListener)
+    console.log('🗑️ 已移除 global:refresh:complete 事件监听器')
   })
 
   return {

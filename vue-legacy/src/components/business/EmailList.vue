@@ -20,7 +20,7 @@
         </div>
       </div>
       <div v-if="email.content" class="email-content">
-        {{ truncateText(email.content, 200) }}
+        <strong>内容:</strong> {{ truncateText(email.content, 200) }}
       </div>
       <div v-if="showActions" class="email-actions">
         <slot name="actions" :email="email">

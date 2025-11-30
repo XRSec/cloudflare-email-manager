@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS users (
     deleted_at DATETIME,                -- 删除时间（软删除）
     webhook_url TEXT CHECK(webhook_url IS NULL OR webhook_url LIKE 'http%'), -- webhook地址必须是有效URL
     webhook_secret TEXT,                -- webhook签名密钥
+    webhook_type TEXT DEFAULT 'custom' CHECK(webhook_type IN ('dingtalk', 'feishu', 'bark', 'custom')), -- webhook类型
+    webhook_custom_message TEXT,        -- 自定义消息模板，支持变量：{{from}}, {{to}}, {{subject}}, {{content}}, {{received_at}}, {{attachment_count}}
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -43,49 +45,78 @@ CREATE TABLE IF NOT EXISTS forward_rules (
     sender_filter TEXT,
     keyword_filter TEXT,
     recipient_filter TEXT,
-    webhook_url TEXT NOT NULL,
-    webhook_secret TEXT,
-    webhook_type TEXT DEFAULT 'custom',
+    exact_match INTEGER DEFAULT 0 CHECK(exact_match IN (0,1)), -- 是否精确匹配（0=包含匹配，1=精确匹配）
+    skip_default_webhook INTEGER DEFAULT 0 CHECK(skip_default_webhook IN (0,1)), -- 是否跳过默认推送渠道（0=不跳过，1=跳过）
     enabled INTEGER DEFAULT 1 CHECK(enabled IN (0,1)),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_forward_rules_enabled ON forward_rules(enabled);
-CREATE INDEX IF NOT EXISTS idx_forward_rules_webhook_type ON forward_rules(webhook_type);
+
+-- 转发规则 Webhook 配置表（支持一个规则多个 webhook）
+CREATE TABLE IF NOT EXISTS forward_rule_webhooks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id INTEGER NOT NULL,
+    webhook_url TEXT NOT NULL CHECK(webhook_url LIKE 'http%'),
+    webhook_secret TEXT,
+    webhook_type TEXT DEFAULT 'custom' CHECK(webhook_type IN ('dingtalk', 'feishu', 'bark', 'custom')),
+    custom_message TEXT, -- 自定义消息模板，支持变量：{{from}}, {{to}}, {{subject}}, {{content}}, {{received_at}}, {{attachment_count}}
+    enabled INTEGER DEFAULT 1 CHECK(enabled IN (0,1)),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (rule_id) REFERENCES forward_rules(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_forward_rule_webhooks_rule_id ON forward_rule_webhooks(rule_id);
+CREATE INDEX IF NOT EXISTS idx_forward_rule_webhooks_enabled ON forward_rule_webhooks(enabled);
+CREATE INDEX IF NOT EXISTS idx_forward_rule_webhooks_webhook_type ON forward_rule_webhooks(webhook_type);
 
 -- 邮件表
+-- 优化后的结构：所有基础数据从 message.raw 直接提取并存入数据库
+-- 
+-- ID 字段说明：
+-- - id: 邮件在数据库中的主键，使用 crypto.randomUUID() 生成的 UUID
+--       格式如 "550e8400-e29b-41d4-a716-446655440000"（标准 UUID v4 格式）
+--       R2 文件路径为 email:{id}.eml（剔除附件后的完整原始邮件）
+-- 
+-- 注意：
+-- 1. 所有基础数据从 message.raw 直接提取并存入数据库
+-- 2. emailId 使用 crypto.randomUUID() 生成，不再使用 Message-ID 的哈希值
+-- 3. 当前使用 TEXT 类型作为主键，UUID 保证 ID 的唯一性
 CREATE TABLE IF NOT EXISTS emails (
-    id TEXT PRIMARY KEY,
-    message_id TEXT,
-    user_id INTEGER, -- 添加用户ID字段
-    subject TEXT NOT NULL,
-    from_address TEXT NOT NULL,
-    to_address TEXT NOT NULL,
-    sender_email TEXT, -- 添加发送者邮箱字段
-    recipient_email TEXT, -- 添加接收者邮箱字段
-    reply_to TEXT,
-    cc TEXT,
-    bcc TEXT,
-    content_type TEXT DEFAULT 'text/plain',
-    content TEXT,
-    raw_content TEXT,
+    id TEXT PRIMARY KEY, -- 邮件ID（数据库主键），使用 crypto.randomUUID() 生成的 UUID
+    user_id INTEGER, -- 用户ID（单用户模式下，默认为管理员用户ID）
+    subject TEXT, -- 主题
+    from_address TEXT, -- 发件人
+    to_address TEXT, -- 收件人
+    content TEXT, -- 内容概览/预览（用于快速查看，完整内容在 R2）
     is_read INTEGER DEFAULT 0 CHECK(is_read IN (0,1)),
-    has_attachments INTEGER DEFAULT 0 CHECK(has_attachments IN (0,1)),
-    size_bytes INTEGER DEFAULT 0,
-    received_at DATETIME DEFAULT CURRENT_TIMESTAMP, -- 添加接收时间字段
+    attachment_count INTEGER DEFAULT 0, -- 附件数量（0表示无附件）
+    message_id TEXT, -- 原始邮件头中的 Message-ID（从 message.raw 提取）
+    headers_json TEXT, -- 完整的邮件头信息（JSON 格式，包含 DKIM、SPF 等，从 message.raw 提取）
+    size_bytes INTEGER, -- 剔除附件后的邮件大小（字节）
+    date TEXT, -- 邮件日期（从 headers 提取）
+    reply_to TEXT, -- 回复地址（从 headers 提取）
+    cc TEXT, -- 抄送地址（从 headers 提取）
+    bcc TEXT, -- 密送地址（从 headers 提取）
+    content_type TEXT, -- 邮件内容类型（从 headers 提取）
+    received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+-- 注意：以下信息从 message.raw 直接提取并存入数据库，不再使用 .meta.json：
+-- - message_id: 原始邮件头中的 Message-ID
+-- - headers_json: 完整的 headers（JSON 格式）
+-- - size_bytes: 剔除附件后的大小
+-- - date/reply_to/cc/bcc/content_type: 从 headers 提取
 
 CREATE INDEX IF NOT EXISTS idx_emails_from_address ON emails(from_address);
 CREATE INDEX IF NOT EXISTS idx_emails_to_address ON emails(to_address);
 CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject);
 CREATE INDEX IF NOT EXISTS idx_emails_is_read ON emails(is_read);
 CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id);
-CREATE INDEX IF NOT EXISTS idx_emails_sender_email ON emails(sender_email);
-CREATE INDEX IF NOT EXISTS idx_emails_recipient_email ON emails(recipient_email);
 CREATE INDEX IF NOT EXISTS idx_emails_received_at ON emails(received_at);
 CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at);
 
@@ -151,24 +182,6 @@ CREATE INDEX IF NOT EXISTS idx_security_audit_attack_type ON security_audit(atta
 CREATE INDEX IF NOT EXISTS idx_security_audit_created_at ON security_audit(created_at);
 CREATE INDEX IF NOT EXISTS idx_security_audit_request_ip ON security_audit(request_ip);
 
--- 用户Webhook配置表
-CREATE TABLE IF NOT EXISTS user_webhooks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,               -- 用户ID
-    webhook_name TEXT NOT NULL,             -- Webhook名称
-    webhook_url TEXT NOT NULL,              -- Webhook URL
-    webhook_secret TEXT,                    -- Webhook密钥
-    webhook_type TEXT DEFAULT 'custom',     -- Webhook类型
-    enabled INTEGER DEFAULT 1 CHECK(enabled IN (0,1)), -- 是否启用
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_user_webhooks_user_id ON user_webhooks(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_webhooks_enabled ON user_webhooks(enabled);
-CREATE INDEX IF NOT EXISTS idx_user_webhooks_webhook_type ON user_webhooks(webhook_type);
-
 -- ===================
 -- 依赖多个表的表
 -- ===================
@@ -194,12 +207,13 @@ CREATE INDEX IF NOT EXISTS idx_mailbox_history_created_at ON mailbox_history(cre
 
 -- 附件表
 CREATE TABLE IF NOT EXISTS attachments (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY,                   -- 附件ID，使用 crypto.randomUUID() 生成的 UUID
     email_id TEXT NOT NULL,                 -- 邮件ID
     filename TEXT NOT NULL,                 -- 文件名
     content_type TEXT,                      -- 内容类型
     size_bytes INTEGER DEFAULT 0,           -- 文件大小（字节）
     r2_key TEXT NOT NULL,                   -- R2存储键
+    content_id TEXT,                        -- Content-ID（用于内嵌图片，如 cid:xxx）
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
@@ -280,12 +294,12 @@ BEGIN
     UPDATE forward_rules SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
-CREATE TRIGGER update_user_webhooks_updated_at
-    AFTER UPDATE ON user_webhooks
+CREATE TRIGGER update_forward_rule_webhooks_updated_at
+    AFTER UPDATE ON forward_rule_webhooks
     FOR EACH ROW
     WHEN NEW.updated_at = OLD.updated_at
 BEGIN
-    UPDATE user_webhooks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+    UPDATE forward_rule_webhooks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER update_system_settings_updated_at
@@ -311,17 +325,14 @@ END;
 -- 插入默认系统配置
 INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
 ('allow_registration', '0', '是否允许用户自由注册 (1=是, 0=否)'),
-('cleanup_days', '7', '邮件自动清理天数'),
+('mail_retention_days', '7', '邮件保留天数'),
+('attachment_retention_days', '7', '附件保留天数'),
 ('max_attachment_size', '52428800', '最大附件大小（50MB）'),
-('domain', 'example.com', '邮件域名'),
-('admin_email', 'admin@example.com', '管理员邮箱'),
-('primary_domain', 'example.com', '主域名'),
-('cookie_max_age', '604800', 'Cookie过期时间（秒）'),
-('debug_mode', '0', '调试模式开关 (1=开启, 0=关闭)'),
-('domains', '["example.com"]', '支持的域名列表（JSON格式）'),
-('auto_approve_mailbox', '0', '是否自动批准邮箱申请 (1=是, 0=否)'),
-('reserved_mailboxes', '["admin","administrator","root","postmaster","abuse","noreply","no-reply","support","info","contact","webmaster","mail","email","help","security","privacy","legal","billing","sales","marketing","news","newsletter","updates","alerts","notifications"]', '保留邮箱列表（JSON格式）'),
-('max_mailboxes_per_user', '5', '每个用户最大邮箱数量');
+('cookie_max_age', '172800', 'Cookie过期时间（秒，48小时）'),
+('debug_mode', '1', '调试模式开关 (1=开启, 0=关闭)'),
+('api_rate_limit', '0', 'API访问频率限制开关 (1=启用, 0=禁用)'),
+('api_rate_limit_max_requests', '100', '每分钟最大请求数（10-10000）'),
+('supported_domains', '["example.com", "doubi.tech"]', '支持的域名列表（JSON格式，用于匹配接收的邮件域名）');
 
 -- 插入默认管理员用户（密码：123456，已哈希）
 INSERT OR IGNORE INTO users (username, password, user_type, status) VALUES
@@ -338,6 +349,18 @@ INSERT OR IGNORE INTO mailboxes (owner_id, address, status) VALUES
 -- 为测试用户创建默认邮箱
 INSERT OR IGNORE INTO mailboxes (owner_id, address, status) VALUES
 (2, 'test@example.com', 1);
+
+-- 插入默认转发规则（未启用，仅作示例）
+INSERT OR IGNORE INTO forward_rules (rule_name, sender_filter, keyword_filter, recipient_filter, exact_match, skip_default_webhook, enabled) VALUES
+('飞书推送示例', NULL, NULL, NULL, 0, 0, 0),
+('钉钉推送示例', NULL, NULL, NULL, 0, 0, 0),
+('Bark推送示例', NULL, NULL, NULL, 0, 0, 0);
+
+-- 为转发规则添加 Webhook 配置（未启用，仅作示例）
+INSERT OR IGNORE INTO forward_rule_webhooks (rule_id, webhook_url, webhook_secret, webhook_type, custom_message, enabled) VALUES
+(1, 'https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', NULL, 'feishu', '{"msg_type":"interactive","card":{"header":{"template":"blue","title":{"content":"📧 新邮件通知","tag":"plain_text"}},"elements":[{"tag":"div","fields":[{"is_short":true,"text":{"tag":"lark_md","content":"**发件人：**{{from}}"}},{"is_short":true,"text":{"tag":"lark_md","content":"**收件人：**{{to}}"}},{"is_short":true,"text":{"tag":"lark_md","content":"**主题：**{{subject}}"}},{"is_short":true,"text":{"tag":"lark_md","content":"**附件数：**{{attachment_count}}"}}]},{"tag":"div","text":{"tag":"lark_md","content":"**内容：**\n{{content}}"}}]}}', 0),
+(2, 'https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', NULL, 'dingtalk', '{"msgtype":"markdown","markdown":{"title":"新邮件通知","text":"## 📧 新邮件通知\n\n**发件人：**{{from}}\n\n**收件人：**{{to}}\n\n**主题：**{{subject}}\n\n**附件数：**{{attachment_count}}\n\n**内容：**\n{{content}}"}}', 0),
+(3, 'https://api.day.app/xxxxxxxxxxxxxxxxxxxxxxxx', NULL, 'bark', '{"title":"新邮件通知","body":"发件人：{{from}}\n收件人：{{to}}\n主题：{{subject}}\n内容：{{content}}","group":"email","icon":"https://example.com/icon.png"}', 0);
 
 -- ===================
 -- 注意：sqlite_sequence 会在第一次插入带 AUTOINCREMENT 的表时自动更新

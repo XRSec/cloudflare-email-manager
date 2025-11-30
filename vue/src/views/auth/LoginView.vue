@@ -62,10 +62,10 @@ const handleLoginSuccess = async () => {
 declare global {
   interface Window {
     CEM_CONFIG?: {
-      allow_registration: boolean
-      debug_mode: boolean
+      allow_registration: number
+      debug_mode: number
       supported_domains: string[]
-      max_attachment_size: number
+      attachment_max_size: number
       api_base_url: string
       version: string
       build_time: string

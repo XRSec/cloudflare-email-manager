@@ -86,9 +86,6 @@
           <button class="btn btn-secondary" @click="testForwardRules">
             测试转发规则
           </button>
-          <button class="btn btn-secondary" @click="testMailboxes">
-            测试邮箱列表
-          </button>
         </div>
         <div v-if="testResult" class="test-result">
           <h3>测试结果:</h3>
@@ -424,140 +421,296 @@
     <!-- 缓存管理 -->
     <div class="debug-section">
       <h2>缓存管理</h2>
-      <div class="cache-actions">
-        <button class="btn btn-warning" @click="clearAllCache">
-          🗑️ 清空所有缓存
-        </button>
-        <button class="btn btn-secondary" @click="showCacheInfo">
-          📋 获取缓存信息
-        </button>
-        <button class="btn btn-info" @click="getCacheStats">
-          📊 缓存统计
-        </button>
-        <button class="btn btn-info" @click="showAllStorage">
-          🔍 显示所有存储
+      <p class="debug-note">
+        管理应用存储：localStorage、sessionStorage、IndexedDB<br>
+        查看缓存信息：查看所有缓存项的详细信息，包括大小、TTL、状态等<br>
+        清理缓存：清理应用存储数据，支持清理其他存储或完全清理<br>
+        📌 HTTP 缓存（Cache-Control）由后端 Worker 自动设置：HTML 不缓存，CSS/JS/图片等静态资源缓存 1 年<br>
+        ⚠️ 注意：清理后可能需要刷新页面才能完全生效
+      </p>
+
+      <!-- 操作按钮行 -->
+      <div class="db-actions">
+        <button v-for="operation in cacheOperations" :key="operation.id" class="btn" :class="[
+          operation.danger ? 'btn-danger' : 'btn-secondary',
+          { active: activeCacheOperation === operation.id }
+        ]" @click="setActiveCacheOperation(operation.id)" :disabled="operation.loading && operation.loading()">
+          {{ operation.icon }} {{ operation.title }}
+          <span v-if="operation.loading && operation.loading()" class="loading-text">...</span>
         </button>
       </div>
 
-      <div v-if="cacheInfo" class="cache-result">
-        <h3>📋 缓存详细信息:</h3>
+      <!-- 提示文本 -->
+      <div v-if="activeCacheOperation" class="operation-hint">
+        {{ getActiveCacheOperationInfo()?.description }}
+      </div>
 
-        <!-- 有缓存数据时显示表格 -->
-        <div v-if="Object.keys(parseCacheInfo(cacheInfo)).length > 0" class="cache-table-container">
-          <div class="cache-table-grid" :style="{ gridTemplateColumns: getCacheGridColumns() }">
+      <!-- 内容区域 -->
+      <div v-if="activeCacheOperation && hasActiveCacheOperationData()" class="operation-content">
+        <!-- 查看缓存信息内容 -->
+        <div v-if="activeCacheOperation === 'cacheInfo'">
+          <!-- 应用存储统计 -->
+          <div class="cache-stats" v-if="cacheStats && cacheStats.localStorage !== undefined">
+            <h3>📦 应用存储统计</h3>
+            <div class="stats-grid">
+              <div class="stat-item">
+                <label>localStorage:</label>
+                <span>{{ cacheStats.localStorage }} 项</span>
+              </div>
+              <div class="stat-item">
+                <label>sessionStorage:</label>
+                <span>{{ cacheStats.sessionStorage }} 项</span>
+              </div>
+              <div class="stat-item">
+                <label>IndexedDB:</label>
+                <span>{{ cacheStats.indexedDB }} 个数据库</span>
+              </div>
+              <div class="stat-item">
+                <label>总大小:</label>
+                <span>{{ formatBytes(cacheStats.totalSize) }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 缓存统计概览 -->
+          <div v-if="cacheStats && cacheStats.totalCount !== undefined" class="cache-stats">
+            <h3>📊 缓存统计概览</h3>
+            <div class="stats-grid">
+              <div class="stat-card">
+                <div class="stat-title">📈 总体状况</div>
+                <div class="stat-content">
+                  <div class="stat-item">
+                    <span class="stat-label">缓存总数:</span>
+                    <span class="stat-value">{{ cacheStats.totalCount || 0 }}</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">总大小:</span>
+                    <span class="stat-value">{{ formatFileSize(cacheStats.totalSize) }}</span>
+                  </div>
+                  <div class="stat-item">
+                    <span class="stat-label">命中率:</span>
+                    <span class="stat-value">{{ cacheStats.hitRate || '0%' }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="stat-card">
+                <div class="stat-title">🏷️ 分类统计</div>
+                <div class="stat-content">
+                  <div v-for="(count, category) in cacheStats.categories" :key="category" class="stat-item">
+                    <span class="stat-label">{{ category }}:</span>
+                    <span class="stat-value">{{ count }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 缓存详细信息 -->
+          <div v-if="cacheInfo" class="cache-result">
+            <h3>📋 缓存详细信息</h3>
+
+            <!-- 有缓存数据时显示表格 -->
+            <div v-if="Object.keys(parseCacheInfo(cacheInfo)).length > 0" class="cache-table-container">
+              <div class="cache-table-grid" :style="{ gridTemplateColumns: getCacheGridColumns() }">
+                <!-- 表头 -->
+                <div class="cache-grid-header">缓存键</div>
+                <div class="cache-grid-header">类型</div>
+                <div class="cache-grid-header">大小</div>
+                <div class="cache-grid-header">创建时间</div>
+                <div class="cache-grid-header">过期时间</div>
+                <div class="cache-grid-header">剩余TTL</div>
+                <div class="cache-grid-header">访问次数</div>
+                <div class="cache-grid-header">状态</div>
+                <div class="cache-grid-header">操作</div>
+
+                <!-- 数据行 -->
+                <template v-for="(info, key) in parseCacheInfo(cacheInfo)" :key="key">
+                  <div class="cache-grid-cell cache-key-cell" :title="String(key)">
+                    <span class="cache-key-text">{{ key }}</span>
+                  </div>
+                  <div class="cache-grid-cell cache-type-cell">
+                    <span class="cache-type-badge">{{ getCacheType(String(key)) }}</span>
+                  </div>
+                  <div class="cache-grid-cell cache-size-cell">
+                    <span class="cache-size-value">{{ formatCacheSize(info.size || 0) }}</span>
+                  </div>
+                  <div class="cache-grid-cell cache-time-cell">
+                    <span class="cache-time-value">{{ formatCacheTime(String(info.created || new Date().toISOString()))
+                      }}</span>
+                  </div>
+                  <div class="cache-grid-cell cache-expiry-cell">
+                    <span class="cache-expiry-value">{{ formatCacheExpiry(String(info.created || new
+                      Date().toISOString()),
+                      String(info.ttl || '300')) }}</span>
+                  </div>
+                  <div class="cache-grid-cell cache-ttl-cell">
+                    <span class="cache-ttl-value"
+                      :class="getTTLClass(String(info.created || new Date().toISOString()), String(info.ttl || '300'))">
+                      {{ formatRemainingTTL(String(info.created || new Date().toISOString()), String(info.ttl || '300'))
+                      }}
+                    </span>
+                  </div>
+                  <div class="cache-grid-cell cache-access-cell">
+                    <span class="cache-access-value">{{ info.accessCount || 0 }}</span>
+                  </div>
+                  <div class="cache-grid-cell cache-status-cell">
+                    <span class="cache-status-badge" :class="getCacheStatusClass(info)">
+                      {{ getCacheStatus(info) }}
+                    </span>
+                  </div>
+                  <div class="cache-grid-cell cache-actions-cell">
+                    <button class="btn btn-sm btn-outline-danger" @click="clearSingleCache(String(key))" title="删除此缓存">
+                      🗑️
+                    </button>
+                    <button class="btn btn-sm btn-outline-info" @click="viewCacheContent(String(key))" title="查看内容">
+                      👁️
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- 没有缓存数据时显示提示 -->
+            <div v-else class="cache-empty-state">
+              <div class="empty-cache-icon">📭</div>
+              <div class="empty-cache-text">暂无缓存数据</div>
+              <div class="empty-cache-hint">点击"📊 查看缓存信息"按钮可以加载缓存数据</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 清理缓存内容 -->
+        <div v-if="activeCacheOperation === 'cacheClear'">
+          <!-- 应用存储清理结果 -->
+          <div v-if="cacheClearResult" class="cache-result"
+            :class="{ success: cacheClearResult.success, error: !cacheClearResult.success }">
+            <h3>{{ cacheClearResult.success ? '✅ 清理成功' : '❌ 清理失败' }}</h3>
+            <div v-if="cacheClearResult.cleared && cacheClearResult.cleared.length > 0">
+              <p><strong>已清理:</strong></p>
+              <ul>
+                <li v-for="item in cacheClearResult.cleared" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+            <div v-if="cacheClearResult.errors && cacheClearResult.errors.length > 0">
+              <p><strong>错误:</strong></p>
+              <ul>
+                <li v-for="error in cacheClearResult.errors" :key="error">{{ error }}</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- 清理操作说明 -->
+          <div class="cache-clear-info">
+            <p>请选择清理方式：</p>
+            <ul>
+              <li><strong>清理其他存储</strong>：清理 localStorage、sessionStorage、IndexedDB 中的非 CEM 数据（保留 CEM 缓存、用户信息、系统配置）</li>
+              <li><strong>完全清理</strong>：清空所有数据并退出登录（包括 CEM 缓存、用户信息等）</li>
+            </ul>
+            <button class="btn btn-danger" @click="showClearCacheDialog" :disabled="clearingCache">
+              {{ clearingCache ? '清理中...' : '🗑️ 清理缓存' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- R2 文件管理 -->
+    <div class="debug-section">
+      <h2>R2 文件管理</h2>
+      <p class="debug-note">查看 R2 存储中的文件列表，包括邮件附件和原始邮件文件。不获取文件内容，仅显示文件元数据信息。</p>
+
+      <div class="r2-actions">
+        <button class="btn btn-secondary" @click="loadR2Files" :disabled="r2Loading">
+          {{ r2Loading ? '加载中...' : '📋 获取 R2 文件列表' }}
+        </button>
+        <button class="btn btn-secondary" @click="refreshR2Files" :disabled="r2Loading">
+          🔄 刷新
+        </button>
+        <button class="btn btn-danger" @click="deleteSelectedR2Files"
+          :disabled="r2Loading || r2Deleting || selectedR2Files.length === 0">
+          {{ r2Deleting ? '删除中...' : `🗑️ 删除选中 (${selectedR2Files.length})` }}
+        </button>
+        <div class="r2-filter">
+          <input v-model="r2Prefix" type="text" class="form-control" placeholder="前缀过滤（如：attachments/）"
+            @keyup.enter="loadR2Files" />
+        </div>
+      </div>
+
+      <div v-if="r2Files" class="r2-files-container">
+        <div class="r2-files-header">
+          <h3>📦 R2 文件列表</h3>
+          <div class="r2-files-info">
+            <span>共 {{ r2Files.files?.length || 0 }} 个文件</span>
+            <span v-if="r2Files.truncated" class="truncated-warning">⚠️ 列表已截断，可能还有更多文件</span>
+          </div>
+        </div>
+
+        <div v-if="r2Files.files && r2Files.files.length > 0" class="r2-files-table-container">
+          <div class="r2-files-table-grid">
             <!-- 表头 -->
-            <div class="cache-grid-header">缓存键</div>
-            <div class="cache-grid-header">类型</div>
-            <div class="cache-grid-header">大小</div>
-            <div class="cache-grid-header">创建时间</div>
-            <div class="cache-grid-header">过期时间</div>
-            <div class="cache-grid-header">剩余TTL</div>
-            <div class="cache-grid-header">访问次数</div>
-            <div class="cache-grid-header">状态</div>
-            <div class="cache-grid-header">操作</div>
+            <div class="r2-grid-header r2-checkbox-header">
+              <input type="checkbox" :checked="allR2FilesSelected" @change="toggleSelectAllR2Files" />
+            </div>
+            <div class="r2-grid-header">文件名</div>
+            <div class="r2-grid-header">大小</div>
+            <div class="r2-grid-header">上传时间</div>
+            <div class="r2-grid-header">操作</div>
 
             <!-- 数据行 -->
-            <template v-for="(info, key) in parseCacheInfo(cacheInfo)" :key="key">
-              <div class="cache-grid-cell cache-key-cell" :title="String(key)">
-                <span class="cache-key-text">{{ key }}</span>
+            <template v-for="(file, index) in r2Files.files" :key="index">
+              <div class="r2-grid-cell r2-checkbox-cell">
+                <input type="checkbox" :value="file.key" v-model="selectedR2Files" />
               </div>
-              <div class="cache-grid-cell cache-type-cell">
-                <span class="cache-type-badge">{{ getCacheType(String(key)) }}</span>
+              <div class="r2-grid-cell r2-key-cell" :title="file.key">
+                <span class="r2-key-text">{{ file.key }}</span>
               </div>
-              <div class="cache-grid-cell cache-size-cell">
-                <span class="cache-size-value">{{ formatCacheSize(info.size || 0) }}</span>
+              <div class="r2-grid-cell r2-size-cell">
+                <span class="r2-size-value">{{ formatFileSize(file.size) }}</span>
               </div>
-              <div class="cache-grid-cell cache-time-cell">
-                <span class="cache-time-value">{{ formatCacheTime(String(info.created || new Date().toISOString()))
-                }}</span>
+              <div class="r2-grid-cell r2-time-cell">
+                <span class="r2-time-value">{{ formatR2Time(file.uploaded) }}</span>
               </div>
-              <div class="cache-grid-cell cache-expiry-cell">
-                <span class="cache-expiry-value">{{ formatCacheExpiry(String(info.created || new Date().toISOString()),
-                  String(info.ttl || '300')) }}</span>
-              </div>
-              <div class="cache-grid-cell cache-ttl-cell">
-                <span class="cache-ttl-value"
-                  :class="getTTLClass(String(info.created || new Date().toISOString()), String(info.ttl || '300'))">
-                  {{ formatRemainingTTL(String(info.created || new Date().toISOString()), String(info.ttl || '300')) }}
-                </span>
-              </div>
-              <div class="cache-grid-cell cache-access-cell">
-                <span class="cache-access-value">{{ info.accessCount || 0 }}</span>
-              </div>
-              <div class="cache-grid-cell cache-status-cell">
-                <span class="cache-status-badge" :class="getCacheStatusClass(info)">
-                  {{ getCacheStatus(info) }}
-                </span>
-              </div>
-              <div class="cache-grid-cell cache-actions-cell">
-                <button class="btn btn-sm btn-outline-danger" @click="clearSingleCache(String(key))" title="删除此缓存">
-                  🗑️
-                </button>
-                <button class="btn btn-sm btn-outline-info" @click="viewCacheContent(String(key))" title="查看内容">
-                  👁️
+              <div class="r2-grid-cell r2-action-cell">
+                <button class="btn btn-sm btn-outline-danger" @click="deleteR2File(file.key)"
+                  :disabled="r2Deleting || selectedR2Files.includes(file.key)" title="删除文件">
+                  🗑️ 删除
                 </button>
               </div>
             </template>
           </div>
         </div>
 
-        <!-- 没有缓存数据时显示提示 -->
-        <div v-else class="cache-empty-state">
-          <div class="empty-cache-icon">📭</div>
-          <div class="empty-cache-text">暂无缓存数据</div>
-          <div class="empty-cache-hint">点击"🧪 创建测试缓存"按钮可以创建示例缓存数据</div>
+        <!-- 没有文件时显示提示 -->
+        <div v-else-if="!r2Loading" class="r2-empty-state">
+          <div class="empty-r2-icon">📭</div>
+          <div class="empty-r2-text">暂无 R2 文件</div>
+          <div class="empty-r2-hint">R2 存储中还没有文件，或者当前前缀过滤没有匹配的文件</div>
         </div>
-      </div>
 
-      <div v-if="cacheStats" class="cache-stats">
-        <h3>📊 缓存统计概览:</h3>
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-title">📈 总体状况</div>
-            <div class="stat-content">
-              <div class="stat-item">
-                <span class="stat-label">缓存总数:</span>
-                <span class="stat-value">{{ cacheStats.totalCount || 0 }}</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">总大小:</span>
-                <span class="stat-value">{{ formatFileSize(cacheStats.totalSize) }}</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">命中率:</span>
-                <span class="stat-value">{{ cacheStats.hitRate || '0%' }}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="stat-card">
-            <div class="stat-title">🏷️ 分类统计</div>
-            <div class="stat-content">
-              <div v-for="(count, category) in cacheStats.categories" :key="category" class="stat-item">
-                <span class="stat-label">{{ category }}:</span>
-                <span class="stat-value">{{ count }}</span>
-              </div>
-            </div>
-          </div>
+        <!-- 加载状态 -->
+        <div v-if="r2Loading" class="r2-loading-state">
+          <div class="loading-spinner">🔄</div>
+          <span>加载 R2 文件列表中...</span>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- 缓存内容模态框 -->
-  <div v-if="cacheModalVisible" class="cache-content-modal" @click.self="closeCacheModal">
-    <div class="modal-overlay">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>缓存内容: {{ cacheModalKey }}</h3>
-          <button class="modal-close" @click="closeCacheModal">×</button>
-        </div>
-        <div class="modal-body">
-          <pre class="cache-content-text">{{ cacheModalContent }}</pre>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" @click="closeCacheModal">关闭</button>
-          <button class="btn btn-primary" @click="copyCacheContent">复制内容</button>
+    <!-- 缓存内容模态框 -->
+    <div v-if="cacheModalVisible" class="cache-content-modal" @click.self="closeCacheModal">
+      <div class="modal-overlay">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>缓存内容: {{ cacheModalKey }}</h3>
+            <button class="modal-close" @click="closeCacheModal">×</button>
+          </div>
+          <div class="modal-body">
+            <pre class="cache-content-text">{{ cacheModalContent }}</pre>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="closeCacheModal">关闭</button>
+            <button class="btn btn-primary" @click="copyCacheContent">复制内容</button>
+          </div>
         </div>
       </div>
     </div>
@@ -567,15 +720,75 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore, useSystemStore } from '@/composables/stores'
-import { systemApiService, userApiService, mailboxApiService, apiService } from '@/composables/api'
-import { ElMessage } from 'element-plus'
-import { cacheService } from '@/composables/cache'
+import { systemApiService, userApiService, apiService } from '@/composables/api'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { cacheService, browserCacheManager } from '@/composables/cache'
 
 const authStore = useAuthStore()
 const sending = ref(false)
 const testResult = ref('')
 const cacheInfo = ref<any>(null)
 const showEmailForm = ref(false) // 控制模拟邮件接收表单的显示
+
+// 缓存管理
+const cacheStats = ref<any>(null)
+const loadingCacheStats = ref(false)
+const clearingCache = ref(false)
+const cacheClearResult = ref<any>(null)
+
+// 缓存操作管理
+const activeCacheOperation = ref<string | null>(null)
+
+// 缓存操作API配置
+const cacheOperations = ref([
+  {
+    id: 'cacheInfo',
+    icon: '📊',
+    title: '查看缓存信息',
+    description: '查看所有缓存项的详细信息，包括大小、TTL、状态等',
+    buttonText: '获取',
+    buttonAction: () => loadCacheInfo(),
+    loading: () => loadingCacheStats.value,
+    hasData: () => !!cacheInfo.value || (cacheStats.value !== null),
+    badge: () => cacheInfo.value ? `${Object.keys(parseCacheInfo(cacheInfo.value)).length} 项` : null,
+    danger: false
+  },
+  {
+    id: 'cacheClear',
+    icon: '🗑️',
+    title: '清理缓存',
+    description: '清理应用存储数据，支持清理其他存储或完全清理',
+    buttonText: null,
+    buttonAction: null,
+    loading: () => clearingCache.value,
+    hasData: () => true, // 始终可展开
+    badge: () => null,
+    danger: true
+  }
+])
+
+// 缓存操作方法
+const setActiveCacheOperation = (operationId: string) => {
+  if (activeCacheOperation.value === operationId) {
+    activeCacheOperation.value = null // 如果点击同一个按钮，则关闭
+  } else {
+    activeCacheOperation.value = operationId
+    // 自动执行操作
+    const operation = cacheOperations.value.find(op => op.id === operationId)
+    if (operation?.buttonAction) {
+      operation.buttonAction()
+    }
+  }
+}
+
+const getActiveCacheOperationInfo = () => {
+  return cacheOperations.value.find(op => op.id === activeCacheOperation.value)
+}
+
+const hasActiveCacheOperationData = () => {
+  const operation = getActiveCacheOperationInfo()
+  return operation?.hasData()
+}
 
 // 管理员权限判断
 const isAdmin = computed(() => authStore.user?.user_type === 1)
@@ -599,8 +812,12 @@ const dbStatsLoading = ref(false)
 const dbTestResult = ref<any>(null)
 const dbTestLoading = ref(false)
 
-// 缓存统计相关
-const cacheStats = ref<any>(null)
+// R2 文件相关
+const r2Files = ref<any>(null)
+const r2Loading = ref(false)
+const r2Prefix = ref('')
+const r2Deleting = ref(false)
+const selectedR2Files = ref<string[]>([])
 
 // 数据库操作管理
 const activeOperation = ref<string | null>(null)
@@ -761,13 +978,13 @@ const sendTestEmail = async () => {
     const result = await response.json()
 
     if (result.success) {
-      alert('测试邮件模拟成功')
+      ElMessage.success('测试邮件模拟成功')
     } else {
-      alert(result.error || '测试邮件模拟失败')
+      ElMessage.error(result.error || '测试邮件模拟失败')
     }
   } catch (error) {
     console.error('发送测试邮件失败:', error)
-    alert('发送测试邮件失败')
+    ElMessage.error('发送测试邮件失败')
   } finally {
     sending.value = false
   }
@@ -801,6 +1018,92 @@ const testUserInfo = async () => {
   }
 }
 
+// 加载缓存信息（合并统计和详细信息）
+const loadCacheInfo = async () => {
+  loadingCacheStats.value = true
+  try {
+    // 1. 获取存储统计
+    cacheStats.value = await browserCacheManager.getBrowserCacheStats()
+
+    // 2. 获取详细缓存信息
+    showCacheInfoData()
+
+    ElMessage.success('缓存信息已加载')
+  } catch (error) {
+    console.error('加载缓存信息失败:', error)
+    ElMessage.error('加载缓存信息失败')
+  } finally {
+    loadingCacheStats.value = false
+  }
+}
+
+// 显示清理缓存对话框
+const showClearCacheDialog = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '请选择清理方式：\n\n' +
+      '• 清理其他存储：清理 localStorage、sessionStorage、IndexedDB 中的非 CEM 数据（保留 CEM 缓存、用户信息、系统配置）\n\n' +
+      '• 完全清理：清空所有数据并退出登录（包括 CEM 缓存、用户信息等）',
+      '清理缓存',
+      {
+        distinguishCancelAndClose: true,
+        confirmButtonText: '清理其他存储',
+        cancelButtonText: '完全清理',
+        type: 'warning'
+      }
+    )
+    // 用户点击"清理其他存储"
+    clearBrowserCache()
+  } catch (error: any) {
+    if (error === 'cancel') {
+      // 用户点击"完全清理"
+      clearAllCache()
+    }
+    // 其他情况（关闭按钮）不做任何操作
+  }
+}
+
+const clearBrowserCache = async () => {
+  if (!confirm('确定要清理其他存储吗？\n\n这将清理：\n- localStorage 中的非 CEM 数据（保留应用缓存、用户信息、系统配置）\n- sessionStorage 全部数据\n- IndexedDB 全部数据\n\n不会清理：\n- CEM 应用缓存（cem_cache_ 前缀）\n- 用户登录信息\n- 系统配置\n\n注意：HTTP 缓存（CSS/JS 等静态资源）由后端控制，无法通过前端清理。')) {
+    return
+  }
+
+  clearingCache.value = true
+  cacheClearResult.value = null
+  try {
+    const result = await browserCacheManager.clearAllBrowserCache()
+    cacheClearResult.value = result
+    if (result.success) {
+      ElMessage.success('其他存储清理成功')
+      // 刷新统计
+      await loadCacheInfo()
+    } else {
+      ElMessage.warning('其他存储清理完成，但有部分错误')
+    }
+  } catch (error) {
+    console.error('清理其他存储失败:', error)
+    ElMessage.error('清理其他存储失败')
+    cacheClearResult.value = {
+      success: false,
+      cleared: [],
+      errors: [`清理过程出错: ${error}`]
+    }
+  } finally {
+    clearingCache.value = false
+  }
+}
+
+// 注意：Cache-Control 头由后端（Worker）设置，前端无法直接设置 HTTP 响应头
+// 静态资源（CSS、JS、图片等）的 Cache-Control 已在 worker/src/main.ts 中配置
+
+const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+}
+
 const testForwardRules = async () => {
   try {
     const response = await userApiService.getForwardRules()
@@ -810,18 +1113,10 @@ const testForwardRules = async () => {
   }
 }
 
-const testMailboxes = async () => {
-  try {
-    const response = await mailboxApiService.getMailboxes()
-    testResult.value = JSON.stringify(response, null, 2)
-  } catch (error) {
-    testResult.value = `错误: ${error}`
-  }
-}
 
 // 缓存管理
 const clearAllCache = () => {
-  if (!confirm('确定要清空所有缓存吗？这将清空所有CEM相关的缓存数据，但不会影响其他网站的数据。')) {
+  if (!confirm('⚠️ 确定要完全清理并退出登录吗？\n\n这将：\n- 清空所有 CEM 应用缓存（cem_cache_ 前缀）\n- 清空所有 localStorage 数据（包括用户信息、系统配置）\n- 清空所有 sessionStorage 数据\n- 清空所有 Cookies\n- 退出登录并跳转到登录页\n\n此操作不可恢复！')) {
     return
   }
 
@@ -871,47 +1166,10 @@ const clearAllCache = () => {
 
 
 // 显示所有存储数据
-const showAllStorage = () => {
-  let storageInfo = '=== 存储数据总览 ===\n\n'
-
-  // 1. localStorage 数据
-  const allLocalStorageKeys = Object.keys(localStorage)
-  storageInfo += `📦 localStorage (${allLocalStorageKeys.length} 项):\n`
-  allLocalStorageKeys.forEach(key => {
-    const value = localStorage.getItem(key)
-    storageInfo += `  ${key}: ${value}\n`
-  })
-
-  // 2. sessionStorage 数据（项目不再使用sessionStorage）
-  const allSessionStorageKeys = Object.keys(sessionStorage)
-  storageInfo += `\n🗂️ sessionStorage (${allSessionStorageKeys.length} 项，项目不再使用):\n`
-  if (allSessionStorageKeys.length === 0) {
-    storageInfo += `  (空 - 项目已统一使用 localStorage)\n`
-  } else {
-    allSessionStorageKeys.forEach(key => {
-      const value = sessionStorage.getItem(key)
-      storageInfo += `  ${key}: ${value}\n`
-    })
-  }
-
-  // 3. Cookies 数据
-  storageInfo += `\n🍪 Cookies:\n`
-  if (document.cookie) {
-    const cookies = document.cookie.split(';')
-    cookies.forEach(cookie => {
-      const [name, value] = cookie.trim().split('=')
-      storageInfo += `  ${name}: ${value}\n`
-    })
-  } else {
-    storageInfo += `  无cookies\n`
-  }
-
-  // 显示在模态框中
-  showCacheContentModal('存储数据总览', storageInfo)
-}
+// 注意：showAllStorage 功能已合并到 loadCacheInfo 中，已删除
 
 
-const showCacheInfo = () => {
+const showCacheInfoData = () => {
   const cacheData: Record<string, any> = {}
 
   // 获取所有localStorage中的数据
@@ -1022,7 +1280,7 @@ const loadDatabaseInfo = async () => {
     }
   } catch (error) {
     console.error('获取数据库信息失败:', error)
-    alert('获取数据库信息失败: ' + (error as Error).message)
+    ElMessage.error('获取数据库信息失败: ' + (error as Error).message)
     databaseInfo.value = null
   } finally {
     dbLoading.value = false
@@ -1115,7 +1373,7 @@ const getColumnClass = (column: string): string => {
 
 const initializeDatabase = async () => {
   if (confirmText.value !== 'CONFIRM_RESET_DATABASE') {
-    alert('请输入正确的确认文本')
+    ElMessage.warning('请输入正确的确认文本')
     return
   }
 
@@ -1197,7 +1455,7 @@ const getTableCount = (tables: any) => {
 // 数据库统计方法
 const loadDatabaseStats = async () => {
   if (!isAdmin.value) {
-    alert('此功能需要管理员权限')
+    ElMessage.warning('此功能需要管理员权限')
     return
   }
 
@@ -1222,7 +1480,7 @@ const loadDatabaseStats = async () => {
     }
   } catch (error) {
     console.error('获取数据库统计失败:', error)
-    alert('获取数据库统计失败: ' + (error as Error).message)
+    ElMessage.error('获取数据库统计失败: ' + (error as Error).message)
     dbStats.value = null
   } finally {
     dbStatsLoading.value = false
@@ -1286,33 +1544,7 @@ const formatFileSize = (bytes: number | undefined): string => {
   return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i]
 }
 
-// 缓存统计方法
-const getCacheStats = () => {
-  try {
-    const keys = Object.keys(localStorage).filter(key => key.startsWith('cache_'))
-    const categories: Record<string, number> = {}
-    let totalSize = 0
-
-    keys.forEach(key => {
-      const value = localStorage.getItem(key)
-      if (value) {
-        totalSize += value.length
-        const category = key.split('_')[1] || 'unknown'
-        categories[category] = (categories[category] || 0) + 1
-      }
-    })
-
-    cacheStats.value = {
-      totalCount: keys.length,
-      totalSize,
-      hitRate: '85.3%', // 模拟命中率
-      categories
-    }
-  } catch (error) {
-    console.error('获取缓存统计失败:', error)
-    alert('获取缓存统计失败')
-  }
-}
+// 注意：getCacheStats 功能已合并到 loadCacheInfo 中，已删除
 
 // 解析缓存信息
 const parseCacheInfo = (info: any) => {
@@ -1453,7 +1685,7 @@ const clearSingleCache = (key: string) => {
     // 直接从localStorage删除
     localStorage.removeItem(key)
 
-    showCacheInfo() // 刷新缓存信息
+    showCacheInfoData() // 刷新缓存信息
   }
 }
 
@@ -1563,7 +1795,7 @@ const closeCacheModal = () => {
 const copyCacheContent = async () => {
   try {
     await navigator.clipboard.writeText(cacheModalContent.value)
-    alert('已复制到剪贴板')
+    ElMessage.success('已复制到剪贴板')
   } catch (err) {
     // 降级方案
     const textArea = document.createElement('textarea')
@@ -1572,7 +1804,127 @@ const copyCacheContent = async () => {
     textArea.select()
     document.execCommand('copy')
     document.body.removeChild(textArea)
-    alert('已复制到剪贴板')
+    ElMessage.success('已复制到剪贴板')
+  }
+}
+
+
+// R2 文件管理方法
+const loadR2Files = async () => {
+  r2Loading.value = true
+  try {
+    const params = new URLSearchParams()
+    if (r2Prefix.value) {
+      params.append('prefix', r2Prefix.value)
+    }
+    params.append('limit', '100')
+
+    const response = await fetch(`/api/database/r2-files?${params.toString()}`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    const result = await response.json()
+
+    if (result.success) {
+      r2Files.value = result.data
+      ElMessage.success('R2 文件列表获取成功')
+    } else {
+      throw new Error(result.message || '获取 R2 文件列表失败')
+    }
+  } catch (error) {
+    console.error('获取 R2 文件列表失败:', error)
+    ElMessage.error('获取 R2 文件列表失败: ' + (error as Error).message)
+    r2Files.value = null
+  } finally {
+    r2Loading.value = false
+  }
+}
+
+const refreshR2Files = () => {
+  selectedR2Files.value = [] // 清空选择
+  loadR2Files()
+}
+
+// 全选/取消全选
+const allR2FilesSelected = computed(() => {
+  return r2Files.value?.files?.length > 0 && selectedR2Files.value.length === r2Files.value.files.length
+})
+
+const toggleSelectAllR2Files = (event: Event) => {
+  const checked = (event.target as HTMLInputElement).checked
+  if (checked) {
+    selectedR2Files.value = r2Files.value?.files?.map((f: any) => f.key) || []
+  } else {
+    selectedR2Files.value = []
+  }
+}
+
+// 删除单个 R2 文件
+const deleteR2File = async (key: string) => {
+  if (!confirm(`确定要删除文件 "${key}" 吗？\n\n注意：如果是邮件文件，将同时删除对应的 meta.json 和数据库记录。`)) {
+    return
+  }
+
+  await deleteR2Files([key])
+}
+
+// 批量删除 R2 文件
+const deleteSelectedR2Files = async () => {
+  if (selectedR2Files.value.length === 0) {
+    ElMessage.warning('请先选择要删除的文件')
+    return
+  }
+
+  const fileCount = selectedR2Files.value.length
+  if (!confirm(`确定要删除选中的 ${fileCount} 个文件吗？\n\n注意：如果是邮件文件，将同时删除对应的 meta.json 和数据库记录。`)) {
+    return
+  }
+
+  await deleteR2Files([...selectedR2Files.value])
+}
+
+// 执行删除操作
+const deleteR2Files = async (keys: string[]) => {
+  r2Deleting.value = true
+  try {
+    const response = await fetch('/api/database/r2-files', {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ keys })
+    })
+
+    const result = await response.json()
+
+    if (result.success) {
+      ElMessage.success(result.message || '文件删除成功')
+      // 清空选择并刷新文件列表
+      selectedR2Files.value = []
+      await loadR2Files()
+    } else {
+      throw new Error(result.message || '删除文件失败')
+    }
+  } catch (error) {
+    console.error('删除 R2 文件失败:', error)
+    ElMessage.error('删除文件失败: ' + (error as Error).message)
+  } finally {
+    r2Deleting.value = false
+  }
+}
+
+// 格式化 R2 时间
+const formatR2Time = (time: string | null): string => {
+  if (!time) return '-'
+  try {
+    return new Date(time).toLocaleString('zh-CN')
+  } catch {
+    return time
   }
 }
 
@@ -2479,11 +2831,6 @@ onUnmounted(() => {
   border-bottom: 1px solid #f1f3f4;
 }
 
-.stat-item:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-}
-
 .stat-label {
   font-size: 14px;
   color: #666;
@@ -3270,5 +3617,386 @@ onUnmounted(() => {
   font-size: 14px;
   color: #868e96;
   line-height: 1.4;
+}
+
+/* R2 文件管理样式 */
+.r2-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.r2-filter {
+  flex: 1;
+  min-width: 200px;
+  max-width: 400px;
+}
+
+.r2-filter .form-control {
+  width: 100%;
+}
+
+.r2-files-container {
+  margin-top: 20px;
+}
+
+.r2-files-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.r2-files-header h3 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 16px;
+}
+
+.r2-files-info {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  font-size: 14px;
+  color: #666;
+}
+
+.truncated-warning {
+  color: #ff9800;
+  font-weight: 500;
+}
+
+.r2-files-table-container {
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  overflow: hidden;
+  overflow-x: auto;
+}
+
+.r2-files-table-grid {
+  display: grid;
+  grid-template-columns: 40px 2fr 120px 160px 120px;
+  gap: 0;
+  font-size: 13px;
+  min-width: 660px;
+}
+
+.r2-grid-header {
+  background: #f8f9fa;
+  padding: 12px 15px;
+  font-weight: 600;
+  color: #495057;
+  border-bottom: 2px solid #dee2e6;
+  border-right: 1px solid #e9ecef;
+  text-align: left;
+}
+
+.r2-grid-header:last-child {
+  border-right: none;
+}
+
+.r2-grid-cell {
+  padding: 10px 15px;
+  border-bottom: 1px solid #f1f3f4;
+  border-right: 1px solid #f1f3f4;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.r2-grid-cell:last-child {
+  border-right: none;
+}
+
+/* 斑马纹效果 */
+.r2-files-table-grid>.r2-grid-cell:nth-child(5n+1),
+.r2-files-table-grid>.r2-grid-cell:nth-child(5n+2),
+.r2-files-table-grid>.r2-grid-cell:nth-child(5n+3),
+.r2-files-table-grid>.r2-grid-cell:nth-child(5n+4),
+.r2-files-table-grid>.r2-grid-cell:nth-child(5n+5) {
+  background: white;
+}
+
+.r2-files-table-grid>.r2-grid-cell:nth-child(10n+6),
+.r2-files-table-grid>.r2-grid-cell:nth-child(10n+7),
+.r2-files-table-grid>.r2-grid-cell:nth-child(10n+8),
+.r2-files-table-grid>.r2-grid-cell:nth-child(10n+9),
+.r2-files-table-grid>.r2-grid-cell:nth-child(10n+10) {
+  background: #f8f9fa;
+}
+
+/* 悬停效果 */
+.r2-grid-cell:hover {
+  background: #e3f2fd !important;
+  cursor: default;
+}
+
+.r2-key-cell {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+  color: #0066cc;
+}
+
+.r2-key-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.r2-size-cell {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+  color: #666;
+  justify-content: flex-end;
+}
+
+.r2-time-cell {
+  font-size: 12px;
+  color: #666;
+  font-variant-numeric: tabular-nums;
+}
+
+.r2-type-cell {
+  font-size: 12px;
+  color: #666;
+}
+
+.r2-etag-cell {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 11px;
+  color: #999;
+}
+
+.r2-action-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.r2-action-cell .btn {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.btn-outline-danger {
+  background: transparent;
+  border: 1px solid #dc3545;
+  color: #dc3545;
+}
+
+.btn-outline-danger:hover:not(:disabled) {
+  background: #dc3545;
+  color: white;
+}
+
+.btn-outline-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.r2-checkbox-header,
+.r2-checkbox-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.r2-checkbox-header input[type="checkbox"],
+.r2-checkbox-cell input[type="checkbox"] {
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+}
+
+.r2-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.btn-danger {
+  background: #dc3545;
+  color: white;
+  border: none;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #c82333;
+}
+
+.btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.r2-meta-cell {
+  font-size: 12px;
+  color: #666;
+}
+
+.r2-meta-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.r2-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  background: #f8f9fa;
+  border: 2px dashed #dee2e6;
+  border-radius: 8px;
+  margin-top: 15px;
+}
+
+.empty-r2-icon {
+  font-size: 48px;
+  margin-bottom: 15px;
+  opacity: 0.6;
+}
+
+.empty-r2-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: #6c757d;
+  margin-bottom: 8px;
+}
+
+.empty-r2-hint {
+  font-size: 14px;
+  color: #868e96;
+  line-height: 1.4;
+}
+
+.r2-loading-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+  color: #666;
+  justify-content: center;
+}
+
+/* 浏览器缓存管理样式 */
+.cache-management {
+  margin-top: 15px;
+}
+
+.cache-stats {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 15px;
+}
+
+.cache-stats h3 {
+  margin: 0 0 15px 0;
+  font-size: 16px;
+  color: #495057;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+}
+
+.stat-item label {
+  font-weight: 600;
+  color: #6c757d;
+}
+
+.stat-item span {
+  color: #495057;
+}
+
+.cache-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 15px;
+}
+
+.cache-result {
+  padding: 15px;
+  border-radius: 8px;
+  margin-top: 15px;
+}
+
+.cache-result.success {
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  color: #155724;
+}
+
+.cache-result.error {
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+}
+
+.cache-result h3 {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+}
+
+.cache-result ul {
+  margin: 10px 0 0 20px;
+  padding: 0;
+}
+
+.cache-result li {
+  margin: 5px 0;
+}
+
+/* 缓存清理信息样式 */
+.cache-clear-info {
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.cache-clear-info p {
+  margin: 0 0 15px 0;
+  font-weight: 500;
+  color: #495057;
+}
+
+.cache-clear-info ul {
+  margin: 0 0 20px 20px;
+  padding: 0;
+  list-style: disc;
+}
+
+.cache-clear-info li {
+  margin: 8px 0;
+  color: #666;
+  line-height: 1.6;
+}
+
+.cache-clear-info .btn {
+  margin-top: 10px;
 }
 </style>

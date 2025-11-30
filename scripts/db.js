@@ -12,9 +12,9 @@
  *   node scripts/db.js U0VMRUNUICogRlJPTSB1c2Vycwo=  # base64 编码的 SQL
  */
 
-import {execSync} from 'child_process';
-import {fileURLToPath} from 'url';
-import {dirname, join} from 'path';
+import { execSync } from 'child_process';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,7 +26,7 @@ function parseArgs() {
 
     // 如果没有参数，显示帮助
     if (args.length === 0) {
-        return {command: 'help'};
+        return { command: 'help' };
     }
 
     const firstArg = args[0];
@@ -35,16 +35,16 @@ function parseArgs() {
     // 检查是否是预定义命令
     const predefinedCommands = ['init', 'migrate', 'import', 'help'];
     if (predefinedCommands.includes(firstArg)) {
-        return {command: firstArg, isRemote};
+        return { command: firstArg, isRemote };
     }
 
     // 检查是否是 base64 编码的 SQL
     if (isBase64(firstArg)) {
-        return {command: 'sql', sql: decodeBase64(firstArg), isRemote};
+        return { command: 'sql', sql: decodeBase64(firstArg), isRemote };
     }
 
     // 否则当作直接的 SQL 命令
-    return {command: 'sql', sql: firstArg, isRemote};
+    return { command: 'sql', sql: firstArg, isRemote };
 }
 
 // 检查是否是 base64 编码
@@ -127,7 +127,7 @@ async function executeDbClean(isRemote) {
         // 动态获取表依赖关系并删除表
         if (tablesResult && tablesResult.results && tablesResult.results.length > 0) {
             const tables = tablesResult.results.map(row => row.name);
-            console.log(`📋 发现 ${tables.length} 个表:`, tables.join(', '));
+            console.log(`📋 发现 ${tables.length} 个表:`);
 
             // 一次性获取所有表的外键依赖关系
             const tableDependencies = {};
@@ -221,7 +221,7 @@ async function executeDbClean(isRemote) {
                 }
             }
 
-            console.log(`📋 删除顺序:`, deleteOrder.join(' -> '));
+            console.log(`📋 删除顺序:`);
 
             // 按依赖顺序批量删除所有表
             const dropTablesSQL = deleteOrder.map(tableName => `DROP TABLE IF EXISTS ${tableName}`).join('; ');
@@ -322,11 +322,11 @@ async function executeImport() {
 // 执行自定义 SQL 命令
 async function executeSQL(sql, isRemote) {
     console.log(`🔧 执行 SQL 命令${isRemote ? ' (远程)' : ''}...`);
-    console.log(`SQL: ${sql.replace(/\s+/g, ' ').replace(/\n/g, ' ')}`);
+    // console.log(`SQL: ${sql.replace(/\s+/g, ' ').replace(/\n/g, ' ')}`);
 
     try {
         // 使用 spawn 而不是 execSync 来避免 shell 引号问题
-        const {spawn} = await import('child_process');
+        const { spawn } = await import('child_process');
 
         return new Promise((resolve, reject) => {
             const args = ['wrangler', 'd1', 'execute', 'cem-db', '--command', sql, '--json'];
@@ -361,8 +361,8 @@ async function executeSQL(sql, isRemote) {
 
                             // 如果是查询结果，显示数据
                             if (result && result.results && result.results.length > 0) {
-                                console.log('📊 查询结果:');
-                                console.log(JSON.stringify(result));
+                                // console.log('📊 查询结果:');
+                                // console.log(JSON.stringify(result));
                             } else if (result && result.success) {
                                 console.log('✅ 命令执行成功');
                             }
@@ -370,12 +370,12 @@ async function executeSQL(sql, isRemote) {
                             resolve(result);
                         } else {
                             console.log('✅ 命令执行成功');
-                            resolve({success: true});
+                            resolve({ success: true });
                         }
                     } catch (parseError) {
                         console.log('⚠️ JSON 解析失败，返回原始输出');
                         console.log('原始输出:', stdout);
-                        resolve({success: true, raw: stdout});
+                        resolve({ success: true, raw: stdout });
                     }
                 } else {
                     console.error('❌ SQL 命令执行失败');
@@ -431,7 +431,7 @@ SQL 执行:
 
 // 主函数
 async function main() {
-    const {command, isRemote, sql} = parseArgs();
+    const { command, isRemote, sql } = parseArgs();
 
     try {
         switch (command) {

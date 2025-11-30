@@ -164,7 +164,8 @@ cache.post('/warmup', adminAuthMiddleware, async (c) => {
           break
 
         default:
-          console.warn(`未知的预热类型: ${type}`)
+          const { debugLog } = await import('../utils/debug');
+          debugLog('缓存预热', `未知的预热类型: ${type}`);
       }
     }
 

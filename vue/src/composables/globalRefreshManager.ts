@@ -5,8 +5,7 @@
 
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { useRouteApiCacheMapper, useGlobalRefreshManager } from './routeApiCacheMapper'
-import { useAuthStore } from './stores'
+import { useRouteApiManager, useRouteGlobalRefreshManager } from './routeApiManager'
 
 // 刷新状态管理
 const refreshing = ref(false)
@@ -21,9 +20,8 @@ const refreshHistory = ref<Array<{
 // 全局刷新管理器
 export function useUnifiedGlobalRefreshManager() {
   const route = useRoute()
-  const authStore = useAuthStore()
-  const { isSupportedRoute, hasPermission, getRouteInfo } = useRouteApiCacheMapper()
-  const { refreshCurrentPage } = useGlobalRefreshManager()
+  const { isSupportedRoute, hasPermission, getRouteInfo } = useRouteApiManager()
+  const { executeGlobalRefresh: executeUnifiedRefresh } = useRouteGlobalRefreshManager()
 
   // 当前刷新状态
   const isRefreshing = computed(() => refreshing.value)
@@ -47,23 +45,24 @@ export function useUnifiedGlobalRefreshManager() {
     try {
       console.log('🌍 开始全局刷新')
 
-      // 先触发全局刷新事件
-      window.dispatchEvent(new CustomEvent('global:refresh', {
-        detail: {
-          routeName: route.name,
-          timestamp: startTime,
-          customParams
-        }
-      }))
-
       let result = null
 
       // 检查是否支持统一管理
       if (isSupportedRoute.value && hasPermission.value) {
-        console.log('📋 使用统一刷新管理器')
-        result = await refreshCurrentPage(customParams)
+        console.log('📋 使用统一刷新管理器（直接调用API刷新缓存）')
+        // 支持统一管理的路由，直接调用刷新，更新缓存
+        result = await executeUnifiedRefresh()
       } else {
-        console.log('🔧 使用页面级刷新方法')
+        console.log('🔧 使用页面级刷新方法（触发事件）')
+        // 不支持统一管理的路由，先触发事件，然后调用页面级刷新方法
+        window.dispatchEvent(new CustomEvent('global:refresh', {
+          detail: {
+            routeName: route.name,
+            timestamp: startTime,
+            customParams
+          }
+        }))
+
         // 调用页面级刷新方法（如果存在）
         if (window.refreshCurrentPage && typeof window.refreshCurrentPage === 'function') {
           // 避免递归调用，检查是否是同一个函数
@@ -89,6 +88,19 @@ export function useUnifiedGlobalRefreshManager() {
       lastRefreshTime.value = endTime
 
       console.log(`✅ 全局刷新完成，耗时: ${endTime.getTime() - startTime.getTime()}ms`)
+
+      // 🔥 重要：触发刷新完成事件，通知所有页面组件重新加载数据
+      // 对于支持统一管理的路由，缓存已更新，页面需要重新加载数据以更新显示
+      window.dispatchEvent(new CustomEvent('global:refresh:complete', {
+        detail: {
+          routeName: route.name,
+          timestamp: endTime,
+          duration: endTime.getTime() - startTime.getTime(),
+          result
+        }
+      }))
+      console.log('🎉 已触发 global:refresh:complete 事件，通知页面组件更新显示')
+
       return result
 
     } catch (error) {
@@ -197,9 +209,23 @@ export function useGlobalRefreshEventListener() {
     console.log('🗑️ 全局刷新事件监听器已移除')
   }
 
+  // 监听全局刷新完成事件
+  const addGlobalRefreshCompleteListener = (callback: (event: CustomEvent) => void) => {
+    window.addEventListener('global:refresh:complete', callback as EventListener)
+    console.log('👂 全局刷新完成事件监听器已添加')
+  }
+
+  // 移除全局刷新完成事件监听器
+  const removeGlobalRefreshCompleteListener = (callback: (event: CustomEvent) => void) => {
+    window.removeEventListener('global:refresh:complete', callback as EventListener)
+    console.log('🗑️ 全局刷新完成事件监听器已移除')
+  }
+
   return {
     addGlobalRefreshListener,
-    removeGlobalRefreshListener
+    removeGlobalRefreshListener,
+    addGlobalRefreshCompleteListener,
+    removeGlobalRefreshCompleteListener
   }
 }
 

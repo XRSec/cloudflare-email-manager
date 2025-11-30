@@ -154,10 +154,74 @@ paths:
         '200': { $ref: '#/components/schemas/BasicResponse' }
         '404': { $ref: '#/components/responses/NotFoundError' }
 
+  /api/emails/{id}/raw:
+    get:
+      tags: [Emails]
+      summary: 下载原始邮件（.eml 格式，支持 HTTP 缓存）
+      description: |
+        获取邮件的原始 RFC 822 格式内容，支持完整的 HTTP 缓存机制：
+        - 返回剔除附件后的完整邮件（包含邮件头和正文）
+        - **ETag**: 基于邮件 ID 和更新时间生成
+        - **Last-Modified**: 邮件的最后修改时间
+        - **Cache-Control**: public, max-age=31536000, immutable（缓存 1 年）
+        - **304 Not Modified**: 当客户端缓存有效时返回
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EmailIdParam'
+        - name: If-None-Match
+          in: header
+          required: false
+          description: ETag 值，用于条件请求
+          schema: { type: string }
+        - name: If-Modified-Since
+          in: header
+          required: false
+          description: 最后修改时间，用于条件请求
+          schema: { type: string }
+      responses:
+        '200':
+          description: 原始邮件内容（RFC 822 格式）
+          headers:
+            ETag:
+              description: 邮件的 ETag 标识
+              schema: { type: string }
+            Last-Modified:
+              description: 邮件的最后修改时间
+              schema: { type: string }
+            Cache-Control:
+              description: 缓存策略
+              schema: { type: string }
+              example: 'public, max-age=31536000, immutable'
+          content:
+            message/rfc822:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: Not Modified（缓存仍然有效）
+          headers:
+            ETag:
+              schema: { type: string }
+            Last-Modified:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+
   /api/emails/{id}/attachments/{attachmentId}:
     get:
       tags: [Emails]
-      summary: 下载附件
+      summary: 下载附件（支持 HTTP 缓存）
+      description: |
+        下载邮件附件，支持完整的 HTTP 缓存机制：
+        - **ETag**: 基于附件 ID 和更新时间生成
+        - **Last-Modified**: 附件的最后修改时间
+        - **Cache-Control**: public, max-age=31536000, immutable（缓存 1 年）
+        - **304 Not Modified**: 当客户端缓存有效时返回
+        
+        **条件请求支持**：
+        - 客户端可发送 `If-None-Match` 头（ETag 值）
+        - 客户端可发送 `If-Modified-Since` 头（时间戳）
+        - 如果缓存有效，服务器返回 304，无响应体
       security:
         - cookieAuth: []
       parameters:
@@ -166,11 +230,52 @@ paths:
           in: path
           required: true
           schema: { type: integer }
+        - name: If-None-Match
+          in: header
+          required: false
+          description: ETag 值，用于条件请求
+          schema: { type: string }
+          example: '"abc123"'
+        - name: If-Modified-Since
+          in: header
+          required: false
+          description: 最后修改时间，用于条件请求
+          schema: { type: string }
+          example: 'Sun, 30 Nov 2025 12:00:00 GMT'
       responses:
         '200':
-          description: 附件文件流
+          description: 附件文件流（首次请求或缓存失效）
+          headers:
+            ETag:
+              description: 附件的 ETag 标识
+              schema: { type: string }
+              example: '"abc123"'
+            Last-Modified:
+              description: 附件的最后修改时间
+              schema: { type: string }
+              example: 'Sun, 30 Nov 2025 12:00:00 GMT'
+            Cache-Control:
+              description: 缓存策略
+              schema: { type: string }
+              example: 'public, max-age=31536000, immutable'
+            Vary:
+              description: 缓存隔离策略
+              schema: { type: string }
+              example: 'Authorization'
           content:
             '*/*': {}
+        '304':
+          description: Not Modified（缓存仍然有效）
+          headers:
+            ETag:
+              description: 附件的 ETag 标识
+              schema: { type: string }
+            Last-Modified:
+              description: 附件的最后修改时间
+              schema: { type: string }
+            Cache-Control:
+              description: 缓存策略
+              schema: { type: string }
         '404': { $ref: '#/components/responses/NotFoundError' }
 
   /api/emails/send:
@@ -499,14 +604,18 @@ components:
 
     ForwardRuleInput:
       type: object
-      required: [rule_name, webhook_url]
+      required: [rule_name]
       properties:
         rule_name: { type: string }
-        description: { type: string }
-        webhook_url: { type: string }
-        webhook_secret: { type: string }
+        sender_filter: { type: string }
+        keyword_filter: { type: string }
         recipient_filter: { type: string }
-        is_enabled: { type: boolean }
+        enabled: { type: integer, enum: [0, 1] }
+        webhooks:
+          type: array
+          description: 规则关联的多个 webhook 配置
+          items:
+            $ref: '#/components/schemas/ForwardRuleWebhook'
 
     ForwardRuleResponse:
       allOf:
@@ -536,11 +645,30 @@ components:
       properties:
         id: { type: integer }
         rule_name: { type: string }
-        description: { type: string }
+        sender_filter: { type: string }
+        keyword_filter: { type: string }
+        recipient_filter: { type: string }
+        webhook_url: { type: string, description: 保留字段以兼容旧数据 }
+        webhook_secret: { type: string, description: 保留字段以兼容旧数据 }
+        webhook_type: { type: string, enum: [dingtalk, feishu, bark, custom], description: 保留字段以兼容旧数据 }
+        enabled: { type: integer, enum: [0, 1] }
+        created_at: { type: string }
+        updated_at: { type: string }
+        webhooks:
+          type: array
+          description: 规则关联的多个 webhook 配置
+          items:
+            $ref: '#/components/schemas/ForwardRuleWebhook'
+
+    ForwardRuleWebhook:
+      type: object
+      properties:
+        id: { type: integer }
+        rule_id: { type: integer }
         webhook_url: { type: string }
         webhook_secret: { type: string }
-        recipient_filter: { type: string }
-        is_enabled: { type: boolean }
+        webhook_type: { type: string, enum: [dingtalk, feishu, bark, custom] }
+        enabled: { type: integer, enum: [0, 1] }
         created_at: { type: string }
         updated_at: { type: string }
 
@@ -612,7 +740,8 @@ components:
       type: object
       properties:
         debug_mode: { type: integer, enum: [0,1] }
-        cleanup_days: { type: integer }
+        mail_retention_days: { type: integer, description: 邮件保留天数 }
+        attachment_retention_days: { type: integer, description: 附件保留天数 }
         max_attachment_size: { type: integer, description: 单位：字节 }
         cookie_max_age: { type: integer, description: 单位：秒 }
         primary_domain: { type: string }
@@ -620,6 +749,9 @@ components:
         domains:
           type: array
           items: { type: string }
+        default_webhook_url: { type: string, description: 默认 Webhook URL（系统级别，所有邮件都会发送到此 webhook，如果为空则不通知） }
+        default_webhook_secret: { type: string, description: 默认 Webhook 密钥（可选） }
+        default_webhook_type: { type: string, enum: [dingtalk, feishu, bark, custom], description: 默认 Webhook 类型 }
 
     DatabaseInfoResponse:
       allOf:

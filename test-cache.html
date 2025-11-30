@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>缓存测试</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #555;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: monospace;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .secondary {
+            background: #2196F3;
+        }
+        .secondary:hover {
+            background: #0b7dda;
+        }
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 4px;
+            border-left: 4px solid #4CAF50;
+        }
+        .error {
+            border-left-color: #f44336;
+            background: #ffebee;
+        }
+        .success {
+            border-left-color: #4CAF50;
+            background: #e8f5e9;
+        }
+        .warning {
+            border-left-color: #ff9800;
+            background: #fff3e0;
+        }
+        .info {
+            border-left-color: #2196F3;
+            background: #e3f2fd;
+        }
+        pre {
+            background: #272822;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .status {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .status.good { color: #4CAF50; }
+        .status.bad { color: #f44336; }
+        .headers {
+            margin-top: 15px;
+        }
+        .header-item {
+            display: flex;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .header-key {
+            font-weight: 600;
+            min-width: 200px;
+            color: #555;
+        }
+        .header-value {
+            color: #333;
+            font-family: monospace;
+            word-break: break-all;
+        }
+        .cache-check {
+            display: inline-block;
+            margin-left: 10px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .cache-check.yes {
+            background: #4CAF50;
+            color: white;
+        }
+        .cache-check.no {
+            background: #f44336;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 缓存功能测试工具</h1>
+        <p class="subtitle">测试附件下载的三层缓存机制</p>
+
+        <div class="form-group">
+            <label>JWT Token:</label>
+            <input type="text" id="token" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
+        </div>
+
+        <div class="form-group">
+            <label>Email ID:</label>
+            <input type="text" id="emailId" placeholder="f167d374-5085-43dd-8edc-e0e521b9f9e2" value="f167d374-5085-43dd-8edc-e0e521b9f9e2" />
+        </div>
+
+        <div class="form-group">
+            <label>Attachment ID:</label>
+            <input type="text" id="attachmentId" placeholder="29e7b2e5-410f-420e-a1f5-1d078690cfae" value="29e7b2e5-410f-420e-a1f5-1d078690cfae" />
+        </div>
+
+        <div class="form-group">
+            <label>后端地址:</label>
+            <input type="text" id="backend" placeholder="http://localhost:8787" value="http://localhost:8787" />
+        </div>
+
+        <button onclick="testCache()">🧪 测试缓存</button>
+        <button class="secondary" onclick="testWithETag()">🔄 测试 304 响应</button>
+        <button class="secondary" onclick="clearResults()">🗑️ 清空结果</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        let lastETag = null;
+
+        async function testCache() {
+            const token = document.getElementById('token').value.trim();
+            const emailId = document.getElementById('emailId').value.trim();
+            const attachmentId = document.getElementById('attachmentId').value.trim();
+            const backend = document.getElementById('backend').value.trim();
+
+            if (!token || !emailId || !attachmentId) {
+                showResult('请填写所有必需字段', 'error');
+                return;
+            }
+
+            const url = `${backend}/api/emails/${emailId}/attachments/${attachmentId}`;
+            
+            showResult('🔄 正在请求...', 'info');
+
+            try {
+                const startTime = performance.now();
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+
+                // 提取所有响应头
+                const headers = {};
+                response.headers.forEach((value, key) => {
+                    headers[key] = value;
+                });
+
+                // 保存 ETag
+                if (headers['etag']) {
+                    lastETag = headers['etag'];
+                }
+
+                // 获取内容大小
+                const blob = await response.blob();
+                const sizeKB = (blob.size / 1024).toFixed(2);
+
+                // 分析结果
+                let html = `
+                    <div class="result ${response.ok ? 'success' : 'error'}">
+                        <div class="status ${response.ok ? 'good' : 'bad'}">
+                            状态码: ${response.status} ${response.statusText}
+                        </div>
+                        <p><strong>⏱️ 响应时间:</strong> ${duration} ms</p>
+                        <p><strong>📦 文件大小:</strong> ${sizeKB} KB</p>
+                        <p><strong>🔗 请求 URL:</strong> <code>${url}</code></p>
+                `;
+
+                // 检查缓存头
+                html += '<div class="headers"><strong>📋 响应头分析:</strong>';
+                
+                const checkHeader = (key, label) => {
+                    const value = headers[key];
+                    const exists = !!value;
+                    return `
+                        <div class="header-item">
+                            <div class="header-key">${label}:</div>
+                            <div class="header-value">
+                                ${value || '❌ 不存在'}
+                                <span class="cache-check ${exists ? 'yes' : 'no'}">${exists ? '✓' : '✗'}</span>
+                            </div>
+                        </div>
+                    `;
+                };
+
+                html += checkHeader('etag', 'ETag');
+                html += checkHeader('cache-control', 'Cache-Control');
+                html += checkHeader('last-modified', 'Last-Modified');
+                html += checkHeader('vary', 'Vary');
+                html += '</div>';
+
+                // 给出建议
+                html += '<div style="margin-top: 20px; padding: 15px; background: #f0f0f0; border-radius: 4px;">';
+                if (headers['etag'] && headers['cache-control']) {
+                    html += '<p style="color: #4CAF50; font-weight: bold;">✅ 缓存头配置正确！</p>';
+                    html += '<p>现在可以点击 "🔄 测试 304 响应" 按钮测试条件请求。</p>';
+                } else {
+                    html += '<p style="color: #f44336; font-weight: bold;">❌ 缓存头缺失！</p>';
+                    if (!headers['etag']) {
+                        html += '<p>• 缺少 ETag 头</p>';
+                    }
+                    if (!headers['cache-control']) {
+                        html += '<p>• 缺少 Cache-Control 头</p>';
+                    }
+                    html += '<p>请检查后端代码是否正确实现了缓存功能。</p>';
+                }
+                html += '</div>';
+
+                html += '</div>';
+                document.getElementById('results').innerHTML = html;
+
+            } catch (error) {
+                showResult(`❌ 请求失败: ${error.message}`, 'error');
+            }
+        }
+
+        async function testWithETag() {
+            if (!lastETag) {
+                showResult('❌ 请先执行 "测试缓存" 获取 ETag', 'warning');
+                return;
+            }
+
+            const token = document.getElementById('token').value.trim();
+            const emailId = document.getElementById('emailId').value.trim();
+            const attachmentId = document.getElementById('attachmentId').value.trim();
+            const backend = document.getElementById('backend').value.trim();
+
+            const url = `${backend}/api/emails/${emailId}/attachments/${attachmentId}`;
+
+            showResult('🔄 正在测试 304 响应...', 'info');
+
+            try {
+                const startTime = performance.now();
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'If-None-Match': lastETag
+                    }
+                });
+                const endTime = performance.now();
+                const duration = Math.round(endTime - startTime);
+
+                let html = `
+                    <div class="result ${response.status === 304 ? 'success' : 'warning'}">
+                        <div class="status ${response.status === 304 ? 'good' : 'bad'}">
+                            状态码: ${response.status} ${response.statusText}
+                        </div>
+                        <p><strong>⏱️ 响应时间:</strong> ${duration} ms</p>
+                        <p><strong>🔑 使用的 ETag:</strong> <code>${lastETag}</code></p>
+                `;
+
+                if (response.status === 304) {
+                    html += `
+                        <div style="margin-top: 20px; padding: 15px; background: #e8f5e9; border-radius: 4px;">
+                            <p style="color: #4CAF50; font-weight: bold;">✅ 304 Not Modified 响应成功！</p>
+                            <p>✨ 缓存机制工作正常！浏览器会使用本地缓存，不会重新下载文件。</p>
+                            <p>💡 响应时间非常快（${duration} ms），因为服务器只返回了头部，没有返回文件内容。</p>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <div style="margin-top: 20px; padding: 15px; background: #fff3e0; border-radius: 4px;">
+                            <p style="color: #ff9800; font-weight: bold;">⚠️ 未返回 304 响应</p>
+                            <p>预期返回 304 Not Modified，但实际返回了 ${response.status}。</p>
+                            <p>可能原因：</p>
+                            <ul>
+                                <li>后端没有正确处理 If-None-Match 头</li>
+                                <li>ETag 不匹配</li>
+                                <li>缓存逻辑有问题</li>
+                            </ul>
+                        </div>
+                    `;
+                }
+
+                html += '</div>';
+                document.getElementById('results').innerHTML = html;
+
+            } catch (error) {
+                showResult(`❌ 请求失败: ${error.message}`, 'error');
+            }
+        }
+
+        function showResult(message, type = 'info') {
+            document.getElementById('results').innerHTML = `
+                <div class="result ${type}">
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+            lastETag = null;
+        }
+    </script>
+</body>
+</html>
+

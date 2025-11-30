@@ -73,13 +73,6 @@ if (import.meta.env.DEV) {
   import('@/composables/testCacheKeys')
 }
 
-// 调试工具函数
-const debugLog = (...args: any[]) => {
-  if (systemStore.isDebugMode) {
-    console.log('[MainLayout]', ...args)
-  }
-}
-
 const authStore = useAuthStore()
 const systemStore = useSystemStore()
 const route = useRoute()

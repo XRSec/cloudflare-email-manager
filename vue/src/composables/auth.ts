@@ -71,11 +71,11 @@ export const authApiService = {
     return response.data
   },
 
-  // 注册
-  async register(username: string, email: string, password: string): Promise<RegisterResponse> {
-    const response = await api.post('/auth/register', { username, email, password })
-    return response.data
-  },
+  // 注册（已废弃，系统不支持注册）
+  // async register(username: string, email: string, password: string): Promise<any> {
+  //   const response = await api.post('/auth/register', { username, email, password })
+  //   return response.data
+  // },
 
   // 获取当前用户信息
   async getCurrentUser(): Promise<ApiResponse<UserProfile>> {

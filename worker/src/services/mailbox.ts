@@ -415,46 +415,6 @@ export async function processMailboxApplication(
 }
 
 /**
- * 检查邮箱地址是否被保留
- */
-export async function isReservedMailbox(db: D1Database, emailAddress: string): Promise<boolean> {
-    const setting = await db.prepare(`
-        SELECT value FROM system_settings WHERE key = 'reserved_mailboxes'
-    `).first();
-
-    if (!setting) {
-        return false;
-    }
-
-    try {
-        const reservedList = JSON.parse((setting as any).value);
-        const localPart = emailAddress.split('@')[0].toLowerCase();
-        return reservedList.includes(localPart);
-    } catch (error) {
-        errorLog('[邮箱服务] 解析保留邮箱列表失败:', error);
-        return false;
-    }
-}
-
-/**
- * 检查用户邮箱数量限制
- */
-export async function checkUserMailboxLimit(db: D1Database, userId: number): Promise<boolean> {
-    const setting = await db.prepare(`
-        SELECT value FROM system_settings WHERE key = 'max_mailboxes_per_user'
-    `).first();
-
-    const maxMailboxes = setting ? parseInt((setting as any).value) : 5;
-
-    const countResult = await db.prepare(`
-        SELECT COUNT(*) as count FROM mailboxes WHERE owner_id = ? AND status = 1
-    `).bind(userId).first();
-
-    const currentCount = (countResult as any)?.count || 0;
-    return currentCount < maxMailboxes;
-}
-
-/**
  * 获取邮箱申请列表（支持用户过滤）
  */
 export async function getMailboxApplications(
@@ -489,12 +449,40 @@ export async function getMailboxApplications(
  * 根据邮箱地址获取用户ID
  */
 export async function getUserIdByEmail(db: D1Database, email: string): Promise<number | null> {
-    const result = await db.prepare(`
-        SELECT u.id
-        FROM users u
-        JOIN mailboxes m ON u.id = m.owner_id
-        WHERE m.address = ? AND m.status = 1
-    `).bind(email).first();
+    const { retryD1Operation } = await import('../utils/retry');
+
+    const result = await retryD1Operation(`查询邮箱用户 ${email}`, async () => {
+        return await db.prepare(`
+            SELECT u.id
+            FROM users u
+            JOIN mailboxes m ON u.id = m.owner_id
+            WHERE m.address = ? AND m.status = 1
+        `).bind(email).first();
+    });
+
+    return (result as any)?.id || null;
+}
+
+/**
+ * 获取管理员用户ID（单用户模式）
+ * 
+ * 在单用户模式下，系统中只有一个管理员用户。
+ * 当邮件接收时，如果找不到对应的用户，默认将邮件关联到管理员用户。
+ * 
+ * @param db 数据库实例
+ * @returns 管理员用户ID，如果不存在则返回 null
+ */
+export async function getAdminUserId(db: D1Database): Promise<number | null> {
+    const { retryD1Operation } = await import('../utils/retry');
+
+    const result = await retryD1Operation('查询管理员用户', async () => {
+        return await db.prepare(`
+            SELECT id
+            FROM users
+            WHERE user_type = 1 AND status = 1
+            LIMIT 1
+        `).first();
+    });
 
     return (result as any)?.id || null;
 }

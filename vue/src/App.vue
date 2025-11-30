@@ -31,7 +31,6 @@
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore, useApp } from '@/composables/stores'
-import { smartCache } from '@/composables/smartCache'
 import { defineAsyncComponent } from 'vue'
 
 const AppLoadingSpinner = defineAsyncComponent(() => import('@/views/shared/components/AppLoadingSpinner.vue'))
@@ -149,9 +148,7 @@ const handleLogout = async () => {
 
 // 应用初始化
 onMounted(async () => {
-  // 初始化智能缓存系统
-  console.log('🚀 智能缓存系统已启动')
-  console.log('📊 缓存统计:', smartCache.getStats())
+  // 缓存系统已迁移到统一请求管理器
 
   await loadNextStage('initial-loading')
 })

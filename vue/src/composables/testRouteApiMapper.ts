@@ -3,8 +3,8 @@
  * 用于验证API服务选择是否正确
  */
 
-import { ROUTE_API_CACHE_MAP } from './routeApiCacheMapper'
-import { emailApiService, adminApiService, userApiService, mailboxApiService } from './api'
+import { ROUTE_CONFIGS } from './routeApiManager'
+import { emailApiService, adminApiService, userApiService } from './api'
 
 // 测试API服务选择
 export function testApiServiceSelection() {
@@ -13,36 +13,29 @@ export function testApiServiceSelection() {
   // 测试邮件相关路由
   const emailRoutes = ['emails', 'admin-emails']
   emailRoutes.forEach(routeName => {
-    const config = ROUTE_API_CACHE_MAP[routeName]
-    if (config) {
+    const config = ROUTE_CONFIGS[routeName]
+    if (config && config.apis.length > 0) {
+      const apiMethod = config.apis[0].method
       console.log(`📧 路由 ${routeName}:`, {
-        apiMethod: config.apiMethod,
+        apiMethod,
         hasGetEmails: typeof emailApiService.getEmails === 'function',
         hasAdminGetEmails: typeof adminApiService.getEmails === 'function'
       })
     }
   })
 
-  // 测试邮箱相关路由
-  const mailboxRoutes = ['mailboxes', 'admin-mailboxes']
-  mailboxRoutes.forEach(routeName => {
-    const config = ROUTE_API_CACHE_MAP[routeName]
-    if (config) {
-      console.log(`📮 路由 ${routeName}:`, {
-        apiMethod: config.apiMethod,
-        hasGetMailboxes: typeof mailboxApiService.getMailboxes === 'function',
-        hasGetAllMailboxes: typeof adminApiService.getAllMailboxes === 'function'
-      })
-    }
-  })
+  // 测试邮箱相关路由（已移除，使用转发规则替代）
+  // const mailboxRoutes = ['mailboxes', 'admin-mailboxes']
+  // 邮箱功能已移除，不再测试
 
   // 测试用户相关路由
   const userRoutes = ['admin-users']
   userRoutes.forEach(routeName => {
-    const config = ROUTE_API_CACHE_MAP[routeName]
-    if (config) {
+    const config = ROUTE_CONFIGS[routeName]
+    if (config && config.apis.length > 0) {
+      const apiMethod = config.apis[0].method
       console.log(`👤 路由 ${routeName}:`, {
-        apiMethod: config.apiMethod,
+        apiMethod,
         hasGetUsers: typeof adminApiService.getAllUsers === 'function'
       })
     }
@@ -58,8 +51,7 @@ export function testApiMethods() {
   const apiServices = {
     emailApiService,
     adminApiService,
-    userApiService,
-    mailboxApiService
+    userApiService
   }
 
   Object.entries(apiServices).forEach(([serviceName, service]) => {
@@ -74,10 +66,11 @@ export function testNewApiServiceMapping() {
   console.log('🧪 开始测试新的API服务映射系统...')
 
   // 测试每个路由的API服务选择
-  Object.entries(ROUTE_API_CACHE_MAP).forEach(([routeName, config]) => {
+  Object.entries(ROUTE_CONFIGS).forEach(([routeName, config]) => {
     console.log(`\n📋 测试路由: ${routeName}`)
+    const apiMethods = config.apis.map(api => api.method).join(', ')
     console.log('配置:', {
-      apiMethod: config.apiMethod,
+      apiMethods,
       description: config.description,
       adminOnly: config.adminOnly
     })

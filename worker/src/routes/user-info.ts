@@ -41,7 +41,8 @@ app.get('/username/:userId', async (c) => {
       }
     });
   } catch (error) {
-    console.error('[用户信息API] 获取用户名失败:', error);
+    const { errorLog } = await import('../utils/debug');
+    errorLog('用户信息API', '获取用户名失败:', error);
     return c.json({ success: false, message: '获取用户名失败' }, 500);
   }
 });
@@ -84,7 +85,8 @@ app.post('/usernames', async (c) => {
       data: userMap
     });
   } catch (error) {
-    console.error('[用户信息API] 批量获取用户名失败:', error);
+    const { errorLog } = await import('../utils/debug');
+    errorLog('用户信息API', '批量获取用户名失败:', error);
     return c.json({ success: false, message: '批量获取用户名失败' }, 500);
   }
 });

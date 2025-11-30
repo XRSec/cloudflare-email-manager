@@ -248,11 +248,8 @@ systemRoutes.get('/config', jwtAuthMiddleware, async (c) => {
             // 普通用户获取部分配置
             const userConfig = {
                 allow_registration: config.allow_registration,
-                allow_user_send: config.allow_user_send,
-                max_mailboxes_per_user: config.max_mailboxes_per_user,
-                storage_provider: config.storage_provider,
                 supported_domains: config.supported_domains,
-                max_attachment_size: config.attachment_max_size,
+                attachment_max_size: config.attachment_max_size,
                 mail_retention_days: config.mail_retention_days,
                 debug_mode: config.debug_mode // 普通用户也可以看到debug模式状态
             };

@@ -20,7 +20,9 @@ const statusClass = computed(() => {
       received: 'status-received',
       processed: 'status-processed',
       forwarded: 'status-forwarded',
-      failed: 'status-failed'
+      failed: 'status-failed',
+      read: 'status-read',
+      unread: 'status-unread'
     }
     return statusMap[String(props.status)] || 'status-unknown'
   } else if (props.type === 'mailbox') {
@@ -46,7 +48,9 @@ const statusText = computed(() => {
       received: '已接收',
       processed: '已处理',
       forwarded: '已转发',
-      failed: '失败'
+      failed: '失败',
+      read: '已读',
+      unread: '未读'
     }
     return statusMap[String(props.status)] || '未知'
   } else if (props.type === 'mailbox') {
@@ -94,6 +98,17 @@ const statusText = computed(() => {
 .status-failed {
   background: #f8d7da;
   color: #721c24;
+}
+
+.status-read {
+  background: #e2e3e5;
+  color: #383d41;
+}
+
+.status-unread {
+  background: #fff3cd;
+  color: #856404;
+  font-weight: 600;
 }
 
 /* 邮箱状态 */

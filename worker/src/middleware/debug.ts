@@ -42,7 +42,8 @@ export async function isDebugModeEnabled(db: any): Promise<boolean> {
     const config = await getSystemConfig(db);
     return config.debug_mode === 1;
   } catch (error) {
-    console.error('检查调试模式失败:', error);
+    const { errorLog } = await import('../utils/debug');
+    errorLog('调试模式', '检查调试模式失败:', error);
     return false;
   }
 }

@@ -31,6 +31,8 @@ export interface User {
     deleted_at?: string;
     webhook_url?: string;
     webhook_secret?: string;
+    webhook_type?: 'dingtalk' | 'feishu' | 'bark' | 'custom'; // webhook类型
+    webhook_custom_message?: string; // 自定义消息模板
     created_at?: string;
     updated_at?: string;
 }
@@ -80,21 +82,37 @@ export interface MailboxApplication {
 }
 
 // 邮件接口
+// 优化后的结构：只存储必要信息和概览字段，详细信息从 email:{id}:meta.json 读取
+// 
+// 单用户模式说明：
+// - 系统中只有一个管理员用户，所有邮件都关联到该管理员
+// - 当邮件接收时，如果找不到对应的用户，默认将邮件关联到管理员用户
+// - user_id 为 null 的情况理论上不应该存在（除非系统异常）
+//
+// ID 字段说明：
+// - id: 邮件在数据库中的主键，使用 crypto.randomUUID() 生成的 UUID
+//       格式如 "550e8400-e29b-41d4-a716-446655440000"（标准 UUID v4 格式）
+//       与 meta.json.id 相同，R2 文件路径为 email:{id}.eml 和 email:{id}:meta.json
+// 注意：
+// 1. emailId 使用 crypto.randomUUID() 生成，不再使用 Message-ID 的哈希值
+// 2. 原始的 Message-ID（来自邮件头）保存在 meta.json.headers['message-id'] 中，仅用于元数据保存
 export interface Email {
-    id: string;
-    message_id: string;
-    user_id: number | null; // 允许为 null，用于未找到用户但属于安全邮箱的邮件
-    sender_email: string;
-    recipient_email: string;
-    subject?: string;
-    content?: string;
-    content_type: 'text' | 'html' | 'markdown';
-    raw_content?: string; // 修复字段名，与数据库一致
-    reply_to?: string;
-    cc?: string;
-    bcc?: string;
+    id: string; // 邮件ID（数据库主键），使用 crypto.randomUUID() 生成的 UUID
+    user_id: number | null; // 用户ID（单用户模式下，默认为管理员用户ID）
+    subject: string | null; // 主题
+    from_address: string | null; // 发件人
+    to_address: string | null; // 收件人
+    content: string | null; // 内容概览/预览（用于快速查看，完整内容在 R2）
     is_read: number;
-    has_attachments: number;
+    attachment_count: number; // 附件数量（0表示无附件）
+    message_id: string | null; // 原始邮件头中的 Message-ID（从 message.raw 提取）
+    headers_json: string | null; // 完整的邮件头信息（JSON 格式，从 message.raw 提取）
+    size_bytes: number | null; // 剔除附件后的邮件大小（字节）
+    date: string | null; // 邮件日期（从 headers 提取）
+    reply_to: string | null; // 回复地址（从 headers 提取）
+    cc: string | null; // 抄送地址（从 headers 提取）
+    bcc: string | null; // 密送地址（从 headers 提取）
+    content_type: string | null; // 邮件内容类型（从 headers 提取）
     received_at: string;
     created_at?: string;
     updated_at?: string;
@@ -102,12 +120,13 @@ export interface Email {
 
 // 附件接口
 export interface Attachment {
-    id: number;
-    email_id: string;
+    id: string; // 附件ID（数据库主键），使用 crypto.randomUUID() 生成的 UUID
+    email_id: string; // 邮件ID
     filename: string;
     content_type: string;
     size_bytes: number;
     r2_key: string;
+    content_id?: string | null; // Content-ID（用于内嵌图片，如 cid:xxx）
     created_at?: string;
     updated_at?: string;
 }
@@ -119,22 +138,22 @@ export interface ForwardRule {
     sender_filter?: string;
     keyword_filter?: string;
     recipient_filter?: string;
-    webhook_url: string;
-    webhook_secret?: string;
-    webhook_type: 'dingtalk' | 'feishu' | 'custom';
+    exact_match?: number; // 是否精确匹配（0=包含匹配，1=精确匹配）
+    skip_default_webhook?: number; // 是否跳过默认推送渠道（0=不跳过，1=跳过）
     enabled: number;
     created_at?: string;
     updated_at?: string;
+    webhooks?: ForwardRuleWebhook[]; // 规则关联的多个 webhook
 }
 
-// 用户Webhook配置接口
-export interface UserWebhook {
+// 转发规则 Webhook 配置接口
+export interface ForwardRuleWebhook {
     id: number;
-    user_id: number;
-    webhook_name: string;
+    rule_id: number;
     webhook_url: string;
     webhook_secret?: string;
-    webhook_type: 'dingtalk' | 'feishu' | 'custom';
+    webhook_type: 'dingtalk' | 'feishu' | 'bark' | 'custom';
+    custom_message?: string; // 自定义消息模板，支持变量：{{from}}, {{to}}, {{subject}}, {{content}}, {{received_at}}, {{attachment_count}}
     enabled: number;
     created_at?: string;
     updated_at?: string;
@@ -152,7 +171,7 @@ export interface SystemSetting {
 // 转发日志接口
 export interface ForwardLog {
     id: number;
-    email_id: number;
+    email_id: string; // 改为 string 类型，与 Email.id 保持一致
     rule_id?: number;
     webhook_url: string;
     status: 0 | 1; // 0=成功, 1=失败
@@ -190,6 +209,8 @@ export interface PaginationParams {
 }
 
 // 邮件查询参数接口
+// 单用户模式说明：系统中只有一个管理员用户，所有邮件都关联到该管理员。
+// scope 参数已废弃，不再使用，但保留字段以保持向后兼容。
 export interface EmailQueryParams extends PaginationParams {
     sender?: string;
     subject?: string;
@@ -197,7 +218,7 @@ export interface EmailQueryParams extends PaginationParams {
     end_date?: string;
     has_attachments?: boolean;
     status?: string;
-    scope?: string;
+    scope?: string; // 已废弃：单用户模式下不再需要此参数
 }
 
 // 用户设置更新接口
@@ -205,27 +226,24 @@ export interface UserSettingsUpdate {
     password?: string;
     webhook_url?: string;
     webhook_secret?: string;
+    webhook_type?: 'dingtalk' | 'feishu' | 'bark' | 'custom';
+    webhook_custom_message?: string;
 }
 
 // 系统配置接口
 export interface SystemConfig {
     debug_mode: number; // 1=开启, 0=关闭
     allow_registration: number; // 1=是, 0=否
-    auto_approve_mailbox: number; // 1=是, 0=否
     supported_domains: string[];
-    mail_retention_days: number;
+    mail_retention_days: number; // 邮件保留天数
+    attachment_retention_days: number; // 附件保留天数
     attachment_max_size: number;
-    allow_user_send?: number; // 1=是, 0=否
-    max_mailboxes_per_user?: number;
-    storage_provider?: 'r2' | 's3' | 'local';
     // 其他配置字段
-    cleanup_days?: number;
-    max_attachment_size?: number;
     cookie_max_age?: number;
     jwt_secret?: string;
-    admin_email?: string;
-    primary_domain?: string;
-    domains?: string[];
+    // API频率限制配置
+    api_rate_limit?: number; // 1=启用, 0=禁用
+    api_rate_limit_max_requests?: number; // 每分钟最大请求数
 }
 
 // 扩展 Hono 上下文类型

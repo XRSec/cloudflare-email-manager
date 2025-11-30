@@ -15,7 +15,6 @@ import {
     findUserByUsername,
     updateUserSettings
 } from '../services/user';
-import { getPrimaryDomain } from '../services/settings';
 import {
     getAllEmails,
     getEmailById,
@@ -102,8 +101,10 @@ adminRoutes.get('/users', async (c) => {
             { search: query }
         );
 
-        // 获取主域名
-        const primaryDomain = await getPrimaryDomain(c.env.DB);
+        // 获取系统配置以获取域名
+        const { getSystemConfig } = await import('../services/settings');
+        const config = await getSystemConfig(c.env.DB);
+        const primaryDomain = config.supported_domains?.[0] || 'example.com';
 
         return c.json<ApiResponse>({
             success: true,

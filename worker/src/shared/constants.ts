@@ -15,7 +15,7 @@ export const SYSTEM_CONFIG = {
 
     // 邮件配置
     MAX_ATTACHMENT_SIZE: 'max_attachment_size',
-    DOMAINS: 'domains',
+    SUPPORTED_DOMAINS: 'supported_domains',
 
     // 默认值
     DEFAULT_MAX_ATTACHMENT_SIZE: 50 * 1024 * 1024, // 50MB

@@ -54,8 +54,17 @@ forwardRuleRoutes.post('/', async (c) => {
     const ruleData = await c.req.json() as Omit<ForwardRule, 'id' | 'created_at' | 'updated_at'>;
 
     // 验证必填字段
-    if (!ruleData.rule_name || !ruleData.webhook_url) {
-      throw new HTTPException(400, { message: '规则名称和Webhook URL不能为空' });
+    if (!ruleData.rule_name) {
+      throw new HTTPException(400, { message: '规则名称不能为空' });
+    }
+
+    // 如果提供了 webhooks，验证每个 webhook 的 URL
+    if (ruleData.webhooks && ruleData.webhooks.length > 0) {
+      for (const webhook of ruleData.webhooks) {
+        if (!webhook.webhook_url) {
+          throw new HTTPException(400, { message: 'Webhook URL 不能为空' });
+        }
+      }
     }
 
     const rule = await createForwardRule(c.env.DB, ruleData);
@@ -71,6 +80,98 @@ forwardRuleRoutes.post('/', async (c) => {
     }
     errorLog('[创建转发规则] 失败:', error);
     throw new HTTPException(500, { message: '创建转发规则失败' });
+  }
+});
+
+/**
+ * 获取默认转发渠道配置（从users表读取）
+ * GET /api/forward-rules/default-webhook
+ * 注意：此路由必须在 /:id 路由之前，否则会被 /:id 捕获
+ */
+forwardRuleRoutes.get('/default-webhook', async (c) => {
+  try {
+    const user = c.get('jwtPayload');
+    const userId = user.user_id;
+
+    // 直接从 users 表读取 webhook 配置
+    const userConfig = await c.env.DB.prepare(`
+      SELECT webhook_url, webhook_secret, webhook_type, webhook_custom_message 
+      FROM users 
+      WHERE id = ?
+    `).bind(userId).first();
+
+    return c.json<ApiResponse>({
+      success: true,
+      data: {
+        default_webhook_url: (userConfig?.webhook_url as string) || '',
+        default_webhook_secret: (userConfig?.webhook_secret as string) || '',
+        default_webhook_type: (userConfig?.webhook_type as string) || 'custom',
+        default_webhook_custom_message: (userConfig?.webhook_custom_message as string) || ''
+      }
+    });
+  } catch (error) {
+    errorLog('[默认转发渠道] 获取失败:', error);
+    throw new HTTPException(500, { message: '获取默认转发渠道配置失败' });
+  }
+});
+
+/**
+ * 更新默认转发渠道配置（更新users表）
+ * PUT /api/forward-rules/default-webhook
+ * 注意：此路由必须在 /:id 路由之前，否则会被 /:id 捕获
+ */
+forwardRuleRoutes.put('/default-webhook', async (c) => {
+  try {
+    const user = c.get('jwtPayload');
+    const userId = user.user_id;
+
+    const updates = await c.req.json() as {
+      default_webhook_url?: string;
+      default_webhook_secret?: string;
+      default_webhook_type?: 'dingtalk' | 'feishu' | 'bark' | 'custom';
+      default_webhook_custom_message?: string;
+    };
+
+    // 直接更新 users 表
+    const setParts: string[] = [];
+    const values: any[] = [];
+
+    if (updates.default_webhook_url !== undefined) {
+      setParts.push('webhook_url = ?');
+      values.push(updates.default_webhook_url || null);
+    }
+    if (updates.default_webhook_secret !== undefined) {
+      setParts.push('webhook_secret = ?');
+      values.push(updates.default_webhook_secret || null);
+    }
+    if (updates.default_webhook_type !== undefined) {
+      setParts.push('webhook_type = ?');
+      values.push(updates.default_webhook_type || 'custom');
+    }
+    if (updates.default_webhook_custom_message !== undefined) {
+      setParts.push('webhook_custom_message = ?');
+      values.push(updates.default_webhook_custom_message || null);
+    }
+
+    if (setParts.length > 0) {
+      setParts.push('updated_at = CURRENT_TIMESTAMP');
+      values.push(userId);
+
+      const sql = `UPDATE users SET ${setParts.join(', ')} WHERE id = ?`;
+      const result = await c.env.DB.prepare(sql).bind(...values).run();
+
+      if (!result.success) {
+        throw new Error('Failed to update default webhook config');
+      }
+    }
+
+    return c.json<ApiResponse>({
+      success: true,
+      message: '默认转发渠道配置更新成功'
+    });
+  } catch (error) {
+    errorLog('[默认转发渠道] 更新失败:', error);
+    throw new HTTPException(500, { message: '更新默认转发渠道配置失败' });
   }
 });
 

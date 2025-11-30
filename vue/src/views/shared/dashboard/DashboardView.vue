@@ -67,13 +67,17 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/composables/stores'
-import { apiService } from '@/composables/api'
-import { smartCache, CacheKeys } from '@/composables/smartCache'
+import { useSystemStore } from '@/composables/system'
+import { useRouteApiManager } from '@/composables/routeApiManager'
 import { PageHeader } from '@/components/common'
 // import SecurityWidget from '@/components/SecurityWidget.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const systemStore = useSystemStore()
+
+// 使用统一接口管理器
+const apiManager = useRouteApiManager()
 
 // 数据
 const emailStats = ref({ total: 0 })
@@ -85,57 +89,18 @@ const recentEmails = ref<any[]>([])
 const pageTitle = computed(() => '仪表板')
 const pageIcon = computed(() => '📊')
 const loading = ref(false)
-
-// 智能预加载管理器
-const preloadPageData = async (userId: number, forceRefresh = false) => {
-  console.log('📊 智能预加载页面数据（仪表板复用）')
-
-  // 预加载邮件数据（最近10封）
-  const emailsRes = await loadEmailsData(userId, 1, 10, forceRefresh)
-
-  return { emailsRes }
-}
-
-// 加载邮件数据（带缓存）
-const loadEmailsData = async (userId: number, page: number, limit: number, forceRefresh = false) => {
-  const cacheKey = CacheKeys.emailList(userId, page, limit, 'user')
-
-  if (!forceRefresh) {
-    const cached = smartCache.get(cacheKey)
-    if (cached) {
-      console.log('📧 从缓存加载邮件数据')
-      return { success: true, data: cached }
-    }
-  }
-
-  console.log('📧 从API加载邮件数据')
-  const response = await apiService.getEmails({ page, limit })
-
-  if (response.success) {
-    // 缓存数据（10分钟）
-    smartCache.set(cacheKey, response.data, {
-      ttl: 10 * 60 * 1000,
-      dependencies: ['new_email']
-    })
-  }
-
-  return response
-}
-
-const loadForwardRuleStats = async () => {
-  try {
-    const response = await apiService.getForwardRules({ page: 1, limit: 1 })
-    if (response.success) {
-      forwardRuleStats.value.total = response.data?.total || 0
-    }
-  } catch (error) {
-    console.error('加载转发规则统计失败:', error)
-  }
-}
+// 调试模式
+const isDebugMode = computed(() => systemStore.isDebugMode)
 
 
 // 方法
 const loadDashboardData = async (forceRefresh = false) => {
+  // 防止重复调用
+  if (loading.value) {
+    console.log('📊 仪表板数据正在加载中，跳过重复请求', { forceRefresh })
+    return
+  }
+
   loading.value = true
   try {
     const userId = authStore.user?.id
@@ -144,19 +109,34 @@ const loadDashboardData = async (forceRefresh = false) => {
       return
     }
 
-    // 智能预加载页面数据
-    const { emailsRes } = await preloadPageData(userId, forceRefresh)
+    console.log('📊 开始加载仪表板数据', { forceRefresh, userId })
 
-    // 从预加载的数据中提取最近邮件
-    if (emailsRes.success) {
-      const emailsData = emailsRes.data
+    // 使用统一接口管理器加载路由的所有接口
+    const results = await apiManager.loadRouteApis('dashboard', {
+      forceRefresh,
+      params: {
+        getEmails: { page: 1, limit: 10 },
+        getForwardRules: { page: 1, limit: 1 }
+      }
+    })
+
+    console.log('📊 接口返回结果:', Object.keys(results))
+
+    // 处理邮件数据
+    if (results.getEmails?.success) {
+      const emailsData = results.getEmails.data
       emailStats.value.total = emailsData?.total || 0
       recentEmails.value = emailsData?.items || []
+      console.log('📧 邮件数据已更新:', { total: emailStats.value.total, count: recentEmails.value.length })
     }
 
-    await loadForwardRuleStats()
+    // 处理转发规则统计
+    if (results.getForwardRules?.success) {
+      forwardRuleStats.value.total = results.getForwardRules.total || 0
+      console.log('🔄 转发规则统计已更新:', forwardRuleStats.value.total)
+    }
 
-    console.log('📊 仪表板数据预加载完成，用户点击页面时将直接使用缓存数据')
+    console.log('📊 仪表板数据加载完成')
   } catch (error) {
     console.error('加载仪表板数据失败:', error)
   } finally {
@@ -199,17 +179,19 @@ const goToSettings = () => {
 // 全局刷新事件处理
 const handleGlobalRefresh = () => {
   console.log('🔄 仪表板页面收到全局刷新事件')
-  loadDashboardData(true) // 强制刷新
+  // 注意：这里不直接调用 loadDashboardData，因为 executeGlobalRefresh 会调用 refreshDashboardPage
+  // 避免重复调用
 }
 
 // 暴露刷新方法给全局刷新按钮使用
-const refreshDashboardPage = () => {
+const refreshDashboardPage = async () => {
   console.log('📊 DashboardView 页面级刷新触发')
-  loadDashboardData(true) // 强制刷新
+  await loadDashboardData(true) // 使用统一的加载方法，传入强制刷新标志
 }
 
 // 组件挂载时加载数据
 onMounted(() => {
+  // 加载数据（路由配置已在 routeApiManager 中定义）
   loadDashboardData()
 
   // 监听全局刷新事件

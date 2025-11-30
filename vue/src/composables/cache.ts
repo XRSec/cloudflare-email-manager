@@ -279,3 +279,171 @@ export class PageDataLoader {
     return result
   }
 }
+
+// ==================== 浏览器缓存管理（Cache-Control） ====================
+
+/**
+ * 应用存储管理器
+ * 管理前端应用存储（localStorage、sessionStorage、IndexedDB）
+ * 注意：HTTP 缓存（Cache-Control）由后端 Worker 控制，前端无法管理
+ */
+export class BrowserCacheManager {
+  /**
+   * 清理所有应用存储
+   * 包括：localStorage、sessionStorage、IndexedDB
+   * 注意：HTTP 缓存由后端通过 Cache-Control 响应头控制，无法通过前端清理
+   */
+  async clearAllBrowserCache(): Promise<{
+    success: boolean
+    cleared: string[]
+    errors: string[]
+  }> {
+    const cleared: string[] = []
+    const errors: string[] = []
+
+    try {
+      // 注意：Service Worker 缓存已移除，项目未使用 Service Worker
+
+      // 2. 清理 localStorage（保留 cem_cache_ 前缀的缓存，只清理其他）
+      try {
+        const keys = Object.keys(localStorage)
+        let clearedCount = 0
+        keys.forEach(key => {
+          if (!key.startsWith('cem_cache_') && !key.startsWith('user_info') && !key.startsWith('systemConfig')) {
+            localStorage.removeItem(key)
+            clearedCount++
+          }
+        })
+        if (clearedCount > 0) {
+          cleared.push(`localStorage (${clearedCount} 项)`)
+          console.log(`✅ localStorage 已清理 ${clearedCount} 项`)
+        }
+      } catch (error) {
+        errors.push(`localStorage 清理失败: ${error}`)
+        console.error('❌ localStorage 清理失败:', error)
+      }
+
+      // 3. 清理 sessionStorage
+      try {
+        const count = sessionStorage.length
+        sessionStorage.clear()
+        if (count > 0) {
+          cleared.push(`sessionStorage (${count} 项)`)
+          console.log(`✅ sessionStorage 已清理 ${count} 项`)
+        }
+      } catch (error) {
+        errors.push(`sessionStorage 清理失败: ${error}`)
+        console.error('❌ sessionStorage 清理失败:', error)
+      }
+
+      // 4. 清理 IndexedDB
+      if ('indexedDB' in window) {
+        try {
+          const databases = await indexedDB.databases()
+          await Promise.all(
+            databases.map(db => {
+              return new Promise<void>((resolve, reject) => {
+                const deleteReq = indexedDB.deleteDatabase(db.name!)
+                deleteReq.onsuccess = () => resolve()
+                deleteReq.onerror = () => reject(deleteReq.error)
+                deleteReq.onblocked = () => {
+                  console.warn(`IndexedDB ${db.name} 删除被阻止`)
+                  resolve() // 继续执行
+                }
+              })
+            })
+          )
+          if (databases.length > 0) {
+            cleared.push(`IndexedDB (${databases.length} 个数据库)`)
+            console.log(`✅ IndexedDB 已清理 ${databases.length} 个数据库`)
+          }
+        } catch (error) {
+          errors.push(`IndexedDB 清理失败: ${error}`)
+          console.error('❌ IndexedDB 清理失败:', error)
+        }
+      }
+
+      // 注意：HTTP 缓存（Cache-Control）由后端 Worker 通过响应头控制
+      // 前端无法直接清理 HTTP 缓存，需要用户手动刷新页面或清除浏览器缓存
+
+      return {
+        success: errors.length === 0,
+        cleared,
+        errors
+      }
+    } catch (error) {
+      errors.push(`清理过程出错: ${error}`)
+      return {
+        success: false,
+        cleared,
+        errors
+      }
+    }
+  }
+
+  /**
+   * 获取应用存储统计信息
+   * 注意：HTTP 缓存统计无法获取，由浏览器自动管理
+   */
+  async getBrowserCacheStats(): Promise<{
+    localStorage: number
+    sessionStorage: number
+    indexedDB: number
+    totalSize: number
+  }> {
+    const stats = {
+      localStorage: 0,
+      sessionStorage: 0,
+      indexedDB: 0,
+      totalSize: 0
+    }
+
+    try {
+      // 注意：Service Worker 缓存已移除，项目未使用 Service Worker
+
+      // localStorage
+      stats.localStorage = Object.keys(localStorage).length
+
+      // sessionStorage
+      stats.sessionStorage = Object.keys(sessionStorage).length
+
+      // IndexedDB
+      if ('indexedDB' in window) {
+        const databases = await indexedDB.databases()
+        stats.indexedDB = databases.length
+      }
+
+      // 计算总大小（粗略估算）
+      let totalSize = 0
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key) {
+          totalSize += localStorage.getItem(key)?.length || 0
+        }
+      }
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)
+        if (key) {
+          totalSize += sessionStorage.getItem(key)?.length || 0
+        }
+      }
+      stats.totalSize = totalSize
+    } catch (error) {
+      console.error('获取浏览器缓存统计失败:', error)
+    }
+
+    return stats
+  }
+
+  /**
+   * 注意：Cache-Control HTTP 响应头由后端（Worker）设置
+   * 前端无法直接设置 HTTP 响应头，只能通过 meta 标签影响页面本身的缓存行为
+   * 静态资源（CSS、JS、图片等）的 Cache-Control 已在 worker/src/main.ts 中配置：
+   * - HTML: no-cache, no-store, must-revalidate
+   * - CSS/JS/字体/图片: public, max-age=31536000, immutable (1年)
+   * - 其他: public, max-age=3600 (1小时)
+   */
+}
+
+// 全局浏览器缓存管理器实例
+export const browserCacheManager = new BrowserCacheManager()

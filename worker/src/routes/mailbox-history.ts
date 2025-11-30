@@ -32,7 +32,8 @@ app.get('/:mailboxId', async (c) => {
       data: result
     });
   } catch (error) {
-    console.error('[邮箱历史API] 获取邮箱历史失败:', error);
+    const { errorLog } = await import('../utils/debug');
+    errorLog('邮箱历史API', '获取邮箱历史失败:', error);
     return c.json({ success: false, message: '获取邮箱历史失败' }, 500);
   }
 });
@@ -53,7 +54,8 @@ app.get('/user/me', async (c) => {
       data: result
     });
   } catch (error) {
-    console.error('[邮箱历史API] 获取用户邮箱历史失败:', error);
+    const { errorLog } = await import('../utils/debug');
+    errorLog('邮箱历史API', '获取用户邮箱历史失败:', error);
     return c.json({ success: false, message: '获取用户邮箱历史失败' }, 500);
   }
 });
@@ -65,7 +67,7 @@ app.get('/admin/all', async (c) => {
   try {
     const userType = c.get('jwtPayload').user_type;
 
-    if (userType !== 'admin') {
+    if (userType !== 1) { // 1 表示管理员
       return c.json({ success: false, message: '权限不足' }, 403);
     }
 
@@ -79,7 +81,8 @@ app.get('/admin/all', async (c) => {
       data: result
     });
   } catch (error) {
-    console.error('[邮箱历史API] 获取所有邮箱历史失败:', error);
+    const { errorLog } = await import('../utils/debug');
+    errorLog('邮箱历史API', '获取所有邮箱历史失败:', error);
     return c.json({ success: false, message: '获取所有邮箱历史失败' }, 500);
   }
 });

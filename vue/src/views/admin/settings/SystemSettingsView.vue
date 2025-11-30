@@ -14,8 +14,20 @@
 
           <!-- 特殊处理：安全域名列表使用自定义组件 -->
           <template v-if="section.title === '安全配置'">
-            <DomainListInput v-model="formData.emailDomains" label="安全域名列表" placeholder="输入域名后按回车或点击加号添加"
+            <DomainListInput v-model="formData.supported_domains" label="安全域名列表" placeholder="输入域名后按回车或点击加号添加"
               help="邮件接收时只处理这些域名下的邮件地址" :required="true" :disabled="saving" />
+
+            <!-- 安全配置的其他字段 -->
+            <div v-for="field in section.fields" :key="field.key">
+              <FormField v-if="field.type !== 'checkbox'" v-model="(formData as any)[field.key]" :label="field.label"
+                :type="field.type" :placeholder="(field as any).placeholder" :required="(field as any).required"
+                :disabled="((field as any).disabled || saving)" :min="(field as any).min" :max="(field as any).max"
+                :step="(field as any).step" :rows="(field as any).rows" :error="(field as any).error"
+                :help="(field as any).help" />
+              <CheckboxField v-else v-model="(formData as any)[field.key]" :label="field.label"
+                :disabled="((field as any).disabled || saving)" :error="(field as any).error"
+                :help="(field as any).help" />
+            </div>
           </template>
 
           <!-- 其他字段使用原有逻辑 -->
@@ -49,12 +61,12 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useUnifiedPageData } from '@/composables/useUnifiedPageData'
 import { useSystemStore } from '@/composables/system'
 import { systemApiService } from '@/composables/api'
-import { useRouteApiCacheMapper } from '@/composables/routeApiCacheMapper'
+import { useRouteApiManager } from '@/composables/routeApiManager'
 import { ElMessage } from 'element-plus'
 import { PageHeader, DebugInfo, PageStates, FormField, CheckboxField, Button, DomainListInput } from '@/components'
 
 const systemStore = useSystemStore()
-const { clearCurrentRouteCache } = useRouteApiCacheMapper()
+const { clearCurrentRouteCache } = useRouteApiManager()
 
 // 使用统一页面数据管理
 const {
@@ -71,28 +83,24 @@ const error = computed(() => pageData.value.error)
 const lastUpdated = computed(() => pageData.value.lastUpdated)
 const refreshData = pageRefresh
 
-// 调试模式
-const isDebugMode = computed(() => systemStore.systemConfig?.debug_mode === 1)
+// 调试模式 - 使用 systemStore 的计算属性
+const isDebugMode = computed(() => systemStore.isDebugMode)
 
 // 表单数据
 const saving = ref(false)
 const formData = ref({
   systemName: '',
   systemDescription: '',
-  defaultDomain: '',
   maxEmailSize: 10,
   emailRetentionDays: 30,
   attachmentRetentionDays: 7,
-  maxMailboxesPerUser: 5,
-  allowUserRegistration: true,
+  allowUserRegistration: false,
   requireEmailVerification: false,
   debugMode: false,
   apiRateLimit: true,
+  apiRateLimitMaxRequests: 100,
   sessionTimeout: 60,
-  systemNotifications: true,
-  emailNotifications: true,
-  adminNotificationEmail: '',
-  emailDomains: [] as string[]
+  supported_domains: [] as string[]
 })
 
 // 原始数据备份
@@ -100,29 +108,6 @@ const originalData = ref<any>({})
 
 // 设置表单配置
 const settingsSections = computed(() => [
-  {
-    title: '系统配置',
-    fields: [
-      // {
-      //   key: 'systemName',
-      //   label: '系统名称',
-      //   type: 'text' as const,
-      //   required: true
-      // },
-      // {
-      //   key: 'systemDescription',
-      //   label: '系统描述',
-      //   type: 'textarea' as const,
-      //   rows: 3
-      // },
-      // {
-      //   key: 'defaultDomain',
-      //   label: '默认邮箱域名',
-      //   type: 'text' as const,
-      //   required: true
-      // }
-    ]
-  },
   {
     title: '邮件配置',
     fields: [
@@ -154,21 +139,16 @@ const settingsSections = computed(() => [
     title: '用户配置',
     fields: [
       {
-        key: 'maxMailboxesPerUser',
-        label: '用户最大邮箱数量',
-        type: 'number' as const,
-        min: 1,
-        required: true
-      },
-      {
         key: 'allowUserRegistration',
         label: '允许新用户注册',
-        type: 'checkbox' as const
+        type: 'checkbox' as const,
+        help: '开发中 - 当前系统为单管理员模式，暂不支持用户注册'
       },
       {
         key: 'requireEmailVerification',
         label: '注册时需要邮箱验证',
-        type: 'checkbox' as const
+        type: 'checkbox' as const,
+        help: '开发中 - 当前系统为单管理员模式，暂不支持用户注册功能'
       }
     ]
   },
@@ -186,32 +166,22 @@ const settingsSections = computed(() => [
         type: 'checkbox' as const
       },
       {
+        key: 'apiRateLimitMaxRequests',
+        label: '每分钟最大请求数',
+        type: 'number' as const,
+        min: 10,
+        max: 10000,
+        required: false,
+        help: '范围：10-10000，默认：100。表示每分钟允许的最大请求数'
+      },
+      {
         key: 'sessionTimeout',
         label: '会话超时时间 (分钟)',
         type: 'number' as const,
-        min: 5,
-        max: 1440,
-        required: true
-      }
-    ]
-  },
-  {
-    title: '通知配置',
-    fields: [
-      {
-        key: 'systemNotifications',
-        label: '启用系统通知',
-        type: 'checkbox' as const
-      },
-      {
-        key: 'emailNotifications',
-        label: '启用邮件通知',
-        type: 'checkbox' as const
-      },
-      {
-        key: 'adminNotificationEmail',
-        label: '管理员通知邮箱',
-        type: 'email' as const
+        min: 60,  // 1小时
+        max: 2880,  // 48小时 = 48 * 60 = 2880 分钟
+        required: true,
+        help: '范围：60-2880 分钟（1小时-48小时），默认：2880 分钟（48小时）'
       }
     ]
   }
@@ -228,20 +198,16 @@ watch(data, (newData) => {
     formData.value = {
       systemName: config.system_name || '',
       systemDescription: config.system_description || '',
-      defaultDomain: config.primary_domain || config.default_domain || '',
-      maxEmailSize: config.max_attachment_size ? Math.floor(config.max_attachment_size / 1024 / 1024) : (config.max_email_size || 10),
-      emailRetentionDays: config.cleanup_days || config.mail_retention_days || config.email_retention_days || 30,
+      maxEmailSize: config.attachment_max_size ? Math.floor(config.attachment_max_size / 1024 / 1024) : 10,
+      emailRetentionDays: config.mail_retention_days || config.email_retention_days || 30,
       attachmentRetentionDays: config.attachment_retention_days || 7,
-      maxMailboxesPerUser: config.max_mailboxes_per_user || 5,
-      allowUserRegistration: config.allow_registration === 1 || config.allow_user_registration === 1,
-      requireEmailVerification: config.require_email_verification === 1 || config.require_email_verification === true,
+      allowUserRegistration: config.allow_registration === 1 || config.allow_user_registration === 1 || false,
+      requireEmailVerification: config.require_email_verification === 1 || config.require_email_verification === true || false,
       debugMode: config.debug_mode === 1,
       apiRateLimit: config.api_rate_limit === 1 || config.api_rate_limit !== false,
+      apiRateLimitMaxRequests: config.api_rate_limit_max_requests || 100,
       sessionTimeout: config.cookie_max_age ? Math.floor(config.cookie_max_age / 60) : (config.session_timeout || 60),
-      systemNotifications: config.system_notifications === 1 || config.system_notifications !== false,
-      emailNotifications: config.email_notifications === 1 || config.email_notifications !== false,
-      adminNotificationEmail: config.admin_email || config.admin_notification_email || '',
-      emailDomains: (config.domains || config.supported_domains || []) as string[]
+      supported_domains: config.supported_domains || []
     }
     originalData.value = { ...formData.value } as any
     console.log('✅ 表单数据已更新，debugMode:', formData.value.debugMode)
@@ -269,22 +235,27 @@ const saveSettings = async (data: any) => {
       updateData.debug_mode = data.debugMode ? 1 : 0
     }
 
-    if (data.defaultDomain !== undefined && data.defaultDomain) {
-      updateData.primary_domain = data.defaultDomain
+    if (data.apiRateLimit !== undefined) {
+      updateData.api_rate_limit = data.apiRateLimit ? 1 : 0
     }
 
-    if (data.adminNotificationEmail !== undefined) {
-      updateData.admin_email = data.adminNotificationEmail
+    if (data.apiRateLimitMaxRequests !== undefined) {
+      updateData.api_rate_limit_max_requests = data.apiRateLimitMaxRequests
     }
 
-    // 邮件保留天数映射到 cleanup_days
+    // 邮件保留天数
     if (data.emailRetentionDays !== undefined) {
-      updateData.cleanup_days = data.emailRetentionDays
+      updateData.mail_retention_days = data.emailRetentionDays
     }
 
-    // 最大邮件大小映射到 max_attachment_size (单位：MB，需要转换为字节)
+    // 附件保留天数
+    if (data.attachmentRetentionDays !== undefined) {
+      updateData.attachment_retention_days = data.attachmentRetentionDays
+    }
+
+    // 最大邮件大小映射到 attachment_max_size (单位：MB，需要转换为字节)
     if (data.maxEmailSize !== undefined) {
-      updateData.max_attachment_size = data.maxEmailSize * 1024 * 1024 // MB 转字节
+      updateData.attachment_max_size = data.maxEmailSize * 1024 * 1024 // MB 转字节
     }
 
     // 会话超时时间映射到 cookie_max_age (单位：分钟，需要转换为秒)
@@ -293,13 +264,13 @@ const saveSettings = async (data: any) => {
     }
 
     // 安全域名列表：直接使用数组
-    if (data.emailDomains !== undefined && Array.isArray(data.emailDomains) && data.emailDomains.length > 0) {
+    if (data.supported_domains !== undefined && Array.isArray(data.supported_domains) && data.supported_domains.length > 0) {
       // 过滤空值并转换为小写
-      const domains = data.emailDomains
+      const domains = data.supported_domains
         .map((domain: string) => domain.trim().toLowerCase())
         .filter((domain: string) => domain.length > 0)
       if (domains.length > 0) {
-        updateData.domains = domains
+        updateData.supported_domains = domains
       }
     }
 
@@ -307,11 +278,7 @@ const saveSettings = async (data: any) => {
     // - systemName (system_name)
     // - systemDescription (system_description)
     // - attachmentRetentionDays (attachment_retention_days)
-    // - maxMailboxesPerUser (max_mailboxes_per_user)
     // - requireEmailVerification (require_email_verification)
-    // - apiRateLimit (api_rate_limit)
-    // - systemNotifications (system_notifications)
-    // - emailNotifications (email_notifications)
 
     // 如果没有可更新的字段，提示用户
     if (Object.keys(updateData).length === 0) {

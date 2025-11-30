@@ -53,6 +53,8 @@ export async function findUserById(db: D1Database, id: number): Promise<User | n
                status,
                webhook_url,
                webhook_secret,
+               webhook_type,
+               webhook_custom_message,
                created_at,
                updated_at
         FROM users
@@ -71,6 +73,8 @@ export async function findUserById(db: D1Database, id: number): Promise<User | n
         status: result.status as 1 | 2 | 3,
         webhook_url: result.webhook_url as string | undefined,
         webhook_secret: result.webhook_secret as string | undefined,
+        webhook_type: result.webhook_type as 'dingtalk' | 'feishu' | 'bark' | 'custom' | undefined,
+        webhook_custom_message: result.webhook_custom_message as string | undefined,
         created_at: result.created_at as string | undefined,
         updated_at: result.updated_at as string | undefined,
     };
@@ -112,6 +116,8 @@ export async function updateUserSettings(
         password?: string;
         webhook_url?: string;
         webhook_secret?: string;
+        webhook_type?: 'dingtalk' | 'feishu' | 'bark' | 'custom';
+        webhook_custom_message?: string;
     }
 ): Promise<void> {
     const setParts: string[] = [];
@@ -130,6 +136,16 @@ export async function updateUserSettings(
     if (updates.webhook_secret !== undefined) {
         setParts.push('webhook_secret = ?');
         values.push(updates.webhook_secret || null);
+    }
+
+    if (updates.webhook_type !== undefined) {
+        setParts.push('webhook_type = ?');
+        values.push(updates.webhook_type || 'custom');
+    }
+
+    if (updates.webhook_custom_message !== undefined) {
+        setParts.push('webhook_custom_message = ?');
+        values.push(updates.webhook_custom_message || null);
     }
 
     if (setParts.length === 0) {
@@ -212,6 +228,8 @@ export async function getAllUsers(
                status,
                webhook_url,
                webhook_secret,
+               webhook_type,
+               webhook_custom_message,
                created_at,
                updated_at
         FROM users
@@ -233,6 +251,8 @@ export async function getAllUsers(
         status: result.status as 1 | 2 | 3,
         webhook_url: result.webhook_url as string | undefined,
         webhook_secret: result.webhook_secret as string | undefined,
+        webhook_type: result.webhook_type as 'dingtalk' | 'feishu' | 'bark' | 'custom' | undefined,
+        webhook_custom_message: result.webhook_custom_message as string | undefined,
         created_at: result.created_at as string | undefined,
         updated_at: result.updated_at as string | undefined,
     }));

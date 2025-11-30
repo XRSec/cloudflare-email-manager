@@ -10,7 +10,6 @@ import {
     findUserById,
     updateUserSettings
 } from '../services/user';
-import { getPrimaryDomain } from '../services/settings';
 import type { Env, ApiResponse, UserSettingsUpdate } from '../types';
 
 const userRoutes = new Hono<{ Bindings: Env }>();
@@ -31,18 +30,24 @@ userRoutes.get('/me', async (c) => {
             throw new HTTPException(404, { message: '用户不存在' });
         }
 
+        // 获取系统配置以获取域名
+        const { getSystemConfig } = await import('../services/settings');
+        const config = await getSystemConfig(c.env.DB);
+
         return c.json<ApiResponse>({
             success: true,
             data: {
                 id: userData.id,
                 username: userData.username,
-                email: userData.username + '@' + (await getPrimaryDomain(c.env.DB)), // 假设邮箱格式
+                email: userData.username + '@' + (config.supported_domains?.[0] || 'example.com'), // 使用第一个域名
                 user_type: userData.user_type,
                 created_at: userData.created_at,
                 updated_at: userData.updated_at,
                 settings: {
                     webhook_url: userData.webhook_url,
-                    webhook_secret: userData.webhook_secret ? '***已设置***' : null
+                    webhook_secret: userData.webhook_secret ? '***已设置***' : null,
+                    webhook_type: userData.webhook_type,
+                    webhook_custom_message: userData.webhook_custom_message
                 }
             }
         });
@@ -90,6 +95,17 @@ userRoutes.put('/me', async (c) => {
         if (updates.webhook_secret !== undefined) {
             const webhookSecret = updates.webhook_secret.trim();
             validatedUpdates.webhook_secret = webhookSecret || undefined;
+        }
+
+        // 处理webhook type更新
+        if (updates.webhook_type !== undefined) {
+            validatedUpdates.webhook_type = updates.webhook_type;
+        }
+
+        // 处理webhook custom message更新
+        if (updates.webhook_custom_message !== undefined) {
+            const webhookCustomMessage = updates.webhook_custom_message.trim();
+            validatedUpdates.webhook_custom_message = webhookCustomMessage || undefined;
         }
 
         // 检查是否有需要更新的内容

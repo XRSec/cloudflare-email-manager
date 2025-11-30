@@ -23,16 +23,10 @@ export const useSystemStore = defineStore('system', () => {
     auto_approve_mailbox?: number;
     supported_domains?: string[];
     mail_retention_days?: number;
+    attachment_retention_days?: number;
     attachment_max_size?: number;
-    allow_user_send?: number;
-    max_mailboxes_per_user?: number;
-    storage_provider?: string;
-    cleanup_days?: number;
-    max_attachment_size?: number;
     cookie_max_age?: number;
     jwt_secret?: string;
-    admin_email?: string;
-    primary_domain?: string;
     domains?: string[];
   } | null>('systemConfig', null, localStorage, {
     serializer: {
@@ -49,16 +43,10 @@ export const useSystemStore = defineStore('system', () => {
         auto_approve_mailbox?: number;
         supported_domains?: string[];
         mail_retention_days?: number;
+        attachment_retention_days?: number;
         attachment_max_size?: number;
-        allow_user_send?: number;
-        max_mailboxes_per_user?: number;
-        storage_provider?: string;
-        cleanup_days?: number;
-        max_attachment_size?: number;
         cookie_max_age?: number;
         jwt_secret?: string;
-        admin_email?: string;
-        primary_domain?: string;
         domains?: string[];
       } | null) => {
         return value ? JSON.stringify(value) : ''

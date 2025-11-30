@@ -44,7 +44,8 @@ app.get('/records', adminAuthMiddleware, async (c) => {
       data: result
     });
   } catch (error) {
-    console.error('[安全审计API] 获取记录失败:', error);
+    const { errorLog } = await import('../utils/debug');
+    errorLog('安全审计API', '获取记录失败:', error);
     return c.json({ success: false, message: '获取安全审计记录失败' }, 500);
   }
 });
@@ -68,7 +69,8 @@ app.get('/attack-stats', adminAuthMiddleware, async (c) => {
       data: stats
     });
   } catch (error) {
-    console.error('[安全审计API] 获取攻击统计失败:', error);
+    const { errorLog } = await import('../utils/debug');
+    errorLog('安全审计API', '获取攻击统计失败:', error);
     return c.json({ success: false, message: '获取攻击统计失败' }, 500);
   }
 });
@@ -109,7 +111,8 @@ app.get('/user-records', async (c) => {
       data: result
     });
   } catch (error) {
-    console.error('[安全审计API] 获取用户记录失败:', error);
+    const { errorLog } = await import('../utils/debug');
+    errorLog('安全审计API', '获取用户记录失败:', error);
     return c.json({ success: false, message: '获取用户安全记录失败' }, 500);
   }
 });
