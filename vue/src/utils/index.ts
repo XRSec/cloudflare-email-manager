@@ -4,6 +4,35 @@ import { ElNotification } from 'element-plus'
 export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 /**
+ * 统一的调试日志工具
+ * 根据环境变量决定是否输出日志
+ */
+const isDebugMode = import.meta.env.DEV || import.meta.env.VITE_DEBUG === 'true'
+
+export const debug = {
+  log: (...args: any[]) => {
+    if (isDebugMode) {
+      console.log(...args)
+    }
+  },
+  error: (...args: any[]) => {
+    if (isDebugMode) {
+      console.error(...args)
+    }
+  },
+  warn: (...args: any[]) => {
+    if (isDebugMode) {
+      console.warn(...args)
+    }
+  },
+  info: (...args: any[]) => {
+    if (isDebugMode) {
+      console.info(...args)
+    }
+  }
+}
+
+/**
  * 统一的消息提示工具
  * 使用 ElNotification 提供一致的用户体验
  * z-index 设置为 3000，高于普通模态框但低于加载动画和特殊模态框
@@ -13,7 +42,7 @@ export const toast = {
    * 成功提示
    */
   success: (message: string, title: string = '成功') => {
-    console.log(`[Toast Success] ${title}: ${message}`)
+    debug.log(`[Toast Success] ${title}: ${message}`)
     ElNotification({
       title,
       message,
@@ -28,7 +57,7 @@ export const toast = {
    * 错误提示
    */
   error: (message: string, title: string = '错误') => {
-    console.error(`[Toast Error] ${title}: ${message}`)
+    debug.error(`[Toast Error] ${title}: ${message}`)
     ElNotification({
       title,
       message,
@@ -43,7 +72,7 @@ export const toast = {
    * 警告提示
    */
   warning: (message: string, title: string = '警告') => {
-    console.warn(`[Toast Warning] ${title}: ${message}`)
+    debug.warn(`[Toast Warning] ${title}: ${message}`)
     ElNotification({
       title,
       message,
@@ -58,7 +87,7 @@ export const toast = {
    * 信息提示
    */
   info: (message: string, title: string = '提示') => {
-    console.info(`[Toast Info] ${title}: ${message}`)
+    debug.info(`[Toast Info] ${title}: ${message}`)
     ElNotification({
       title,
       message,
