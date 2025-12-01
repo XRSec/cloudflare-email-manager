@@ -1348,11 +1348,11 @@ const clearAllCache = () => {
       window.location.reload()
     } catch (error) {
       console.error('重新初始化系统配置失败:', error)
-      alert('缓存已清空！请手动刷新页面以重新加载系统配置。')
+      toast.warning('缓存已清空！请手动刷新页面以重新加载系统配置。', '提示')
     }
   }, 100)
 
-  alert('所有缓存已清空！系统将自动重新加载...')
+  toast.info('所有缓存已清空！系统将自动重新加载...', '提示')
 }
 
 
@@ -1590,7 +1590,7 @@ const initializeDatabase = async () => {
     if (result.success) {
       initResult.value = result.data
       confirmText.value = '' // 清空确认文本
-      alert('数据库初始化成功！系统将重新验证登录状态...')
+      toast.success('数据库初始化成功！系统将重新验证登录状态...', '成功')
 
       // 重新验证登录状态
       await revalidateAuth()
@@ -1620,14 +1620,14 @@ const revalidateAuth = async () => {
 
     // 如果验证失败，可能需要重新登录
     if (!authStore.isAuthenticated) {
-      alert('数据库初始化完成，但登录状态已失效，请重新登录')
+      toast.warning('数据库初始化完成，但登录状态已失效，请重新登录', '警告')
       window.location.href = '/login'
     } else {
       console.log('登录状态验证成功')
     }
   } catch (error) {
     console.error('重新验证登录状态失败:', error)
-    alert('数据库初始化完成，但验证登录状态时出现错误，建议刷新页面')
+    toast.error('数据库初始化完成，但验证登录状态时出现错误，建议刷新页面', '错误')
   }
 }
 

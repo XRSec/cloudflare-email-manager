@@ -347,11 +347,7 @@ app.post('/api/debug/simulate-email', jwtAuthMiddleware, debugModeMiddleware, as
         return c.json({
             success: true,
             message: `模拟邮件发送成功${attachments.length > 0 ? `，包含 ${attachments.length} 个附件` : ''}`,
-            attachments_count: attachments.length,
-            raw_email_preview: rawEmail.substring(0, 500) + (rawEmail.length > 500 ? '...' : ''),
-            format_info: attachments.length > 0
-                ? '邮件使用 RFC 822 MIME multipart/mixed 格式，包含附件（base64 编码）'
-                : '邮件使用 RFC 822 标准格式（\\r\\n 换行符，邮件头之间无空行），可被 postal-mime 正确解析'
+            attachments_count: attachments.length
         });
 
     } catch (error) {

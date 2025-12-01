@@ -310,15 +310,19 @@ const getAttachmentUrl = (attachment: Attachment) => {
     return ''
   }
 
-  // 对于图片附件，返回 blob URL（如果已缓存）或API URL
+  // 对于图片附件，优先返回 blob URL（如果已缓存），否则返回 API URL
   if (isImage(attachment.content_type)) {
     const cachedUrl = imageBlobUrls.value.get(attachment.id)
     if (cachedUrl) {
       return cachedUrl
     }
-    // 如果还没有 blob URL，先返回一个占位符，然后异步加载
+    // 如果还没有 blob URL，异步加载，并先返回 API URL
     loadImageBlob(attachment)
-    return '' // 暂时返回空，等待加载
+    
+    // 返回 API URL 作为备选（确保图片可以立即显示）
+    if (emailDetail.value?.id) {
+      return `/api/emails/${emailDetail.value.id}/attachments/${attachment.id}`
+    }
   }
 
   // 非图片附件：使用 API 返回的 URL 或构建 URL
@@ -550,7 +554,8 @@ const downloadEml = () => {
 
 .image-preview-wrapper {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  min-height: 200px;
+  max-height: 400px;
   background: #fff;
   border-radius: 4px;
   overflow: hidden;
@@ -563,6 +568,8 @@ const downloadEml = () => {
 .image-preview {
   max-width: 100%;
   max-height: 100%;
+  width: auto;
+  height: auto;
   object-fit: contain;
   cursor: pointer;
   transition: transform 0.2s;
