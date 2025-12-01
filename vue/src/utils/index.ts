@@ -6,6 +6,7 @@ export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, 
 /**
  * 统一的消息提示工具
  * 使用 ElNotification 提供一致的用户体验
+ * z-index 设置为 10000，确保始终显示在最上层（高于所有模态框和其他元素）
  */
 export const toast = {
   /**
@@ -17,7 +18,8 @@ export const toast = {
       message,
       type: 'success',
       duration: 3000,
-      position: 'top-right'
+      position: 'top-right',
+      zIndex: 10000
     })
   },
 
@@ -30,7 +32,8 @@ export const toast = {
       message,
       type: 'error',
       duration: 4000, // 错误提示显示时间稍长
-      position: 'top-right'
+      position: 'top-right',
+      zIndex: 10000
     })
   },
 
@@ -43,7 +46,8 @@ export const toast = {
       message,
       type: 'warning',
       duration: 3500,
-      position: 'top-right'
+      position: 'top-right',
+      zIndex: 10000
     })
   },
 
@@ -56,7 +60,8 @@ export const toast = {
       message,
       type: 'info',
       duration: 3000,
-      position: 'top-right'
+      position: 'top-right',
+      zIndex: 10000
     })
   }
 }
