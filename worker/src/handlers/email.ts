@@ -59,24 +59,18 @@ function buildStrippedEmlFile(rawEmail: string, parsedEmail: any): string {
     if (parsedEmail.html && parsedEmail.html.trim()) {
         body = parsedEmail.html;
         contentType = 'text/html; charset=utf-8';
-        debugLog('[精简邮件] 使用 HTML 正文，长度:', body.length);
     } else if (parsedEmail.text && parsedEmail.text.trim()) {
         body = parsedEmail.text;
         contentType = 'text/plain; charset=utf-8';
-        debugLog('[精简邮件] 使用纯文本正文，长度:', body.length);
     } else {
         // 如果 postal-mime 解析失败，尝试手动提取正文
-        errorLog('[精简邮件] ⚠️ parsedEmail 没有 text 也没有 html，尝试手动提取');
-
-        // 尝试从原始邮件中提取第一个 text/plain 或 text/html 部分
         const bodyMatch = rawEmail.match(/Content-Type:\s*(text\/(plain|html))[^\r\n]*\r?\n(?:Content-Transfer-Encoding:[^\r\n]*\r?\n)?\r?\n([\s\S]*?)(?=\r?\n--)/);
         if (bodyMatch && bodyMatch[3]) {
             body = bodyMatch[3].trim();
             contentType = bodyMatch[1] + '; charset=utf-8';
-            debugLog('[精简邮件] 手动提取正文成功，长度:', body.length);
         } else {
             body = '[无法提取邮件正文内容]';
-            errorLog('[精简邮件] ❌ 手动提取正文也失败');
+            errorLog('[精简邮件] 无法提取邮件正文');
         }
     }
 
@@ -86,11 +80,7 @@ function buildStrippedEmlFile(rawEmail: string, parsedEmail: any): string {
 
     // 第四步：组装完整的 .eml 文件
     // RFC 822 格式：头部 + 空行 + 正文
-    const result = headers.join('\r\n') + '\r\n\r\n' + body;
-
-    debugLog('[精简邮件] 最终邮件长度:', result.length, '字节');
-
-    return result;
+    return headers.join('\r\n') + '\r\n\r\n' + body;
 }
 
 /**
@@ -106,7 +96,6 @@ async function extractEmailText(parsedEmail: any): Promise<string> {
     if (parsedEmail.html && parsedEmail.html.trim() !== '') {
         try {
             text = await extractTextFromHtml(parsedEmail.html);
-            debugLog('[提取文本] 从 HTML 转换，长度:', text.length);
         } catch (error) {
             errorLog('[提取文本] HTML 转换失败:', error);
         }
@@ -115,7 +104,6 @@ async function extractEmailText(parsedEmail: any): Promise<string> {
     // 如果 HTML 转换失败或没有 HTML，使用纯文本
     if (!text && parsedEmail.text) {
         text = parsedEmail.text;
-        debugLog('[提取文本] 使用纯文本，长度:', text.length);
     }
 
     // 如果还是没有内容
@@ -176,24 +164,21 @@ async function parseEmailContent(
                     }));
             }
 
-            debugLog('[邮件解析] postal-mime 成功 - 主题:', subject, '内容:', content.length, '字符', '图片:', images.length);
             return { subject, messageId, content, images };
         } catch (error) {
-            errorLog('[邮件解析] postal-mime 失败:', error);
+            errorLog('[邮件解析] postal-mime 失败，使用备用方案:', error);
         }
     }
 
     // 备用方案：使用 Cloudflare message API
-    debugLog('[邮件解析] 使用备用方案 - Cloudflare message API');
     try {
         const fallbackParsed = {
             html: message.html ? await message.html() : null,
             text: message.text ? await message.text() : null
         };
         content = await extractEmailText(fallbackParsed);
-        debugLog('[邮件解析] 备用方案成功 - 内容:', content.length, '字符');
     } catch (error) {
-        errorLog('[邮件解析] 备用方案也失败:', error);
+        errorLog('[邮件解析] 备用方案失败:', error);
     }
 
     return { subject, messageId, content, images };
@@ -347,9 +332,8 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                 const rawBuffer = await new Response(message.raw).arrayBuffer();
                 rawEmailBytes = new Uint8Array(rawBuffer);
                 rawEmail = new TextDecoder('utf-8').decode(rawBuffer);
-                debugLog('[步骤1] 获取原始邮件成功，大小:', rawBuffer.byteLength, 'bytes');
             } catch (error) {
-                errorLog('[步骤1] 读取 message.raw 失败:', error);
+                errorLog('[邮件处理] 读取原始邮件失败:', error);
             }
         }
 
@@ -358,10 +342,8 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
             try {
                 rawEmail = await reconstructRawEmail(message, messageId, senderEmail, recipientEmail, subject);
                 rawEmailBytes = new TextEncoder().encode(rawEmail);
-                infoLog('[步骤1] 重新构建原始邮件，大小:', rawEmail.length, 'bytes');
             } catch (error) {
-                errorLog('[步骤1] 重新构建邮件失败:', error);
-                // 生成最简单的邮件格式
+                errorLog('[邮件处理] 重新构建邮件失败:', error);
                 rawEmail = generateBasicRawEmail(messageId, senderEmail, recipientEmail, subject, '');
                 rawEmailBytes = new TextEncoder().encode(rawEmail);
             }
