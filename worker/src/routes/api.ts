@@ -114,34 +114,14 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
     if (email.is_read === 0) {
       try {
         await updateEmailReadStatus(c.env.DB, emailId, true);
-        debugLog('[邮件详情] 自动标记为已读');
-        // 更新 email 对象
         email.is_read = 1;
       } catch (error) {
-        debugLog('[邮件详情] 自动标记为已读失败:', error);
         // 不影响继续返回邮件详情
       }
     }
 
     // 获取附件列表
     const attachments = await getEmailAttachments(c.env.DB, emailId);
-
-    // 调试：打印附件信息
-    debugLog(`[邮件详情] 邮件ID: ${emailId}`);
-    debugLog(`[邮件详情] 从数据库获取到的附件数量: ${attachments.length}`);
-    if (attachments.length > 0) {
-      attachments.forEach((att, index) => {
-        debugLog(`[邮件详情] 附件 ${index + 1}:`, {
-          id: att.id,
-          filename: att.filename,
-          content_type: att.content_type,
-          size_bytes: att.size_bytes,
-          r2_key: att.r2_key
-        });
-      });
-    } else {
-      debugLog(`[邮件详情] 未找到附件，检查数据库中是否存在附件记录`);
-    }
 
     // 从 R2 读取精简版 .eml 并动态解析
     let fullContent = email.content || ''; // 默认使用数据库中的预览内容
@@ -162,7 +142,6 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
         if (parsedEmail.html && parsedEmail.html.trim()) {
           fullContent = parsedEmail.html;
           fullContentType = 'html';
-          debugLog('[邮件详情] 解析 HTML 内容，长度:', fullContent.length);
 
           // 查询该邮件的所有附件（包括内嵌图片）
           const attachments = await c.env.DB.prepare(`
@@ -175,25 +154,20 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
           if (attachments.results && attachments.results.length > 0) {
             for (const att of attachments.results) {
               if (att.content_id) {
-                // 内嵌图片：替换 cid: 为 API 链接
                 const escapedCid = (att.content_id as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const cidPattern = new RegExp(`cid:${escapedCid}`, 'gi');
                 const imageUrl = `/api/emails/${emailId}/attachments/${att.id}`;
                 fullContent = fullContent.replace(cidPattern, imageUrl);
-                debugLog('[邮件详情] 替换 cid:', att.content_id, '→', imageUrl);
               }
             }
           }
         } else if (parsedEmail.text && parsedEmail.text.trim()) {
           fullContent = parsedEmail.text;
           fullContentType = 'text';
-          debugLog('[邮件详情] 使用纯文本内容，长度:', fullContent.length);
         }
-      } else {
-        debugLog('[邮件详情] 未找到 .eml 文件，使用数据库预览');
       }
     } catch (error) {
-      debugLog('[邮件详情] 解析 .eml 失败，使用数据库预览:', error);
+      // 使用数据库预览
     }
 
     // 转换字段名以匹配前端期望的格式
@@ -312,7 +286,6 @@ api.get('/emails/:id/raw', jwtAuthMiddleware, async (c) => {
 
     // 如果 R2 中也没有
     if (!rawEmail) {
-      debugLog('[原始邮件] R2 中不存在 .eml 文件，邮件内容可能已丢失');
       throw new HTTPException(404, { message: '原始邮件内容不存在' });
     }
 
@@ -497,13 +470,7 @@ api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) =>
       throw new HTTPException(404, { message: '附件不存在' });
     }
 
-    debugLog(`[下载附件] 附件ID: ${attachmentId}, 文件名: ${attachment.filename}, 大小: ${attachment.size_bytes} bytes`);
-
-    // 检查是否有 If-None-Match 头（条件请求）
     const ifNoneMatch = c.req.header('If-None-Match');
-    if (ifNoneMatch) {
-      debugLog(`[下载附件] 收到条件请求，If-None-Match: ${ifNoneMatch}`);
-    }
 
     // 判断 Content-Disposition
     let contentDisposition = `attachment; filename="${encodeURIComponent(attachment.filename)}"`;
@@ -537,8 +504,6 @@ api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) =>
           immutable: true
         });
       }
-
-      debugLog(`[下载附件] KV 缓存未命中，从 R2 读取: ${attachmentId}`);
     }
 
     // 从 R2 读取文件（带重试机制）
@@ -616,13 +581,7 @@ api.get('/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
       throw new HTTPException(404, { message: '关联的邮件不存在' });
     }
 
-    debugLog(`[下载附件-简洁路径] 附件ID: ${attachmentId}, 文件名: ${attachment.filename}, 邮件ID: ${attachment.email_id}`);
-
-    // 检查是否有 If-None-Match 头（条件请求）
     const ifNoneMatch = c.req.header('If-None-Match');
-    if (ifNoneMatch) {
-      debugLog(`[下载附件-简洁路径] 收到条件请求，If-None-Match: ${ifNoneMatch}`);
-    }
 
     // 判断 Content-Disposition
     let contentDisposition = `attachment; filename="${encodeURIComponent(attachment.filename)}"`;
@@ -656,8 +615,6 @@ api.get('/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
           immutable: true
         });
       }
-
-      debugLog(`[下载附件-简洁路径] KV 缓存未命中，从 R2 读取: ${attachmentId}`);
     }
 
     // 从 R2 读取文件（带重试机制）

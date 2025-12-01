@@ -356,8 +356,6 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
         content = parsed.content;
         images = parsed.images;
 
-        debugLog('[步骤2] 邮件解析完成 - 主题:', subject, '内容:', content.length, '字符', '图片:', images.length, '张');
-
         // 步骤2.5: 提取并保存所有附件到 R2（统一存储在 attachments/ 目录）
         // 同时生成去除附件的精简 .eml 文件（节省存储空间）
         let strippedRawEmail: string | null = null; // 去除附件的精简 .eml
@@ -400,20 +398,17 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                             // 内嵌图片：R2 使用 Content-ID，数据库保留原文件名
                             const ext = att.mimeType?.split('/')[1] || 'bin';
                             r2Filename = `${contentId}.${ext}`;
-                            filename = att.filename || r2Filename;  // 优先原文件名，否则用 Content-ID
-                            debugLog('[步骤2.5] 内嵌图片 - 原文件名:', filename, 'R2文件名:', r2Filename, 'Content-ID:', contentId);
+                            filename = att.filename || r2Filename;
                         } else if (att.filename) {
                             // 普通附件：R2 和数据库都使用原文件名
                             filename = att.filename;
                             r2Filename = att.filename;
-                            debugLog('[步骤2.5] 普通附件 - 文件名:', filename);
                         } else {
                             // 未命名附件：使用 UUID
                             const uuid = crypto.randomUUID();
                             const ext = att.mimeType?.split('/')[1] || 'bin';
                             filename = `${uuid}.${ext}`;
                             r2Filename = filename;
-                            debugLog('[步骤2.5] 未命名附件 - 生成文件名:', filename);
                         }
 
                         // R2 存储路径
@@ -445,13 +440,10 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                             contentType: att.mimeType || 'application/octet-stream',
                             sizeBytes: contentSize,
                             r2Key: r2Key,
-                            contentId: contentId  // ✅ Content-ID 保存到数据库
+                            contentId: contentId
                         });
 
                         attachmentCount++;
-
-                        const typeLabel = contentId ? '内嵌图片' : '普通附件';
-                        debugLog(`[步骤2.5] 保存${typeLabel}:`, r2Key, `(${(contentSize / 1024).toFixed(2)} KB)`);
                     }
                 }
 
@@ -459,9 +451,6 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                 const decoder = new TextDecoder('utf-8');
                 const originalRawEmail = decoder.decode(rawEmailBytes);
                 strippedRawEmail = buildStrippedEmlFile(originalRawEmail, parsedEmail);
-
-                debugLog('[步骤2.5] 生成精简 .eml 文件:', `原始: ${(rawEmailBytes.length / 1024).toFixed(2)} KB`, `→ 精简: ${(strippedRawEmail.length / 1024).toFixed(2)} KB`, `(节省 ${((1 - strippedRawEmail.length / rawEmailBytes.length) * 100).toFixed(1)}%)`);
-                debugLog('[步骤2.5] 附件处理完成 - 总数:', attachmentCount, '个（包含', attachmentRecords.filter(a => a.contentId).length, '个内嵌图片）');
             } catch (error) {
                 errorLog('[步骤2.5] 附件处理失败:', error);
                 // 不影响邮件保存，继续处理
@@ -497,7 +486,6 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
 
         // 步骤5: 保存邮件记录到数据库
         const savedEmail = await createEmail(env.DB, emailRecord, emailId);
-        debugLog('[步骤5] 邮件记录已保存 - ID:', savedEmail.id, '主题:', subject);
 
         // 步骤5.5: 保存附件记录到数据库
         if (attachmentRecords.length > 0) {
@@ -507,7 +495,6 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 `);
 
-                // 批量插入附件记录
                 const batch = attachmentRecords.map(att =>
                     insertStmt.bind(
                         att.id,
@@ -521,9 +508,8 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                 );
 
                 await env.DB.batch(batch);
-                debugLog('[步骤5.5] 附件记录已保存 - 数量:', attachmentRecords.length);
             } catch (error) {
-                errorLog('[步骤5.5] 保存附件记录失败:', error);
+                errorLog('[邮件处理] 保存附件记录失败:', error);
             }
         }
 
@@ -545,12 +531,10 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                                 emailId: savedEmail.id,
                                 messageId: messageId || '',
                                 savedAt: new Date().toISOString(),
-                                format: 'RFC822-stripped',
-                                note: 'Attachments removed to save storage'
+                                format: 'RFC822-stripped'
                             }
                         });
                     });
-                    debugLog('[步骤6] 精简版邮件已保存到 R2 - Key:', r2Key, `(${(strippedBytes.length / 1024).toFixed(2)} KB)`);
                 }
                 // 如果没有精简版，使用原始邮件
                 else if (rawEmailBytes) {
@@ -568,22 +552,18 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                             }
                         });
                     });
-                    debugLog('[步骤6] 原始邮件已保存到 R2 - Key:', r2Key, `(${(rawEmailBytes.length / 1024).toFixed(2)} KB)`);
                 }
             } catch (r2Error) {
-                errorLog('[步骤6] 保存到 R2 失败:', r2Error);
+                errorLog('[邮件处理] 保存到 R2 失败:', r2Error);
             }
         }
 
         // 步骤7: 处理邮件转发（单用户模式：不需要用户ID）
         try {
             await handleEmailForwarding(savedEmail, null, env.DB);
-            debugLog('[步骤7] 邮件转发处理完成');
         } catch (error) {
-            errorLog('[步骤7] 邮件转发失败:', error);
+            errorLog('[邮件处理] 转发失败:', error);
         }
-
-        debugLog('✅ 邮件处理完成 - ID:', savedEmail.id);
 
     } catch (error) {
         errorLog('[邮件处理] 处理邮件时发生错误:', error);
@@ -598,23 +578,12 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
 export default {
     async email(message: any, env: Env, ctx: any) {
         try {
-            // 记录基本信息
-            if (message) {
-                debugLog('[邮件路由] 收到新邮件:', {
-                    from: message.from,
-                    to: message.to,
-                    rawSize: (message as any).rawSize
-                });
-            }
-
             await handleIncomingEmail(message, env, ctx);
         } catch (error) {
-            errorLog('[邮件路由] ========== 处理失败 ==========');
-            errorLog('[邮件路由] 错误类型:', error instanceof Error ? error.constructor.name : typeof error);
-            errorLog('[邮件路由] 错误消息:', error instanceof Error ? error.message : String(error));
-            errorLog('[邮件路由] 错误堆栈:', error instanceof Error ? error.stack : '无堆栈信息');
-            errorLog('[邮件路由] 完整错误对象:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-            // 不抛出错误，避免影响邮件路由
+            errorLog('[邮件路由] 处理失败:', error instanceof Error ? error.message : String(error));
+            if (error instanceof Error && error.stack) {
+                errorLog('[邮件路由] 堆栈:', error.stack);
+            }
         }
     }
 };
