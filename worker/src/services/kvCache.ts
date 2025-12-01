@@ -35,7 +35,11 @@ export class KVCacheService {
     EMAIL_LIST: 'emails:list',
     MAILBOX_LIST: 'mailboxes:list',
     ATTACHMENT: 'attachment:',        // 附件缓存前缀
-    EMAIL_RAW: 'email:raw:'          // 原始邮件缓存前缀
+    EMAIL_RAW: 'email:raw:',          // 原始邮件缓存前缀
+    DASHBOARD_STATS: 'dashboard:stats', // 仪表板统计数据
+    EMAIL_COUNT: 'stats:email_count',   // 邮件数量
+    R2_FILE_COUNT: 'stats:r2_file_count', // R2文件数量
+    FORWARD_LOGS: 'forward_logs:',    // 转发日志缓存前缀
   } as const
 
   // TTL常量
@@ -389,6 +393,68 @@ export class KVCacheService {
    */
   static getEmailRawKey(emailId: string): string {
     return `${KVCacheService.KEYS.EMAIL_RAW}${emailId}`;
+  }
+
+  /**
+   * 获取仪表板统计数据
+   */
+  async getDashboardStats(): Promise<any> {
+    return this.get(KVCacheService.KEYS.DASHBOARD_STATS)
+  }
+
+  /**
+   * 设置仪表板统计数据
+   */
+  async setDashboardStats(stats: any): Promise<boolean> {
+    return this.set(KVCacheService.KEYS.DASHBOARD_STATS, stats, KVCacheService.TTL.SHORT)
+  }
+
+  /**
+   * 获取邮件数量
+   */
+  async getEmailCount(): Promise<number | null> {
+    return this.get<number>(KVCacheService.KEYS.EMAIL_COUNT)
+  }
+
+  /**
+   * 设置邮件数量
+   */
+  async setEmailCount(count: number): Promise<boolean> {
+    return this.set(KVCacheService.KEYS.EMAIL_COUNT, count, KVCacheService.TTL.SHORT)
+  }
+
+  /**
+   * 获取 R2 文件数量
+   */
+  async getR2FileCount(): Promise<number | null> {
+    return this.get<number>(KVCacheService.KEYS.R2_FILE_COUNT)
+  }
+
+  /**
+   * 设置 R2 文件数量
+   */
+  async setR2FileCount(count: number): Promise<boolean> {
+    return this.set(KVCacheService.KEYS.R2_FILE_COUNT, count, KVCacheService.TTL.SHORT)
+  }
+
+  /**
+   * 清理仪表板缓存
+   */
+  async clearDashboardCache(): Promise<boolean> {
+    const keys = [
+      KVCacheService.KEYS.DASHBOARD_STATS,
+      KVCacheService.KEYS.EMAIL_COUNT,
+      KVCacheService.KEYS.R2_FILE_COUNT
+    ]
+
+    try {
+      await Promise.all(keys.map(key => this.kv.delete(key)))
+      return true
+    } catch (error) {
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', '清理仪表板缓存失败:', error);
+      return false
+    }
   }
 }
 

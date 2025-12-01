@@ -33,6 +33,8 @@ tags:
     description: 邮件接收、查看、删除、附件下载
   - name: System
     description: 健康检查与系统配置管理
+  - name: Dashboard
+    description: 仪表板统计数据和转发日志管理
   - name: Database
     description: 调试模式下的数据库管理接口
 
@@ -472,6 +474,174 @@ paths:
               $ref: '#/components/schemas/SystemConfigUpdate'
       responses:
         '200': { $ref: '#/components/schemas/BasicResponse' }
+
+  /api/dashboard/stats:
+    get:
+      tags: [Dashboard]
+      summary: 获取仪表板统计数据
+      description: |
+        返回仪表板统计数据，包括：
+        - 邮件统计（总数、今日、未读）
+        - R2 文件数量
+        - 转发日志统计（总数、成功、失败）
+        - 最近转发日志（最新5条）
+        
+        支持 KV 缓存，5分钟过期
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: 仪表板统计数据
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      stats:
+                        type: object
+                        properties:
+                          email:
+                            type: object
+                            properties:
+                              total: { type: integer, description: 邮件总数 }
+                              today: { type: integer, description: 今日邮件数 }
+                              unread: { type: integer, description: 未读邮件数 }
+                          r2:
+                            type: object
+                            properties:
+                              fileCount: { type: integer, description: R2文件数量 }
+                          forward:
+                            type: object
+                            properties:
+                              total: { type: integer, description: 转发日志总数 }
+                              success: { type: integer, description: 转发成功数 }
+                              failed: { type: integer, description: 转发失败数 }
+                              recentLogs:
+                                type: array
+                                description: 最近5条转发日志
+                                items:
+                                  type: object
+                                  properties:
+                                    id: { type: integer }
+                                    email_id: { type: string }
+                                    webhook_url: { type: string }
+                                    status: { type: integer, description: '0=成功, 1=失败' }
+                                    response_code: { type: integer }
+                                    error_message: { type: string }
+                                    sent_at: { type: string, format: date-time }
+                                    subject: { type: string }
+                                    from_address: { type: string }
+                          timestamp: { type: string, format: date-time, description: 统计数据生成时间 }
+                      cached: { type: boolean, description: 是否从缓存读取 }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+
+  /api/dashboard/forward-logs:
+    get:
+      tags: [Dashboard]
+      summary: 获取转发日志列表
+      description: 分页查询转发日志，支持按状态筛选
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: status
+          in: query
+          schema: { type: integer, enum: [0, 1] }
+          description: '转发状态筛选：0=成功, 1=失败'
+      responses:
+        '200':
+          description: 转发日志列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            email_id: { type: string }
+                            webhook_url: { type: string }
+                            status: { type: integer, description: '0=成功, 1=失败' }
+                            response_code: { type: integer }
+                            error_message: { type: string }
+                            sent_at: { type: string, format: date-time }
+                            created_at: { type: string, format: date-time }
+                            subject: { type: string, description: 关联邮件主题 }
+                            from_address: { type: string, description: 关联邮件发件人 }
+                            to_address: { type: string, description: 关联邮件收件人 }
+                      total: { type: integer }
+                      page: { type: integer }
+                      limit: { type: integer }
+                      totalPages: { type: integer }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+
+  /api/dashboard/forward-logs/{id}:
+    get:
+      tags: [Dashboard]
+      summary: 获取转发日志详情
+      description: 获取单条转发日志的详细信息，包括关联的邮件内容
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+          description: 转发日志ID
+      responses:
+        '200':
+          description: 转发日志详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      log:
+                        type: object
+                        properties:
+                          id: { type: integer }
+                          email_id: { type: string }
+                          webhook_url: { type: string }
+                          status: { type: integer, description: '0=成功, 1=失败' }
+                          response_code: { type: integer }
+                          error_message: { type: string }
+                          sent_at: { type: string, format: date-time }
+                          created_at: { type: string, format: date-time }
+                          updated_at: { type: string, format: date-time }
+                          subject: { type: string, description: 关联邮件主题 }
+                          from_address: { type: string, description: 关联邮件发件人 }
+                          to_address: { type: string, description: 关联邮件收件人 }
+                          content: { type: string, description: 关联邮件内容预览 }
+                          received_at: { type: string, format: date-time, description: 邮件接收时间 }
+        '404': { $ref: '#/components/responses/NotFoundError' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
+
+  /api/dashboard/cache:
+    delete:
+      tags: [Dashboard]
+      summary: 清理仪表板缓存
+      description: 清理仪表板相关的 KV 缓存数据（邮件数量、R2文件数量、统计数据等）
+      security:
+        - cookieAuth: []
+      responses:
+        '200': { $ref: '#/components/schemas/BasicResponse' }
+        '401': { $ref: '#/components/responses/UnauthorizedError' }
 
   /api/database/info:
     get:

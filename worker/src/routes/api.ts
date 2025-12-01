@@ -17,6 +17,7 @@ import { userRoutes } from './user';
 import { systemRoutes } from './system';
 import { databaseRoutes } from './database';
 import { kvCacheRouter } from './kv-cache';
+import { dashboardRoutes } from './dashboard';
 
 // 导入服务
 import {
@@ -749,6 +750,9 @@ api.post('/emails/send', jwtAuthMiddleware, async (c) => {
 
 // ==================== 系统相关 ====================
 api.route('/system', systemRoutes);
+
+// ==================== 仪表板和转发日志 ====================
+api.route('/dashboard', dashboardRoutes);
 
 // ==================== 数据库管理 ====================
 api.route('/database', databaseRoutes);

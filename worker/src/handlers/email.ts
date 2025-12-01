@@ -578,6 +578,18 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
             errorLog('[步骤7] 邮件转发失败:', error);
         }
 
+        // 步骤8: 清理仪表板缓存（有新邮件时）
+        if (env.KV) {
+            try {
+                const { KVCacheService } = await import('../services/kvCache');
+                const kvCache = new KVCacheService(env.KV);
+                await kvCache.clearDashboardCache();
+                debugLog('[步骤8] 仪表板缓存已清理（有新邮件）');
+            } catch (error) {
+                errorLog('[步骤8] 清理仪表板缓存失败:', error);
+            }
+        }
+
         debugLog('✅ 邮件处理完成','ID:', savedEmail.id);
 
     } catch (error) {
