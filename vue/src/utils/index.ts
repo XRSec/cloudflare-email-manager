@@ -13,6 +13,7 @@ export const toast = {
    * 成功提示
    */
   success: (message: string, title: string = '成功') => {
+    console.log(`[Toast Success] ${title}: ${message}`)
     ElNotification({
       title,
       message,
@@ -27,6 +28,7 @@ export const toast = {
    * 错误提示
    */
   error: (message: string, title: string = '错误') => {
+    console.error(`[Toast Error] ${title}: ${message}`)
     ElNotification({
       title,
       message,
@@ -41,6 +43,7 @@ export const toast = {
    * 警告提示
    */
   warning: (message: string, title: string = '警告') => {
+    console.warn(`[Toast Warning] ${title}: ${message}`)
     ElNotification({
       title,
       message,
@@ -55,6 +58,7 @@ export const toast = {
    * 信息提示
    */
   info: (message: string, title: string = '提示') => {
+    console.info(`[Toast Info] ${title}: ${message}`)
     ElNotification({
       title,
       message,
