@@ -12,7 +12,7 @@
 
     <!-- 阶段3: 登录界面 -->
     <div v-if="isLogin" class="stage-container">
-      <LoginView @login-success="handleLoginSuccess" />
+      <LoginView @login-success="handleLoginSuccess" ref="loginViewRef" />
     </div>
 
     <!-- 阶段4: 主界面预加载 -->
@@ -28,13 +28,16 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, nextTick, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore, useApp } from '@/composables/stores'
 import { defineAsyncComponent } from 'vue'
+import { toast } from '@/utils'
 
 const AppLoadingSpinner = defineAsyncComponent(() => import('@/views/shared/components/AppLoadingSpinner.vue'))
 const LoginView = defineAsyncComponent(() => import('@/views/auth/LoginView.vue'))
+
+const loginViewRef = ref()
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -60,6 +63,7 @@ declare global {
     showMessage?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void
     router?: typeof router
     refreshCurrentPage?: () => void
+    handleLoginSuccess?: () => Promise<void>
   }
 }
 
@@ -71,12 +75,54 @@ window.router = router
 // 全局消息提示函数
 window.showMessage = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
   console.log(`[${type.toUpperCase()}] ${message}`)
-  // 这里可以替换为更好的消息组件
-  if (type === 'error') {
-    alert(message)
-  } else {
-    console.log(message)
+  // 使用统一的 toast 消息提示
+  switch (type) {
+    case 'success':
+      toast.success(message)
+      break
+    case 'error':
+      toast.error(message)
+      break
+    case 'warning':
+      toast.warning(message)
+      break
+    case 'info':
+      toast.info(message)
+      break
   }
+}
+
+// 通用的主界面加载函数（从 main-preload 到 main）
+const loadMainInterface = async (targetUrl: string = '/') => {
+  console.log('⏳ 准备切换到 main-preload 阶段')
+  await loadNextStage('main-preload')
+  console.log('✅ 已切换到 main-preload 阶段')
+
+  // 等待阶段切换完成
+  await nextTick()
+  console.log('✅ nextTick 完成')
+
+  // 在预加载阶段执行路由跳转（此时 router-view 还没有显示）
+  console.log('🚀 执行路由跳转到:', targetUrl)
+  try {
+    await router.push(targetUrl)
+    console.log('✅ 路由跳转完成')
+  } catch (error) {
+    console.error('❌ 路由跳转失败:', error)
+    // 如果路由跳转失败，仍然切换到主界面
+  }
+
+  // 等待路由跳转完成
+  await nextTick()
+  console.log('✅ 路由跳转后的 nextTick 完成')
+
+  // 现在切换到主界面阶段（router-view 会显示，此时路由已经准备好）
+  console.log('⏳ 准备切换到 main 阶段')
+  setStage('main')
+  await nextTick()
+  console.log('✅ 已切换到 main 阶段')
+
+  console.log('✅ 主界面已加载')
 }
 
 // 流式加载函数
@@ -99,7 +145,20 @@ const loadNextStage = async (stage: typeof currentStage.value) => {
         console.log('🔐 认证状态:', authStore.isAuthenticated)
         if (authStore.isAuthenticated) {
           console.log('✅ 用户已认证，进入主界面')
-          await loadNextStage('main-preload')
+          // 检查是否有重定向参数，如果没有则使用当前路径
+          const urlParams = new URLSearchParams(window.location.search)
+          const redirectUrl = urlParams.get('redirect')
+          const currentPath = window.location.pathname
+          // 如果有 redirect 参数，使用它；否则如果当前路径不是登录页，使用当前路径；否则使用根路径
+          let targetUrl = '/'
+          if (redirectUrl) {
+            targetUrl = decodeURIComponent(redirectUrl)
+          } else if (currentPath !== '/login') {
+            targetUrl = currentPath
+          }
+          console.log('📍 目标URL:', targetUrl)
+          // 使用通用函数加载主界面
+          await loadMainInterface(targetUrl)
         } else {
           console.log('❌ 用户未认证，进入登录页')
           await loadNextStage('login')
@@ -117,8 +176,9 @@ const loadNextStage = async (stage: typeof currentStage.value) => {
     case 'main-preload':
       setLoadingText('正在加载主界面...')
       // 模拟预加载时间
-      await new Promise(resolve => setTimeout(resolve, 600))
-      setStage('main')
+      await new Promise(resolve => setTimeout(resolve, 300))
+      // 注意：不在这里切换到 main，由调用者控制切换时机
+      console.log('✅ 主界面预加载完成')
       break
 
     case 'main':
@@ -130,15 +190,25 @@ const loadNextStage = async (stage: typeof currentStage.value) => {
 // 处理登录成功
 const handleLoginSuccess = async () => {
   console.log('🎯 App.vue 收到登录成功事件')
+  console.log('🔍 当前阶段:', currentStage.value)
+  console.log('🔍 认证状态:', authStore.isAuthenticated)
+
   setLoadingText('正在跳转至主界面...')
+
   // 检查是否有重定向参数
   const urlParams = new URLSearchParams(window.location.search)
   const redirectUrl = urlParams.get('redirect')
-  console.log('📍 重定向URL:', redirectUrl)
-  let newUrl = decodeURIComponent(redirectUrl ?? '/')
-  await loadNextStage('main-preload')
-  router.push(newUrl)
+  const targetUrl = redirectUrl ? decodeURIComponent(redirectUrl) : '/'
+  console.log('📍 目标URL:', targetUrl)
+
+  // 使用通用函数加载主界面
+  await loadMainInterface(targetUrl)
+
+  console.log('✅ 登录成功，主界面已加载')
 }
+
+// 将 handleLoginSuccess 挂载到全局，方便 LoginView 直接调用
+window.handleLoginSuccess = handleLoginSuccess
 
 // 处理退出登录
 const handleLogout = async () => {

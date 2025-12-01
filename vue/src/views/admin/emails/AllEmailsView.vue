@@ -36,9 +36,8 @@
         </div>
       </div>
 
-      <EmailList :emails="emails" :show-owner="true" :show-actions="true" :enable-selection="true"
-        :selected-ids="selectedEmailIds" @delete="deleteEmail" @view="viewEmailDetail"
-        @selection-change="handleSelectionChange" />
+      <EmailList :emails="emails" :show-actions="true" :enable-selection="true" :selected-ids="selectedEmailIds"
+        @delete="deleteEmail" @view="viewEmailDetail" @selection-change="handleSelectionChange" />
 
       <Pagination :pagination="pagination || undefined" @change-page="changePage" />
     </div>
@@ -50,13 +49,13 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ElMessage } from 'element-plus'
 import { useSystemStore } from '@/composables/system'
 import { apiService } from '@/composables/api'
 import { usePaginatedPageData } from '@/composables/useUnifiedPageData'
 import { cacheService } from '@/composables/cache'
 import { PageHeader, DebugInfo, PageStates, EmailList, Pagination, Button } from '@/components'
 import EmailDetailModal from '@/components/business/EmailDetailModal.vue'
+import { toast } from '@/utils'
 
 const systemStore = useSystemStore()
 
@@ -136,9 +135,10 @@ const handleSelectAll = (event: Event) => {
   }
 }
 
-const clearSelection = () => {
-  selectedEmailIds.value = []
-}
+// 清除选择（已移除，使用内联方式）
+// const clearSelection = () => {
+//   selectedEmailIds.value = []
+// }
 
 // 删除邮件
 const deleteEmail = async (id: string) => {
@@ -156,10 +156,10 @@ const deleteEmail = async (id: string) => {
     if (index > -1) {
       selectedEmailIds.value.splice(index, 1)
     }
-    ElMessage.success('邮件删除成功')
+    toast.success('邮件删除成功')
   } catch (error) {
     console.error('删除邮件失败:', error)
-    ElMessage.error('删除失败，请稍后重试')
+    toast.error('删除失败，请稍后重试')
   }
 }
 
@@ -179,10 +179,10 @@ const batchDelete = async () => {
 
     selectedEmailIds.value = []
     await refreshData()
-    ElMessage.success(`成功删除 ${count} 封邮件`)
+    toast.success(`成功删除 ${count} 封邮件`)
   } catch (error) {
     console.error('批量删除失败:', error)
-    ElMessage.error('批量删除失败，请稍后重试')
+    toast.error('批量删除失败，请稍后重试')
   }
 }
 
@@ -206,10 +206,10 @@ const batchMarkAsRead = async () => {
 
     selectedEmailIds.value = []
     await refreshData()
-    ElMessage.success(`成功标记 ${count} 封邮件为已读`)
+    toast.success(`成功标记 ${count} 封邮件为已读`)
   } catch (error) {
     console.error('批量标记为已读失败:', error)
-    ElMessage.error('批量标记失败，请稍后重试')
+    toast.error('批量标记失败，请稍后重试')
   }
 }
 
@@ -233,10 +233,10 @@ const batchMarkAsUnread = async () => {
 
     selectedEmailIds.value = []
     await refreshData()
-    ElMessage.success(`成功标记 ${count} 封邮件为未读`)
+    toast.success(`成功标记 ${count} 封邮件为未读`)
   } catch (error) {
     console.error('批量标记为未读失败:', error)
-    ElMessage.error('批量标记失败，请稍后重试')
+    toast.error('批量标记失败，请稍后重试')
   }
 }
 </script>

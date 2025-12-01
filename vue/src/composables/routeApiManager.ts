@@ -5,7 +5,7 @@
 
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { forwardRuleApiService, emailApiService, systemApiService, adminApiService, userApiService, apiService } from './api'
+import { emailApiService, systemApiService, adminApiService, apiService } from './api'
 import { useRequestManager } from './useRequestManager'
 import { useAuthStore } from './stores'
 
@@ -15,12 +15,6 @@ export type ApiMethod =
   | 'getEmails'
   | 'getEmail'
   | 'deleteEmail'
-  | 'getForwardRules'
-  | 'createForwardRule'
-  | 'updateForwardRule'
-  | 'deleteForwardRule'
-  | 'getDefaultWebhook'
-  | 'updateDefaultWebhook'
   | 'getSystemConfig'
   | 'updateSystemConfig'
 
@@ -76,33 +70,6 @@ export const ROUTE_CONFIGS: Record<string, RouteConfig> = {
       }
     ]
   },
-  'forward-rules': {
-    routeName: 'forward-rules',
-    description: '转发管理',
-    requiresAuth: true,
-    adminOnly: true,
-    autoLoad: true,
-    apis: [
-      {
-        method: 'getForwardRules',
-        cacheKeyPrefix: 'forward_rules',
-        ttl: 5 * 60 * 1000, // 5分钟
-        useCache: true,
-        useSmartCache: true,
-        dependencies: ['new_forward_rule', 'update_forward_rule', 'delete_forward_rule'],
-        defaultParams: { page: 1, limit: 20 }
-      },
-      {
-        method: 'getDefaultWebhook',
-        cacheKeyPrefix: 'default_webhook',
-        ttl: 10 * 60 * 1000, // 10分钟
-        useCache: true,
-        useSmartCache: true,
-        dependencies: ['update_default_webhook'],
-        defaultParams: {}
-      }
-    ]
-  },
   'system-settings': {
     routeName: 'system-settings',
     description: '系统设置',
@@ -147,24 +114,6 @@ export const ROUTE_CONFIGS: Record<string, RouteConfig> = {
           return data
         },
         defaultParams: { page: 1, limit: 10 }
-      },
-      {
-        method: 'getForwardRules',
-        cacheKeyPrefix: 'dashboard_forward_rules_stats',
-        ttl: 5 * 60 * 1000, // 5分钟
-        useCache: true,
-        useSmartCache: true,
-        dependencies: ['new_forward_rule', 'update_forward_rule', 'delete_forward_rule'],
-        transform: (data: any) => {
-          if (data?.success && data?.data) {
-            return {
-              success: true,
-              total: data.data.total || 0
-            }
-          }
-          return { success: true, total: 0 }
-        },
-        defaultParams: { page: 1, limit: 1 }
       }
     ]
   }
@@ -188,16 +137,6 @@ const API_SERVICE_MAPPINGS: ApiServiceMapping[] = [
     service: adminApiService,
     methods: ['getEmails'],
     description: '管理员邮件API'
-  },
-  {
-    service: forwardRuleApiService,
-    methods: ['getForwardRules', 'createForwardRule', 'updateForwardRule', 'deleteForwardRule'],
-    description: '转发规则API'
-  },
-  {
-    service: userApiService,
-    methods: ['getDefaultWebhook', 'updateDefaultWebhook'],
-    description: '用户webhook配置API'
   },
   {
     service: systemApiService,
@@ -233,9 +172,7 @@ export function useRouteApiManager() {
       return false
     }
 
-    if (config.adminOnly && !authStore.isAdmin) {
-      return false
-    }
+    // 单管理员模式：所有已认证用户都是管理员，不需要检查 adminOnly
 
     return true
   })
@@ -512,11 +449,6 @@ export const dashboardRouteConfig = {
 export const allEmailsRouteConfig = {
   routeName: 'all-emails',
   apis: ROUTE_CONFIGS['all-emails'].apis
-}
-
-export const forwardRulesRouteConfig = {
-  routeName: 'forward-rules',
-  apis: ROUTE_CONFIGS['forward-rules'].apis
 }
 
 export const systemSettingsRouteConfig = {

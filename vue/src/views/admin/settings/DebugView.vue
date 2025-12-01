@@ -19,10 +19,6 @@
             <span>{{ authStatus }}</span>
           </div>
           <div class="info-item">
-            <label>用户类型:</label>
-            <span>{{ userType }}</span>
-          </div>
-          <div class="info-item">
             <label>API 基础 URL:</label>
             <span>{{ apiBaseUrl }}</span>
           </div>
@@ -45,15 +41,18 @@
             {{ showEmailForm ? '🔼 收起' : '🔽 展开' }}
           </button>
         </div>
-        <p v-if="showEmailForm" class="debug-note">此功能模拟邮件接收，邮件会被系统处理并存储到数据库中</p>
+        <p v-if="showEmailForm" class="debug-note">此功能模拟邮件接收，邮件会被系统处理并存储到数据库中，支持添加图片附件</p>
         <form v-if="showEmailForm" @submit.prevent="sendTestEmail" class="email-form">
-          <div class="form-group">
-            <label class="form-label">发件人</label>
-            <input v-model="testEmail.from" type="email" class="form-control" placeholder="sender@example.com" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">收件人</label>
-            <input v-model="testEmail.to" type="email" class="form-control" placeholder="user@example.com" required>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">发件人</label>
+              <input v-model="testEmail.from" type="email" class="form-control" placeholder="sender@example.com"
+                required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">收件人</label>
+              <input v-model="testEmail.to" type="email" class="form-control" placeholder="user@example.com" required>
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">主题</label>
@@ -63,6 +62,17 @@
             <label class="form-label">内容</label>
             <textarea v-model="testEmail.content" class="form-control" rows="3" placeholder="测试邮件内容"
               required></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">图片附件（可选）</label>
+            <input ref="fileInput" type="file" class="form-control" accept="image/*" multiple
+              @change="handleFileSelect">
+            <div v-if="selectedFiles.length > 0" class="selected-files">
+              <div v-for="(file, index) in selectedFiles" :key="index" class="file-item">
+                <span class="file-name">📎 {{ file.name }} ({{ formatFileSize(file.size) }})</span>
+                <button type="button" class="btn-remove" @click="removeFile(index)" title="移除">✕</button>
+              </div>
+            </div>
           </div>
           <button type="submit" class="btn btn-primary" :disabled="sending">
             {{ sending ? '模拟中...' : '模拟邮件接收' }}
@@ -82,9 +92,6 @@
           </button>
           <button class="btn btn-secondary" @click="testUserInfo">
             获取用户信息
-          </button>
-          <button class="btn btn-secondary" @click="testForwardRules">
-            测试转发规则
           </button>
         </div>
         <div v-if="testResult" class="test-result">
@@ -366,10 +373,6 @@
                   <h5>⚙️ 系统统计</h5>
                   <div class="stats-list">
                     <div class="stats-item">
-                      <span>转发规则:</span>
-                      <span>{{ dbStats.systemStats?.forwardRules || '0' }}</span>
-                    </div>
-                    <div class="stats-item">
                       <span>邮箱地址:</span>
                       <span>{{ dbStats.systemStats?.mailboxes || '0' }}</span>
                     </div>
@@ -537,7 +540,7 @@
                   </div>
                   <div class="cache-grid-cell cache-time-cell">
                     <span class="cache-time-value">{{ formatCacheTime(String(info.created || new Date().toISOString()))
-                      }}</span>
+                    }}</span>
                   </div>
                   <div class="cache-grid-cell cache-expiry-cell">
                     <span class="cache-expiry-value">{{ formatCacheExpiry(String(info.created || new
@@ -624,9 +627,6 @@
         <button class="btn btn-secondary" @click="loadR2Files" :disabled="r2Loading">
           {{ r2Loading ? '加载中...' : '📋 获取 R2 文件列表' }}
         </button>
-        <button class="btn btn-secondary" @click="refreshR2Files" :disabled="r2Loading">
-          🔄 刷新
-        </button>
         <button class="btn btn-danger" @click="deleteSelectedR2Files"
           :disabled="r2Loading || r2Deleting || selectedR2Files.length === 0">
           {{ r2Deleting ? '删除中...' : `🗑️ 删除选中 (${selectedR2Files.length})` }}
@@ -643,6 +643,9 @@
           <div class="r2-files-info">
             <span>共 {{ r2Files.files?.length || 0 }} 个文件</span>
             <span v-if="r2Files.truncated" class="truncated-warning">⚠️ 列表已截断，可能还有更多文件</span>
+            <button class="btn btn-sm btn-secondary" @click="refreshR2Files" :disabled="r2Loading">
+              🔄 刷新
+            </button>
           </div>
         </div>
 
@@ -696,6 +699,136 @@
       </div>
     </div>
 
+    <!-- KV 缓存管理 -->
+    <div class="debug-section">
+      <h2>KV 缓存管理</h2>
+      <p class="debug-note">
+        管理 Workers KV 缓存：查看、删除 KV 存储中的缓存项<br>
+        查看缓存列表：显示已知的缓存键及其状态<br>
+        查看缓存详情：查看特定缓存项的内容<br>
+        删除缓存：删除单个或批量删除缓存项<br>
+        ⚠️ 注意：Cloudflare Workers KV 不支持直接列出所有键，这里只显示已知的缓存键模式
+      </p>
+
+      <!-- 操作按钮行 -->
+      <div class="db-actions">
+        <button v-for="operation in kvCacheOperations" :key="operation.id" class="btn" :class="[
+          operation.danger ? 'btn-danger' : 'btn-secondary',
+          { active: activeKvCacheOperation === operation.id }
+        ]" @click="setActiveKvCacheOperation(operation.id)" :disabled="operation.loading && operation.loading()">
+          {{ operation.icon }} {{ operation.title }}
+          <span v-if="operation.loading && operation.loading()" class="loading-text">...</span>
+        </button>
+      </div>
+
+      <!-- 提示文本 -->
+      <div v-if="activeKvCacheOperation" class="operation-hint">
+        {{ getActiveKvCacheOperationInfo()?.description }}
+      </div>
+
+      <!-- 内容区域 -->
+      <div v-if="activeKvCacheOperation && hasActiveKvCacheOperationData()" class="operation-content">
+        <!-- 查看 KV 缓存列表内容 -->
+        <div v-if="activeKvCacheOperation === 'kvCacheList'">
+          <div v-if="kvCacheLoading" class="loading-state">
+            <div class="loading-spinner">🔄</div>
+            <span>加载 KV 缓存列表中...</span>
+          </div>
+
+          <div v-if="!kvCacheLoading && kvCacheList" class="kv-cache-container">
+            <div class="kv-cache-header">
+              <h3>📦 KV 缓存列表</h3>
+              <div class="kv-cache-info">
+                <span>共 {{ kvCacheList.items?.length || 0 }} 个缓存项</span>
+                <button class="btn btn-sm btn-secondary" @click="loadKvCacheList" :disabled="kvCacheLoading">
+                  🔄 刷新
+                </button>
+              </div>
+            </div>
+
+            <div v-if="kvCacheList.items && kvCacheList.items.length > 0" class="cache-table-container">
+              <table class="cache-detail-table">
+                <!-- 表头 -->
+                <thead>
+                  <tr>
+                    <th>缓存键</th>
+                    <th>状态</th>
+                    <th>类型</th>
+                    <th>大小</th>
+                    <th>值预览</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+
+                <!-- 数据行 -->
+                <tbody>
+                  <tr v-for="(item, index) in kvCacheList.items" :key="index">
+                    <td class="cache-key-cell">
+                      <code class="cache-key-code">{{ item.key }}</code>
+                    </td>
+                    <td class="cache-status-cell">
+                      <span class="cache-status-badge" :class="item.exists ? 'status-active' : 'status-expired'">
+                        {{ item.exists ? '✅ 存在' : '❌ 不存在' }}
+                      </span>
+                    </td>
+                    <td class="cache-type-cell">
+                      <span class="cache-type-badge">{{ getKvCacheType(item.key) }}</span>
+                    </td>
+                    <td class="cache-size-cell">
+                      {{ item.exists && item.size ? formatCacheSize(item.size) : '-' }}
+                    </td>
+                    <td class="cache-preview-cell">
+                      <span v-if="item.exists && item.preview" class="cache-preview-text">{{ item.preview }}</span>
+                      <span v-else class="text-muted">-</span>
+                    </td>
+                    <td class="cache-actions-cell">
+                      <div class="btn-group">
+                        <button v-if="item.exists" class="btn btn-sm btn-outline-info"
+                          @click="viewKvCacheContentFromList(item)" title="查看完整内容">
+                          👁️ 查看
+                        </button>
+                        <button v-if="item.exists" class="btn btn-sm btn-outline-danger"
+                          @click="deleteKvCacheItem(item.key)" :disabled="kvCacheDeleting" title="删除此缓存">
+                          🗑️ 删除
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- 没有缓存数据时显示提示 -->
+            <div v-else-if="!kvCacheLoading" class="kv-cache-empty-state">
+              <div class="empty-kv-icon">📭</div>
+              <div class="empty-kv-text">暂无 KV 缓存数据</div>
+              <div class="empty-kv-hint">KV 存储中还没有缓存项，或者所有已知的缓存键都不存在</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 删除 KV 缓存内容 -->
+        <div v-if="activeKvCacheOperation === 'kvCacheDelete'">
+          <div class="kv-cache-delete-form">
+            <div class="form-group">
+              <label class="form-label">缓存键</label>
+              <input v-model="kvCacheDeleteKey" type="text" class="form-control" placeholder="输入要删除的缓存键"
+                @keyup.enter="deleteKvCacheByKey" />
+            </div>
+            <button class="btn btn-danger" @click="deleteKvCacheByKey" :disabled="kvCacheDeleting">
+              {{ kvCacheDeleting ? '删除中...' : '🗑️ 删除缓存' }}
+            </button>
+          </div>
+
+          <div v-if="kvCacheDeleteResult" class="kv-cache-delete-result"
+            :class="{ success: kvCacheDeleteResult.success, error: !kvCacheDeleteResult.success }">
+            <h4>{{ kvCacheDeleteResult.success ? '✅ 删除成功' : '❌ 删除失败' }}</h4>
+            <p v-if="kvCacheDeleteResult.message">{{ kvCacheDeleteResult.message }}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 缓存内容模态框 -->
     <div v-if="cacheModalVisible" class="cache-content-modal" @click.self="closeCacheModal">
       <div class="modal-overlay">
@@ -721,8 +854,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore, useSystemStore } from '@/composables/stores'
 import { systemApiService, userApiService, apiService } from '@/composables/api'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { cacheService, browserCacheManager } from '@/composables/cache'
+import { toast } from '@/utils'
 
 const authStore = useAuthStore()
 const sending = ref(false)
@@ -790,8 +924,7 @@ const hasActiveCacheOperationData = () => {
   return operation?.hasData()
 }
 
-// 管理员权限判断
-const isAdmin = computed(() => authStore.user?.user_type === 1)
+// 单管理员模式：所有用户都是管理员，不再需要 isAdmin 判断
 
 // 数据库管理相关
 const databaseInfo = ref<any>(null)
@@ -818,6 +951,44 @@ const r2Loading = ref(false)
 const r2Prefix = ref('')
 const r2Deleting = ref(false)
 const selectedR2Files = ref<string[]>([])
+
+// KV 缓存相关
+const kvCacheList = ref<any>(null)
+const kvCacheLoading = ref(false)
+const kvCacheDeleting = ref(false)
+const kvCacheDeleteKey = ref('')
+const kvCacheDeleteResult = ref<any>(null)
+
+// KV 缓存操作管理
+const activeKvCacheOperation = ref<string | null>(null)
+
+// KV 缓存操作API配置
+const kvCacheOperations = ref([
+  {
+    id: 'kvCacheList',
+    icon: '📋',
+    title: '查看缓存列表',
+    description: '查看已知的 KV 缓存键及其状态',
+    buttonText: '获取',
+    buttonAction: () => loadKvCacheList(),
+    loading: () => kvCacheLoading.value,
+    hasData: () => true, // 始终可展开
+    badge: () => kvCacheList.value ? `${kvCacheList.value.items?.length || 0} 项` : null,
+    danger: false
+  },
+  {
+    id: 'kvCacheDelete',
+    icon: '🗑️',
+    title: '删除缓存',
+    description: '通过缓存键删除特定的 KV 缓存项',
+    buttonText: null,
+    buttonAction: null,
+    loading: () => kvCacheDeleting.value,
+    hasData: () => true, // 始终可展开
+    badge: () => null,
+    danger: true
+  }
+])
 
 // 数据库操作管理
 const activeOperation = ref<string | null>(null)
@@ -917,10 +1088,30 @@ const testEmail = ref({
   content: '这是一封测试邮件，用于验证邮件发送功能。'
 })
 
+const selectedFiles = ref<File[]>([])
+const fileInput = ref<HTMLInputElement | null>(null)
+
+// 处理文件选择
+const handleFileSelect = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  if (target.files) {
+    const newFiles = Array.from(target.files)
+    selectedFiles.value = [...selectedFiles.value, ...newFiles]
+  }
+}
+
+// 移除文件
+const removeFile = (index: number) => {
+  selectedFiles.value.splice(index, 1)
+  if (fileInput.value) {
+    fileInput.value.value = ''
+  }
+}
+
 // 计算属性
 const userInfo = computed(() => {
   if (authStore.user) {
-    return `${authStore.user.username} (${authStore.user.email})`
+    return authStore.user.username
   }
   return '未登录'
 })
@@ -929,9 +1120,6 @@ const authStatus = computed(() => {
   return authStore.isAuthenticated ? '已认证' : '未认证'
 })
 
-const userType = computed(() => {
-  return authStore.user?.user_type || '未知'
-})
 
 const apiBaseUrl = computed(() => {
   return import.meta.env.VITE_API_BASE_URL || '/api'
@@ -959,32 +1147,43 @@ const pageIcon = computed(() => '🐛')
 const sendTestEmail = async () => {
   sending.value = true
   try {
+    const formData = new FormData()
+    formData.append('from', testEmail.value.from)
+    formData.append('to', testEmail.value.to)
+    formData.append('subject', testEmail.value.subject)
+    formData.append('content', testEmail.value.content)
+    formData.append('content_type', 'text')
+
+    // 添加附件
+    selectedFiles.value.forEach((file) => {
+      formData.append(`attachments`, file)
+    })
+
     // 使用调试模式的模拟邮件接口
     const response = await fetch('/api/debug/simulate-email', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
       credentials: 'include',
-      body: JSON.stringify({
-        from: testEmail.value.from,
-        to: testEmail.value.to,
-        subject: testEmail.value.subject,
-        content: testEmail.value.content,
-        content_type: 'markdown'
-      })
+      body: formData
     })
 
     const result = await response.json()
 
     if (result.success) {
-      ElMessage.success('测试邮件模拟成功')
+      toast.success(
+        `邮件已成功发送${selectedFiles.value.length > 0 ? `，包含 ${selectedFiles.value.length} 个附件` : ''}`,
+        '模拟邮件成功'
+      )
+      // 清空附件列表
+      selectedFiles.value = []
+      if (fileInput.value) {
+        fileInput.value.value = ''
+      }
     } else {
-      ElMessage.error(result.error || '测试邮件模拟失败')
+      toast.error(result.error || '测试邮件模拟失败', '模拟邮件失败')
     }
   } catch (error) {
     console.error('发送测试邮件失败:', error)
-    ElMessage.error('发送测试邮件失败')
+    toast.error('发送测试邮件失败', '模拟邮件失败')
   } finally {
     sending.value = false
   }
@@ -1028,10 +1227,10 @@ const loadCacheInfo = async () => {
     // 2. 获取详细缓存信息
     showCacheInfoData()
 
-    ElMessage.success('缓存信息已加载')
+    toast.success('缓存信息已加载')
   } catch (error) {
     console.error('加载缓存信息失败:', error)
-    ElMessage.error('加载缓存信息失败')
+    toast.error('加载缓存信息失败')
   } finally {
     loadingCacheStats.value = false
   }
@@ -1074,15 +1273,15 @@ const clearBrowserCache = async () => {
     const result = await browserCacheManager.clearAllBrowserCache()
     cacheClearResult.value = result
     if (result.success) {
-      ElMessage.success('其他存储清理成功')
+      toast.success('其他存储清理成功')
       // 刷新统计
       await loadCacheInfo()
     } else {
-      ElMessage.warning('其他存储清理完成，但有部分错误')
+      toast.warning('其他存储清理完成，但有部分错误')
     }
   } catch (error) {
     console.error('清理其他存储失败:', error)
-    ElMessage.error('清理其他存储失败')
+    toast.error('清理其他存储失败')
     cacheClearResult.value = {
       success: false,
       cleared: [],
@@ -1104,14 +1303,6 @@ const formatBytes = (bytes: number): string => {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
 }
 
-const testForwardRules = async () => {
-  try {
-    const response = await userApiService.getForwardRules()
-    testResult.value = JSON.stringify(response, null, 2)
-  } catch (error) {
-    testResult.value = `错误: ${error}`
-  }
-}
 
 
 // 缓存管理
@@ -1280,7 +1471,7 @@ const loadDatabaseInfo = async () => {
     }
   } catch (error) {
     console.error('获取数据库信息失败:', error)
-    ElMessage.error('获取数据库信息失败: ' + (error as Error).message)
+    toast.error('获取数据库信息失败: ' + (error as Error).message)
     databaseInfo.value = null
   } finally {
     dbLoading.value = false
@@ -1355,7 +1546,7 @@ const getColumnClass = (column: string): string => {
   const classes = []
 
   // 文本对齐
-  if (['id', 'user_id', 'is_active', 'is_read'].includes(column)) {
+  if (['id', 'is_active', 'is_read'].includes(column)) {
     classes.push('text-center')
   }
 
@@ -1373,7 +1564,7 @@ const getColumnClass = (column: string): string => {
 
 const initializeDatabase = async () => {
   if (confirmText.value !== 'CONFIRM_RESET_DATABASE') {
-    ElMessage.warning('请输入正确的确认文本')
+    toast.warning('请输入正确的确认文本')
     return
   }
 
@@ -1454,10 +1645,7 @@ const getTableCount = (tables: any) => {
 
 // 数据库统计方法
 const loadDatabaseStats = async () => {
-  if (!isAdmin.value) {
-    ElMessage.warning('此功能需要管理员权限')
-    return
-  }
+  // 单管理员模式：所有用户都是管理员，不需要权限检查
 
   dbStatsLoading.value = true
   try {
@@ -1474,13 +1662,13 @@ const loadDatabaseStats = async () => {
     if (result.success) {
       dbStats.value = result.data
       console.log('✅ 数据库统计获取成功:', dbStats.value)
-      ElMessage.success('数据库统计获取成功')
+      toast.success('数据库统计获取成功')
     } else {
       throw new Error(result.message || '获取数据库统计失败')
     }
   } catch (error) {
     console.error('获取数据库统计失败:', error)
-    ElMessage.error('获取数据库统计失败: ' + (error as Error).message)
+    toast.error('获取数据库统计失败: ' + (error as Error).message)
     dbStats.value = null
   } finally {
     dbStatsLoading.value = false
@@ -1508,7 +1696,7 @@ const testDatabaseConnection = async () => {
         }
       }
       console.log('🔗 数据库连接测试成功:', dbTestResult.value)
-      ElMessage.success('数据库连接测试成功')
+      toast.success('数据库连接测试成功')
     } else {
       dbTestResult.value = {
         success: false,
@@ -1518,7 +1706,7 @@ const testDatabaseConnection = async () => {
         error: response.message
       }
       console.error('数据库连接测试失败:', response.message)
-      ElMessage.error(`数据库连接测试失败: ${response.message || '未知错误'}`)
+      toast.error(`数据库连接测试失败: ${response.message || '未知错误'}`)
     }
   } catch (error) {
     const responseTime = Date.now() - startTime
@@ -1530,7 +1718,7 @@ const testDatabaseConnection = async () => {
       error: error instanceof Error ? error.message : '未知错误'
     }
     console.error('数据库连接测试失败:', error)
-    ElMessage.error('数据库连接测试失败')
+    toast.error('数据库连接测试失败')
   } finally {
     dbTestLoading.value = false
   }
@@ -1623,6 +1811,17 @@ const getCacheStatusClass = (_info: any): string => {
 // 获取缓存表格列配置
 const getCacheGridColumns = (): string => {
   return 'minmax(max-content, 200px) minmax(max-content, 100px) minmax(max-content, 80px) minmax(max-content, 160px) minmax(max-content, 160px) minmax(max-content, 100px) minmax(max-content, 80px) minmax(max-content, 100px) minmax(max-content, 120px)'
+}
+
+// 获取 KV 缓存表格列配置
+// 获取 KV 缓存类型
+const getKvCacheType = (key: string): string => {
+  if (key.includes('system')) return '⚙️ 系统'
+  if (key.includes('user')) return '👤 用户'
+  if (key.includes('email')) return '📧 邮件'
+  if (key.includes('mailbox')) return '📮 邮箱'
+  if (key.includes('attachment')) return '📎 附件'
+  return '📄 其他'
 }
 
 // 格式化缓存过期时间
@@ -1795,7 +1994,7 @@ const closeCacheModal = () => {
 const copyCacheContent = async () => {
   try {
     await navigator.clipboard.writeText(cacheModalContent.value)
-    ElMessage.success('已复制到剪贴板')
+    toast.success('已复制到剪贴板')
   } catch (err) {
     // 降级方案
     const textArea = document.createElement('textarea')
@@ -1804,10 +2003,9 @@ const copyCacheContent = async () => {
     textArea.select()
     document.execCommand('copy')
     document.body.removeChild(textArea)
-    ElMessage.success('已复制到剪贴板')
+    toast.success('已复制到剪贴板')
   }
 }
-
 
 // R2 文件管理方法
 const loadR2Files = async () => {
@@ -1831,13 +2029,13 @@ const loadR2Files = async () => {
 
     if (result.success) {
       r2Files.value = result.data
-      ElMessage.success('R2 文件列表获取成功')
+      toast.success('R2 文件列表获取成功')
     } else {
       throw new Error(result.message || '获取 R2 文件列表失败')
     }
   } catch (error) {
     console.error('获取 R2 文件列表失败:', error)
-    ElMessage.error('获取 R2 文件列表失败: ' + (error as Error).message)
+    toast.error('获取 R2 文件列表失败: ' + (error as Error).message)
     r2Files.value = null
   } finally {
     r2Loading.value = false
@@ -1875,7 +2073,7 @@ const deleteR2File = async (key: string) => {
 // 批量删除 R2 文件
 const deleteSelectedR2Files = async () => {
   if (selectedR2Files.value.length === 0) {
-    ElMessage.warning('请先选择要删除的文件')
+    toast.warning('请先选择要删除的文件')
     return
   }
 
@@ -1903,7 +2101,7 @@ const deleteR2Files = async (keys: string[]) => {
     const result = await response.json()
 
     if (result.success) {
-      ElMessage.success(result.message || '文件删除成功')
+      toast.success(result.message || '文件删除成功')
       // 清空选择并刷新文件列表
       selectedR2Files.value = []
       await loadR2Files()
@@ -1912,7 +2110,7 @@ const deleteR2Files = async (keys: string[]) => {
     }
   } catch (error) {
     console.error('删除 R2 文件失败:', error)
-    ElMessage.error('删除文件失败: ' + (error as Error).message)
+    toast.error('删除文件失败: ' + (error as Error).message)
   } finally {
     r2Deleting.value = false
   }
@@ -1928,6 +2126,158 @@ const formatR2Time = (time: string | null): string => {
   }
 }
 
+// KV 缓存操作方法
+const setActiveKvCacheOperation = (operationId: string) => {
+  if (activeKvCacheOperation.value === operationId) {
+    activeKvCacheOperation.value = null // 如果点击同一个按钮，则关闭
+  } else {
+    activeKvCacheOperation.value = operationId
+    // 自动执行操作
+    const operation = kvCacheOperations.value.find(op => op.id === operationId)
+    if (operation?.buttonAction) {
+      operation.buttonAction()
+    }
+  }
+}
+
+const getActiveKvCacheOperationInfo = () => {
+  return kvCacheOperations.value.find(op => op.id === activeKvCacheOperation.value)
+}
+
+const hasActiveKvCacheOperationData = () => {
+  const operation = getActiveKvCacheOperationInfo()
+  return operation?.hasData()
+}
+
+// 加载 KV 缓存列表
+const loadKvCacheList = async () => {
+  kvCacheLoading.value = true
+  try {
+    const response = await fetch('/api/kv-cache/list', {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    const result = await response.json()
+
+    if (result.success) {
+      kvCacheList.value = result.data
+      toast.success('KV 缓存列表获取成功')
+    } else {
+      throw new Error(result.error || '获取 KV 缓存列表失败')
+    }
+  } catch (error) {
+    console.error('获取 KV 缓存列表失败:', error)
+    toast.error('获取 KV 缓存列表失败: ' + (error as Error).message)
+    kvCacheList.value = null
+  } finally {
+    kvCacheLoading.value = false
+  }
+}
+
+// 从列表中查看 KV 缓存内容（直接使用已加载的数据）
+const viewKvCacheContentFromList = (item: any) => {
+  try {
+    if (!item.exists || !item.value) {
+      toast.warning('缓存项不存在或无数据')
+      return
+    }
+
+    let contentStr = ''
+    const data = item.value
+
+    if (data === null || data === undefined) {
+      contentStr = '缓存内容为空'
+    } else if (typeof data === 'object') {
+      contentStr = JSON.stringify(data, null, 2)
+    } else {
+      contentStr = String(data)
+    }
+
+    // 显示更详细的信息
+    const detailInfo = `
+缓存键: ${item.key}
+类型: ${item.type}
+大小: ${formatCacheSize(item.size)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${contentStr}
+    `.trim()
+
+    showCacheContentModal(item.key, detailInfo)
+  } catch (error) {
+    console.error('查看 KV 缓存内容失败:', error)
+    toast.error('查看 KV 缓存内容失败: ' + (error as Error).message)
+  }
+}
+
+// 删除 KV 缓存项
+const deleteKvCacheItem = async (key: string) => {
+  if (!confirm(`确定要删除 KV 缓存 "${key}" 吗？`)) {
+    return
+  }
+
+  await deleteKvCacheByKeyInternal(key)
+}
+
+// 通过输入框删除 KV 缓存
+const deleteKvCacheByKey = async () => {
+  if (!kvCacheDeleteKey.value.trim()) {
+    toast.warning('请输入要删除的缓存键')
+    return
+  }
+
+  if (!confirm(`确定要删除缓存 "${kvCacheDeleteKey.value}" 吗？`)) {
+    return
+  }
+
+  await deleteKvCacheByKeyInternal(kvCacheDeleteKey.value)
+  kvCacheDeleteKey.value = '' // 清空输入框
+}
+
+// 内部删除方法
+const deleteKvCacheByKeyInternal = async (key: string) => {
+  kvCacheDeleting.value = true
+  kvCacheDeleteResult.value = null
+  try {
+    const encodedKey = encodeURIComponent(key)
+    const response = await fetch(`/api/kv-cache/delete/${encodedKey}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    const result = await response.json()
+
+    if (result.success) {
+      kvCacheDeleteResult.value = {
+        success: true,
+        message: result.message || '缓存删除成功'
+      }
+      toast.success('KV 缓存删除成功')
+      // 如果当前显示的是列表，刷新列表
+      if (activeKvCacheOperation.value === 'kvCacheList' && kvCacheList.value) {
+        await loadKvCacheList()
+      }
+    } else {
+      throw new Error(result.error || '删除 KV 缓存失败')
+    }
+  } catch (error) {
+    console.error('删除 KV 缓存失败:', error)
+    kvCacheDeleteResult.value = {
+      success: false,
+      message: (error as Error).message || '删除 KV 缓存失败'
+    }
+    toast.error('删除 KV 缓存失败: ' + (error as Error).message)
+  } finally {
+    kvCacheDeleting.value = false
+  }
+}
+
 
 // 键盘事件处理
 const handleKeydown = (event: KeyboardEvent) => {
@@ -1937,10 +2287,7 @@ const handleKeydown = (event: KeyboardEvent) => {
 }
 
 onMounted(() => {
-  // 初始化测试邮件收件人
-  if (authStore.user?.email) {
-    testEmail.value.to = authStore.user.email
-  }
+  // 初始化测试邮件收件人（使用默认值，用户没有 email 字段）
 
   // 注意：数据库信息和表数据现在都需要用户手动点击获取
   // 这样可以避免页面加载时的不必要请求
@@ -2049,6 +2396,17 @@ onUnmounted(() => {
   width: 100%;
 }
 
+.form-row {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.form-row .form-group {
+  flex: 1;
+  margin-bottom: 0;
+}
+
 .form-group {
   margin-bottom: 20px;
 }
@@ -2058,6 +2416,47 @@ onUnmounted(() => {
   margin-bottom: 5px;
   font-weight: 500;
   color: #555;
+}
+
+.selected-files {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.file-name {
+  color: #495057;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-remove {
+  background: none;
+  border: none;
+  color: #dc3545;
+  cursor: pointer;
+  padding: 0 8px;
+  font-size: 18px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.btn-remove:hover {
+  color: #c82333;
 }
 
 .form-control {
@@ -3126,14 +3525,16 @@ onUnmounted(() => {
   margin-top: 15px;
 }
 
-.cache-table {
+.cache-table,
+.cache-detail-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
   background: white;
 }
 
-.cache-table th {
+.cache-table th,
+.cache-detail-table th {
   background: #f8f9fa;
   padding: 12px 10px;
   text-align: left;
@@ -3143,10 +3544,53 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.cache-table td {
+.cache-table td,
+.cache-detail-table td {
   padding: 10px;
   border-bottom: 1px solid #f1f3f4;
   vertical-align: middle;
+}
+
+.cache-detail-table tr:hover {
+  background: #f8f9fa;
+}
+
+.cache-detail-table .cache-key-code {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+  background: #f8f9fa;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: #0066cc;
+  word-break: break-all;
+}
+
+.cache-detail-table .cache-preview-cell {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cache-detail-table .cache-preview-text {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+  color: #666;
+}
+
+.cache-detail-table .cache-actions-cell .btn-group {
+  display: flex;
+  gap: 8px;
+}
+
+.cache-detail-table .cache-type-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  background: #e7f3ff;
+  color: #0066cc;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .cache-row:hover {
@@ -3887,6 +4331,312 @@ onUnmounted(() => {
   text-align: center;
   color: #666;
   justify-content: center;
+}
+
+/* KV 缓存管理样式 */
+.kv-cache-container {
+  margin-top: 20px;
+}
+
+.kv-cache-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.kv-cache-header h3 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 16px;
+}
+
+.kv-cache-info {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  font-size: 14px;
+  color: #666;
+}
+
+.kv-cache-table-container {
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  overflow: hidden;
+  overflow-x: auto;
+}
+
+.kv-cache-table-grid {
+  display: grid;
+  grid-template-columns: 2fr 120px 100px 100px 150px;
+  gap: 0;
+  font-size: 13px;
+  min-width: 600px;
+}
+
+.kv-grid-header {
+  background: #f8f9fa;
+  padding: 12px 15px;
+  font-weight: 600;
+  color: #495057;
+  border-bottom: 2px solid #dee2e6;
+  border-right: 1px solid #e9ecef;
+  text-align: left;
+}
+
+.kv-grid-header:last-child {
+  border-right: none;
+}
+
+.kv-grid-cell {
+  padding: 10px 15px;
+  border-bottom: 1px solid #f1f3f4;
+  border-right: 1px solid #f1f3f4;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kv-grid-cell:last-child {
+  border-right: none;
+}
+
+/* 斑马纹效果 */
+.kv-cache-table-grid>.kv-grid-cell:nth-child(5n+1),
+.kv-cache-table-grid>.kv-grid-cell:nth-child(5n+2),
+.kv-cache-table-grid>.kv-grid-cell:nth-child(5n+3),
+.kv-cache-table-grid>.kv-grid-cell:nth-child(5n+4),
+.kv-cache-table-grid>.kv-grid-cell:nth-child(5n+5) {
+  background: white;
+}
+
+.kv-cache-table-grid>.kv-grid-cell:nth-child(10n+6),
+.kv-cache-table-grid>.kv-grid-cell:nth-child(10n+7),
+.kv-cache-table-grid>.kv-grid-cell:nth-child(10n+8),
+.kv-cache-table-grid>.kv-grid-cell:nth-child(10n+9),
+.kv-cache-table-grid>.kv-grid-cell:nth-child(10n+10) {
+  background: #f8f9fa;
+}
+
+/* 悬停效果 */
+.kv-grid-cell:hover {
+  background: #e3f2fd !important;
+  cursor: default;
+}
+
+.kv-key-cell {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+  color: #0066cc;
+}
+
+.kv-key-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kv-status-cell {
+  justify-content: center;
+}
+
+.kv-status-badge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.kv-status-badge.status-exists {
+  background: #d4edda;
+  color: #155724;
+}
+
+.kv-status-badge.status-missing {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.kv-size-cell {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+  color: #666;
+  justify-content: flex-end;
+}
+
+.kv-type-cell {
+  font-size: 12px;
+  color: #666;
+}
+
+.kv-type-badge {
+  background: #e3f2fd;
+  color: #1976d2;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.kv-action-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.kv-action-cell .btn {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.btn-outline-info {
+  background: transparent;
+  border: 1px solid #17a2b8;
+  color: #17a2b8;
+}
+
+.btn-outline-info:hover:not(:disabled) {
+  background: #17a2b8;
+  color: white;
+}
+
+.kv-cache-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  background: #f8f9fa;
+  border: 2px dashed #dee2e6;
+  border-radius: 8px;
+  margin-top: 15px;
+}
+
+.empty-kv-icon {
+  font-size: 48px;
+  margin-bottom: 15px;
+  opacity: 0.6;
+}
+
+.empty-kv-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: #6c757d;
+  margin-bottom: 8px;
+}
+
+.empty-kv-hint {
+  font-size: 14px;
+  color: #868e96;
+  line-height: 1.4;
+}
+
+.kv-cache-detail-form {
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.input-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.input-group .form-control {
+  flex: 1;
+}
+
+.kv-cache-detail-result {
+  margin-top: 20px;
+  padding: 15px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.kv-cache-detail-result h4 {
+  margin: 0 0 15px 0;
+  color: #2c3e50;
+  font-size: 16px;
+}
+
+.detail-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.detail-item:last-child {
+  border-bottom: none;
+}
+
+.detail-item label {
+  font-weight: 600;
+  color: #666;
+  min-width: 100px;
+}
+
+.detail-item span {
+  color: #333;
+}
+
+.text-success {
+  color: #28a745;
+  font-weight: 500;
+}
+
+.text-danger {
+  color: #dc3545;
+  font-weight: 500;
+}
+
+.kv-cache-delete-form {
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.kv-cache-delete-result {
+  margin-top: 20px;
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid;
+}
+
+.kv-cache-delete-result.success {
+  background: #d4edda;
+  border-color: #c3e6cb;
+  color: #155724;
+}
+
+.kv-cache-delete-result.error {
+  background: #f8d7da;
+  border-color: #f5c6cb;
+  color: #721c24;
+}
+
+.kv-cache-delete-result h4 {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+}
+
+.kv-cache-delete-result p {
+  margin: 0;
+  font-size: 14px;
 }
 
 /* 浏览器缓存管理样式 */

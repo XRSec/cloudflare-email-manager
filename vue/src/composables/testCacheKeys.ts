@@ -5,8 +5,8 @@
 
 import { ROUTE_CONFIGS } from './routeApiManager'
 
-// 模拟用户信息
-const mockUser = { id: 123, user_type: 1 } // 管理员用户
+// 模拟用户信息（单管理员模式）
+const mockUser = { id: 123 } // 管理员用户
 
 // 测试缓存键生成
 export function testCacheKeyGeneration() {

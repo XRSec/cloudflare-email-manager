@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { jwtAuthMiddleware, adminAuthMiddleware } from '../middleware/auth'
+import { jwtAuthMiddleware } from '../middleware/auth'
 import { debugModeMiddleware } from '../middleware/debug'
 import { hashPassword } from '../utils/crypto'
 import { getSystemConfig } from '../services/settings'
@@ -20,10 +20,6 @@ const DATABASE_SCHEMAS = {
       user_type INTEGER DEFAULT 0 CHECK(user_type IN (0,1)), -- 0=普通用户, 1=管理员
       status INTEGER DEFAULT 1 CHECK(status IN (1,2,3)),
       deleted_at DATETIME,
-      webhook_url TEXT CHECK(webhook_url IS NULL OR webhook_url LIKE 'http%'),
-      webhook_secret TEXT,
-      webhook_type TEXT DEFAULT 'custom' CHECK(webhook_type IN ('dingtalk', 'feishu', 'bark', 'custom')),
-      webhook_custom_message TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -39,36 +35,6 @@ const DATABASE_SCHEMAS = {
     )
   `,
 
-  forward_rules: `
-    CREATE TABLE IF NOT EXISTS forward_rules (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      rule_name TEXT NOT NULL,
-      sender_filter TEXT,
-      keyword_filter TEXT,
-      recipient_filter TEXT,
-      exact_match INTEGER DEFAULT 0 CHECK(exact_match IN (0,1)), -- 是否精确匹配（0=包含匹配，1=精确匹配）
-      skip_default_webhook INTEGER DEFAULT 0 CHECK(skip_default_webhook IN (0,1)), -- 是否跳过默认推送渠道（0=不跳过，1=跳过）
-      enabled INTEGER DEFAULT 1 CHECK(enabled IN (0,1)),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `,
-
-  forward_rule_webhooks: `
-    CREATE TABLE IF NOT EXISTS forward_rule_webhooks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      rule_id INTEGER NOT NULL,
-      webhook_url TEXT NOT NULL CHECK(webhook_url LIKE 'http%'),
-      webhook_secret TEXT,
-      webhook_type TEXT DEFAULT 'custom' CHECK(webhook_type IN ('dingtalk', 'feishu', 'bark', 'custom')),
-      custom_message TEXT, -- 自定义消息模板，支持变量：{{from}}, {{to}}, {{subject}}, {{content}}, {{received_at}}, {{attachment_count}}
-      enabled INTEGER DEFAULT 1 CHECK(enabled IN (0,1)),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (rule_id) REFERENCES forward_rules(id) ON DELETE CASCADE
-    )
-  `,
-
   // 邮件表
   // ID 字段说明：
   // - id: 邮件在数据库中的主键，使用 crypto.randomUUID() 生成的 UUID
@@ -81,7 +47,6 @@ const DATABASE_SCHEMAS = {
   emails: `
     CREATE TABLE IF NOT EXISTS emails (
       id TEXT PRIMARY KEY, -- 邮件ID（数据库主键），使用 crypto.randomUUID() 生成的 UUID
-      user_id INTEGER, -- 用户ID（单用户模式下，默认为管理员用户ID）
       subject TEXT, -- 主题
       from_address TEXT, -- 发件人
       to_address TEXT, -- 收件人
@@ -98,72 +63,11 @@ const DATABASE_SCHEMAS = {
       content_type TEXT, -- 邮件内容类型（从 headers 提取）
       received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `,
-
-  // 依赖 users 的表
-  mailboxes: `
-    CREATE TABLE IF NOT EXISTS mailboxes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      owner_id INTEGER NOT NULL,
-      address TEXT UNIQUE NOT NULL CHECK(address LIKE '%@%'),
-      status INTEGER DEFAULT 1 CHECK(status IN (1,2,3)),
-      deleted_at DATETIME,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `,
-
-  mailbox_applications: `
-    CREATE TABLE IF NOT EXISTS mailbox_applications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      requested_address TEXT NOT NULL CHECK(requested_address LIKE '%@%'),
-      reason TEXT,
-      status INTEGER DEFAULT 0 CHECK(status IN (0,1,2)),
-      admin_comment TEXT,
-      processed_by INTEGER,
-      processed_at DATETIME,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (processed_by) REFERENCES users(id) ON DELETE SET NULL
-    )
-  `,
-
-  security_audit: `
-    CREATE TABLE IF NOT EXISTS security_audit (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      action_type INTEGER NOT NULL,
-      resource_type INTEGER, -- 0=mailbox, 1=email, 2=user, 3=system
-      resource_id INTEGER,
-      request_ip TEXT,
-      user_agent TEXT,
-      attack_type INTEGER,
-      description TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `,
 
   // 依赖多个表的表
-  mailbox_history: `
-    CREATE TABLE IF NOT EXISTS mailbox_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      mailbox_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      owner_id INTEGER NOT NULL,
-      action_type INTEGER NOT NULL CHECK(action_type IN (1,2,3)),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (mailbox_id) REFERENCES mailboxes(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `,
 
   attachments: `
     CREATE TABLE IF NOT EXISTS attachments (
@@ -184,7 +88,6 @@ const DATABASE_SCHEMAS = {
     CREATE TABLE IF NOT EXISTS forward_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email_id TEXT NOT NULL,
-      rule_id INTEGER,
       webhook_url TEXT NOT NULL,
       status INTEGER NOT NULL CHECK(status IN (0,1)), -- 0=成功, 1=失败
       response_code INTEGER,
@@ -192,8 +95,7 @@ const DATABASE_SCHEMAS = {
       sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE,
-      FOREIGN KEY (rule_id) REFERENCES forward_rules(id) ON DELETE SET NULL
+      FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
     )
   `
 }
@@ -206,22 +108,6 @@ const DATABASE_TRIGGERS = [
     WHEN NEW.updated_at = OLD.updated_at
 BEGIN
     UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END`,
-
-  `CREATE TRIGGER update_mailboxes_updated_at
-    AFTER UPDATE ON mailboxes
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-    UPDATE mailboxes SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END`,
-
-  `CREATE TRIGGER update_mailbox_applications_updated_at
-    AFTER UPDATE ON mailbox_applications
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-    UPDATE mailbox_applications SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END`,
 
   `CREATE TRIGGER update_emails_updated_at
@@ -240,21 +126,6 @@ BEGIN
     UPDATE attachments SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END`,
 
-  `CREATE TRIGGER update_forward_rules_updated_at
-    AFTER UPDATE ON forward_rules
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-    UPDATE forward_rules SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END`,
-
-  `CREATE TRIGGER update_forward_rule_webhooks_updated_at
-    AFTER UPDATE ON forward_rule_webhooks
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-    UPDATE forward_rule_webhooks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END`,
 
   `CREATE TRIGGER update_system_settings_updated_at
     AFTER UPDATE ON system_settings
@@ -277,40 +148,13 @@ END`
 const DATABASE_INDEXES = [
   // 用户表索引
   'CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)',
-  'CREATE INDEX IF NOT EXISTS idx_users_user_type ON users(user_type)',
   'CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)',
-
-  // 邮箱表索引
-  'CREATE INDEX IF NOT EXISTS idx_mailboxes_owner_id ON mailboxes(owner_id)',
-  'CREATE INDEX IF NOT EXISTS idx_mailboxes_address ON mailboxes(address)',
-  'CREATE INDEX IF NOT EXISTS idx_mailboxes_status ON mailboxes(status)',
-
-  // 邮箱申请表索引
-  'CREATE INDEX IF NOT EXISTS idx_mailbox_applications_user_id ON mailbox_applications(user_id)',
-  'CREATE INDEX IF NOT EXISTS idx_mailbox_applications_status ON mailbox_applications(status)',
-  'CREATE INDEX IF NOT EXISTS idx_mailbox_applications_processed_at ON mailbox_applications(processed_at)',
-  'CREATE INDEX IF NOT EXISTS idx_mailbox_applications_requested_address ON mailbox_applications(requested_address)',
-
-  // 邮箱历史表索引
-  'CREATE INDEX IF NOT EXISTS idx_mailbox_history_mailbox_id ON mailbox_history(mailbox_id)',
-  'CREATE INDEX IF NOT EXISTS idx_mailbox_history_user_id ON mailbox_history(user_id)',
-  'CREATE INDEX IF NOT EXISTS idx_mailbox_history_owner_id ON mailbox_history(owner_id)',
-  'CREATE INDEX IF NOT EXISTS idx_mailbox_history_action_type ON mailbox_history(action_type)',
-  'CREATE INDEX IF NOT EXISTS idx_mailbox_history_created_at ON mailbox_history(created_at)',
-
-  // 安全审计表索引
-  'CREATE INDEX IF NOT EXISTS idx_security_audit_user_id ON security_audit(user_id)',
-  'CREATE INDEX IF NOT EXISTS idx_security_audit_action_type ON security_audit(action_type)',
-  'CREATE INDEX IF NOT EXISTS idx_security_audit_attack_type ON security_audit(attack_type)',
-  'CREATE INDEX IF NOT EXISTS idx_security_audit_created_at ON security_audit(created_at)',
-  'CREATE INDEX IF NOT EXISTS idx_security_audit_request_ip ON security_audit(request_ip)',
 
   // 邮件表索引
   'CREATE INDEX IF NOT EXISTS idx_emails_from_address ON emails(from_address)',
   'CREATE INDEX IF NOT EXISTS idx_emails_to_address ON emails(to_address)',
   'CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject)',
   'CREATE INDEX IF NOT EXISTS idx_emails_is_read ON emails(is_read)',
-  'CREATE INDEX IF NOT EXISTS idx_emails_user_id ON emails(user_id)',
   'CREATE INDEX IF NOT EXISTS idx_emails_received_at ON emails(received_at)',
   'CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at)',
 
@@ -318,14 +162,6 @@ const DATABASE_INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_attachments_email_id ON attachments(email_id)',
   'CREATE INDEX IF NOT EXISTS idx_attachments_r2_key ON attachments(r2_key)',
   'CREATE INDEX IF NOT EXISTS idx_attachments_content_type ON attachments(content_type)',
-
-  // 转发规则表索引
-  'CREATE INDEX IF NOT EXISTS idx_forward_rules_enabled ON forward_rules(enabled)',
-
-  // 转发规则 Webhook 配置表索引
-  'CREATE INDEX IF NOT EXISTS idx_forward_rule_webhooks_rule_id ON forward_rule_webhooks(rule_id)',
-  'CREATE INDEX IF NOT EXISTS idx_forward_rule_webhooks_enabled ON forward_rule_webhooks(enabled)',
-  'CREATE INDEX IF NOT EXISTS idx_forward_rule_webhooks_webhook_type ON forward_rule_webhooks(webhook_type)',
 
   // 转发日志表索引
   'CREATE INDEX IF NOT EXISTS idx_forward_logs_email_id ON forward_logs(email_id)',
@@ -345,49 +181,16 @@ const INITIAL_DATA_SQL = {
     ('cookie_max_age', '172800', 'Cookie过期时间（秒，48小时）'),
     ('debug_mode', '1', '调试模式开关 (1=开启, 0=关闭)'),
     ('api_rate_limit', '0', 'API访问频率限制开关 (1=启用, 0=禁用)'),
-    ('api_rate_limit_max_requests', '100', '每分钟最大请求数（10-10000）'),
-    ('supported_domains', '["example.com", "doubi.tech"]', '支持的域名列表（JSON格式，用于匹配接收的邮件域名）')
+    ('api_rate_limit_max_requests', '100', '每分钟最大请求数（10-10000）')
   `,
 
-  // 测试用户数据
-  testUser: `
-    INSERT OR IGNORE INTO users (username, password, user_type, status) 
-    VALUES ('test', ?, 0, 1)
-  `,
-
-  // 测试用户邮箱
-  testUserMailbox: `
-    INSERT INTO mailboxes (owner_id, address, status) 
-    VALUES (?, 'test@example.com', 1)
-  `,
 
   // 管理员用户数据
   adminUser: `
     INSERT OR IGNORE INTO users (username, password, user_type, status) 
     VALUES ('admin', ?, 1, 1)
-  `,
-
-  // 管理员用户邮箱
-  adminUserMailbox: `
-    INSERT INTO mailboxes (owner_id, address, status) 
-    VALUES (?, 'admin@example.com', 1)
-  `,
-
-  // 默认转发规则（未启用，仅作示例）
-  defaultForwardRules: `
-    INSERT OR IGNORE INTO forward_rules (rule_name, sender_filter, keyword_filter, recipient_filter, exact_match, skip_default_webhook, enabled) VALUES
-    ('飞书推送示例', NULL, NULL, NULL, 0, 0, 0),
-    ('钉钉推送示例', NULL, NULL, NULL, 0, 0, 0),
-    ('Bark推送示例', NULL, NULL, NULL, 0, 0, 0)
-  `,
-
-  // 默认转发规则 Webhook 配置（未启用，仅作示例）
-  defaultForwardRuleWebhooks: `
-    INSERT OR IGNORE INTO forward_rule_webhooks (rule_id, webhook_url, webhook_secret, webhook_type, custom_message, enabled) VALUES
-    (1, 'https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', NULL, 'feishu', '{"msg_type":"interactive","card":{"header":{"template":"blue","title":{"content":"📧 新邮件通知","tag":"plain_text"}},"elements":[{"tag":"div","fields":[{"is_short":true,"text":{"tag":"lark_md","content":"**发件人：**{{from}}"}},{"is_short":true,"text":{"tag":"lark_md","content":"**收件人：**{{to}}"}},{"is_short":true,"text":{"tag":"lark_md","content":"**主题：**{{subject}}"}},{"is_short":true,"text":{"tag":"lark_md","content":"**附件数：**{{attachment_count}}"}}]},{"tag":"div","text":{"tag":"lark_md","content":"**内容：**\n{{content}}"}}]}}', 0),
-    (2, 'https://oapi.dingtalk.com/robot/send?access_token=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', NULL, 'dingtalk', '{"msgtype":"markdown","markdown":{"title":"新邮件通知","text":"## 📧 新邮件通知\n\n**发件人：**{{from}}\n\n**收件人：**{{to}}\n\n**主题：**{{subject}}\n\n**附件数：**{{attachment_count}}\n\n**内容：**\n{{content}}"}}', 0),
-    (3, 'https://api.day.app/xxxxxxxxxxxxxxxxxxxxxxxx', NULL, 'bark', '{"title":"新邮件通知","body":"发件人：{{from}}\n收件人：{{to}}\n主题：{{subject}}\n内容：{{content}}","group":"email","icon":"https://example.com/icon.png"}', 0)
   `
+
 }
 
 // 创建数据库路由实例
@@ -395,7 +198,7 @@ const databaseRoutes = new Hono<{ Bindings: Env }>()
 
 // 应用认证、管理员权限和调试模式中间件
 databaseRoutes.use('*', jwtAuthMiddleware)
-databaseRoutes.use('*', adminAuthMiddleware)
+// 单管理员模式：所有认证用户都可以访问数据库路由
 databaseRoutes.use('*', debugModeMiddleware)
 
 // 获取数据库信息
@@ -1048,28 +851,7 @@ async function insertInitialData(db: D1Database) {
   await db.prepare(INITIAL_DATA_SQL.systemSettings).run()
 
   // 插入管理员用户
-  const adminResult = await db.prepare(INITIAL_DATA_SQL.adminUser).bind(hashedPassword).run()
-  const adminId = adminResult.meta?.last_row_id
-
-  // 插入测试用户
-  const testResult = await db.prepare(INITIAL_DATA_SQL.testUser).bind(hashedPassword).run()
-  const testId = testResult.meta?.last_row_id
-
-  // 为管理员创建默认邮箱
-  if (adminId) {
-    await db.prepare(INITIAL_DATA_SQL.adminUserMailbox).bind(adminId).run()
-  }
-
-  // 为测试用户创建默认邮箱
-  if (testId) {
-    await db.prepare(INITIAL_DATA_SQL.testUserMailbox).bind(testId).run()
-  }
-
-  // 插入默认转发规则（未启用，仅作示例）
-  await db.prepare(INITIAL_DATA_SQL.defaultForwardRules).run()
-
-  // 插入默认转发规则 Webhook 配置（未启用，仅作示例）
-  await db.prepare(INITIAL_DATA_SQL.defaultForwardRuleWebhooks).run()
+  await db.prepare(INITIAL_DATA_SQL.adminUser).bind(hashedPassword).run()
 }
 
 
@@ -1158,46 +940,29 @@ async function getUserStats(db: D1Database) {
     const total = totalResult?.count || 0
 
     // 管理员数量
-    const adminsResult = await db.prepare("SELECT COUNT(*) as count FROM users WHERE user_type = 1 AND status = 1").first()
-    const admins = adminsResult?.count || 0
+    const activeUsersResult = await db.prepare("SELECT COUNT(*) as count FROM users WHERE status = 1").first()
+    const activeUsers = activeUsersResult?.count || 0
 
-    // 活跃用户（最近7天有活动的用户）
-    const activeResult = await db.prepare(`
-      SELECT COUNT(DISTINCT owner_id) as count FROM mailboxes 
-      WHERE created_at >= DATE('now', '-7 days')
-    `).first()
-    const active = activeResult?.count || 0
-
-    return { total, admins, active }
+    return { total, activeUsers, active: 0 }
   } catch (error) {
     console.warn('获取用户统计失败:', error)
-    return { total: 0, admins: 0, active: 0 }
+    return { total: 0, activeUsers: 0, active: 0 }
   }
 }
 
 // 获取系统统计
 async function getSystemStats(db: D1Database) {
   try {
-    // 转发规则数量
-    const forwardRulesResult = await db.prepare('SELECT COUNT(*) as count FROM forward_rules WHERE enabled = 1').first()
-    const forwardRules = forwardRulesResult?.count || 0
-
-    // 活跃邮箱数量
-    const mailboxesResult = await db.prepare('SELECT COUNT(*) as count FROM mailboxes WHERE status = 1').first()
-    const mailboxes = mailboxesResult?.count || 0
-
     // 系统设置数量
     const settingsResult = await db.prepare('SELECT COUNT(*) as count FROM system_settings').first()
     const settings = settingsResult?.count || 0
 
     return {
-      forwardRules,
-      activeMailboxes: mailboxes,
       settings
     }
   } catch (error) {
     console.warn('获取系统统计失败:', error)
-    return { forwardRules: 0, activeMailboxes: 0, settings: 0 }
+    return { settings: 0 }
   }
 }
 

@@ -23,9 +23,6 @@
         <div class="email-time">
           <strong>时间:</strong> {{ formatTime(email.received_at) }}
         </div>
-        <div v-if="showOwner && email.owner_username" class="email-owner">
-          <strong>所有者:</strong> {{ email.owner_username }}
-        </div>
       </div>
       <div v-if="email.content" class="email-content">
         <strong>内容:</strong> {{ truncateText(email.content, 200) }}
@@ -55,20 +52,17 @@ interface Email {
   content?: string
   status: 'read' | 'unread' | string
   received_at: string
-  owner_username?: string
   is_read?: number
 }
 
 interface Props {
   emails: Email[]
-  showOwner?: boolean
   showActions?: boolean
   enableSelection?: boolean
   selectedIds?: string[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  showOwner: false,
   showActions: false,
   enableSelection: false,
   selectedIds: () => []

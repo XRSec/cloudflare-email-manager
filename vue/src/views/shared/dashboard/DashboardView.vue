@@ -22,14 +22,6 @@
         </div>
       </div>
 
-      <div class="stat-card clickable" @click="goToForwardRules">
-        <div class="stat-icon">🔄</div>
-        <div class="stat-content">
-          <div class="stat-number">{{ forwardRuleStats?.total }}</div>
-          <div class="stat-label">转发规则</div>
-        </div>
-      </div>
-
       <div class="stat-card clickable action-card" @click="goToSettings">
         <div class="stat-icon">🛠️</div>
         <div class="stat-content">
@@ -81,7 +73,6 @@ const apiManager = useRouteApiManager()
 
 // 数据
 const emailStats = ref({ total: 0 })
-const forwardRuleStats = ref({ total: 0 })
 const recentEmails = ref<any[]>([])
 
 // 计算属性
@@ -115,8 +106,7 @@ const loadDashboardData = async (forceRefresh = false) => {
     const results = await apiManager.loadRouteApis('dashboard', {
       forceRefresh,
       params: {
-        getEmails: { page: 1, limit: 10 },
-        getForwardRules: { page: 1, limit: 1 }
+        getEmails: { page: 1, limit: 10 }
       }
     })
 
@@ -128,12 +118,6 @@ const loadDashboardData = async (forceRefresh = false) => {
       emailStats.value.total = emailsData?.total || 0
       recentEmails.value = emailsData?.items || []
       console.log('📧 邮件数据已更新:', { total: emailStats.value.total, count: recentEmails.value.length })
-    }
-
-    // 处理转发规则统计
-    if (results.getForwardRules?.success) {
-      forwardRuleStats.value.total = results.getForwardRules.total || 0
-      console.log('🔄 转发规则统计已更新:', forwardRuleStats.value.total)
     }
 
     console.log('📊 仪表板数据加载完成')
@@ -166,10 +150,6 @@ const viewEmail = (emailId: string) => {
 
 const goToEmails = () => {
   router.push('/all-emails')
-}
-
-const goToForwardRules = () => {
-  router.push('/forward-rules')
 }
 
 const goToSettings = () => {

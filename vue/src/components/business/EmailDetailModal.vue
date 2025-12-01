@@ -54,9 +54,31 @@
         </div>
       </div>
 
-      <!-- 附件列表（仅显示非图片附件，图片已通过 postal-mime 渲染在邮件内容中） -->
+      <!-- 图片附件预览 -->
+      <div v-if="imageAttachments.length > 0" class="detail-section">
+        <h3 class="section-title">图片附件 ({{ imageAttachments.length }})</h3>
+        <div class="image-attachments-grid">
+          <div v-for="attachment in imageAttachments" :key="attachment.id" class="image-attachment-item">
+            <div class="image-preview-wrapper">
+              <img :src="getAttachmentUrl(attachment)" :alt="attachment.filename" class="image-preview"
+                @error="handleImageError" @click="downloadAttachment(attachment)" />
+            </div>
+            <div class="image-attachment-info">
+              <div class="image-attachment-name" :title="attachment.filename">{{ attachment.filename }}</div>
+              <div class="image-attachment-meta">
+                <span class="attachment-size">{{ formatFileSize(attachment.size_bytes) }}</span>
+              </div>
+              <Button size="sm" variant="primary" @click="downloadAttachment(attachment)" class="download-btn">
+                下载
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 其他附件列表 -->
       <div v-if="nonImageAttachments.length > 0" class="detail-section">
-        <h3 class="section-title">附件 ({{ nonImageAttachments.length }})</h3>
+        <h3 class="section-title">其他附件 ({{ nonImageAttachments.length }})</h3>
         <div class="attachments-list">
           <div v-for="attachment in nonImageAttachments" :key="attachment.id" class="attachment-item">
             <!-- 附件信息区域 -->
@@ -84,7 +106,8 @@
           </div>
         </div>
       </div>
-      <div v-else-if="emailDetail && (!emailDetail.attachments || emailDetail.attachments.length === 0)"
+      <div
+        v-else-if="emailDetail && imageAttachments.length === 0 && (!emailDetail.attachments || emailDetail.attachments.length === 0)"
         class="detail-section">
         <p class="no-attachments">此邮件没有附件</p>
       </div>
@@ -93,7 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, nextTick } from 'vue'
+import { ref, watch, computed, nextTick, onBeforeUnmount } from 'vue'
 import { Modal, Button, StatusBadge } from '@/components/common'
 import { apiService } from '@/composables/api'
 import { cacheService } from '@/composables/cache'
@@ -252,13 +275,33 @@ const isImage = (contentType: string) => {
   return contentType.startsWith('image/')
 }
 
-// 过滤掉图片附件，只显示非图片附件（图片已通过 postal-mime 渲染在邮件内容中）
-const nonImageAttachments = computed(() => {
+// 附件显示逻辑：
+// - HTML 邮件：图片已通过 postal-mime 嵌入在内容中（有顺序），只显示非图片附件
+// - 纯文本邮件：无法嵌入图片，需要在附件区域显示所有附件（包括图片）
+const displayAttachments = computed(() => {
   if (!emailDetail.value || !emailDetail.value.attachments) {
     return []
   }
-  return emailDetail.value.attachments.filter(att => !isImage(att.content_type))
+  return emailDetail.value.attachments
 })
+
+// 图片附件（仅纯文本邮件显示）
+const imageAttachments = computed(() => {
+  if (!emailDetail.value || emailDetail.value.full_content_type === 'html') {
+    return []
+  }
+  return displayAttachments.value.filter(att => isImage(att.content_type))
+})
+
+// 非图片附件（所有邮件都显示）
+// HTML 邮件：不显示图片附件（已在内容中）
+// 纯文本邮件：不显示图片附件（已在图片附件区域显示）
+const nonImageAttachments = computed(() => {
+  return displayAttachments.value.filter(att => !isImage(att.content_type))
+})
+
+// 缓存图片 blob URLs
+const imageBlobUrls = ref<Map<string, string>>(new Map())
 
 const getAttachmentUrl = (attachment: Attachment) => {
   // 检查附件 ID 是否存在
@@ -267,7 +310,18 @@ const getAttachmentUrl = (attachment: Attachment) => {
     return ''
   }
 
-  // 使用 API 返回的 URL 或构建 URL
+  // 对于图片附件，返回 blob URL（如果已缓存）或API URL
+  if (isImage(attachment.content_type)) {
+    const cachedUrl = imageBlobUrls.value.get(attachment.id)
+    if (cachedUrl) {
+      return cachedUrl
+    }
+    // 如果还没有 blob URL，先返回一个占位符，然后异步加载
+    loadImageBlob(attachment)
+    return '' // 暂时返回空，等待加载
+  }
+
+  // 非图片附件：使用 API 返回的 URL 或构建 URL
   if (attachment.url) {
     return attachment.url
   }
@@ -278,6 +332,35 @@ const getAttachmentUrl = (attachment: Attachment) => {
   console.warn('📎 [getAttachmentUrl] 无法构建URL，emailId或attachmentId缺失')
   return ''
 }
+
+// 异步加载图片为 blob URL
+const loadImageBlob = async (attachment: Attachment) => {
+  if (!attachment.id || !emailDetail.value?.id) return
+
+  try {
+    const url = `/api/emails/${emailDetail.value.id}/attachments/${attachment.id}`
+    const response = await fetch(url, {
+      credentials: 'include' // 发送 cookies
+    })
+
+    if (!response.ok) {
+      console.error('加载图片失败:', response.status)
+      return
+    }
+
+    const blob = await response.blob()
+    const blobUrl = URL.createObjectURL(blob)
+    imageBlobUrls.value.set(attachment.id, blobUrl)
+  } catch (error) {
+    console.error('加载图片失败:', error)
+  }
+}
+
+// 清理 blob URLs
+onBeforeUnmount(() => {
+  imageBlobUrls.value.forEach(url => URL.revokeObjectURL(url))
+  imageBlobUrls.value.clear()
+})
 
 const handleImageError = (event: Event) => {
   const img = event.target as HTMLImageElement
@@ -442,6 +525,75 @@ const downloadEml = () => {
   max-width: 100%;
   height: auto;
   margin: 10px 0;
+}
+
+.image-attachments-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 20px;
+}
+
+.image-attachment-item {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 15px;
+  background: #f9f9f9;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  transition: box-shadow 0.2s;
+}
+
+.image-attachment-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.image-preview-wrapper {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #fff;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e0e0e0;
+}
+
+.image-preview {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.image-preview:hover {
+  transform: scale(1.05);
+}
+
+.image-attachment-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.image-attachment-name {
+  font-weight: 500;
+  color: #333;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-attachment-meta {
+  font-size: 12px;
+  color: #666;
+}
+
+.download-btn {
+  width: 100%;
 }
 
 .attachments-list {

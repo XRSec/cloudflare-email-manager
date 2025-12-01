@@ -10,7 +10,7 @@ import { HTTPException } from 'hono/http-exception';
 // 工具和中间件
 import { initDebugMode } from './utils/debug';
 import { initializeSystemSettings, getSystemConfig } from './services/settings';
-import { jwtAuthMiddleware, adminAuthMiddleware } from './middleware/auth';
+import { jwtAuthMiddleware } from './middleware/auth';
 import { debugModeMiddleware } from './middleware/debug';
 import { rateLimitMiddleware } from './middleware/rate-limit';
 // 动态配置生成已移除，前端独立处理配置
@@ -136,8 +136,8 @@ app.notFound((c: any) => {
 // 注册统一API路由
 app.route('/api', api);
 
-// 调试接口（仅在调试模式下启用，且仅管理员可访问）
-app.get('/api/debug', jwtAuthMiddleware, adminAuthMiddleware, debugModeMiddleware, async (c: any) => {
+// 调试接口（仅在调试模式下启用）
+app.get('/api/debug', jwtAuthMiddleware, debugModeMiddleware, async (c: any) => {
     // 从系统设置获取调试模式状态
     const config = await getSystemConfig(c.env.DB);
 
@@ -176,7 +176,8 @@ function generateRFC822RawEmail(
     to: string,
     subject: string,
     content: string,
-    contentType: 'text' | 'html' = 'text'
+    contentType: 'text' | 'html' = 'text',
+    attachments: Array<{ filename: string; content: ArrayBuffer; contentType: string }> = []
 ): string {
     const now = new Date();
     const messageId = `<test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}@debug.local>`;
@@ -194,7 +195,24 @@ function generateRFC822RawEmail(
     const timezone = '+0000'; // UTC
     const dateStr = `${dayName}, ${day} ${monthName} ${year} ${hours}:${minutes}:${seconds} ${timezone}`;
 
-    // 构建邮件头
+    // 如果没有附件，使用简单格式
+    if (attachments.length === 0) {
+        const headers = [
+            `From: ${from}`,
+            `To: ${to}`,
+            `Subject: ${subject || '测试邮件'}`,
+            `Date: ${dateStr}`,
+            `Message-ID: ${messageId}`,
+            `MIME-Version: 1.0`,
+            `Content-Type: ${contentType === 'html' ? 'text/html' : 'text/plain'}; charset=UTF-8`,
+            `Content-Transfer-Encoding: 8bit`
+        ];
+        return headers.join('\r\n') + '\r\n\r\n' + content;
+    }
+
+    // 有附件时使用 multipart/mixed 格式
+    const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     const headers = [
         `From: ${from}`,
         `To: ${to}`,
@@ -202,19 +220,72 @@ function generateRFC822RawEmail(
         `Date: ${dateStr}`,
         `Message-ID: ${messageId}`,
         `MIME-Version: 1.0`,
-        `Content-Type: ${contentType === 'html' ? 'text/html' : 'text/plain'}; charset=UTF-8`,
-        `Content-Transfer-Encoding: 8bit`
+        `Content-Type: multipart/mixed; boundary="${boundary}"`
     ];
 
-    // RFC 822 格式：头部 + 空行 + 正文
-    return headers.join('\r\n') + '\r\n\r\n' + content;
+    // 构建 multipart body - 符合 RFC 2046 标准
+    const parts: string[] = [];
+
+    // 前导文本（在第一个边界之前）
+    const preamble = 'This is a multi-part message in MIME format.\r\n';
+
+    // 添加正文部分（确保内容不为空）
+    const actualContent = content || '(邮件正文为空)';
+    let textPart = `--${boundary}\r\n`;
+    textPart += `Content-Type: ${contentType === 'html' ? 'text/html' : 'text/plain'}; charset=UTF-8\r\n`;
+    textPart += `Content-Transfer-Encoding: 8bit\r\n`;
+    textPart += `\r\n`;
+    textPart += actualContent + '\r\n';
+    parts.push(textPart);
+
+    // 添加附件
+    for (const attachment of attachments) {
+        let attPart = `--${boundary}\r\n`;
+        attPart += `Content-Type: ${attachment.contentType}\r\n`;
+        attPart += `Content-Transfer-Encoding: base64\r\n`;
+
+        // 根据 RFC 2183，Content-Disposition 的 filename 参数应该用引号包裹
+        // 如果文件名包含引号，需要转义，但通常文件名不包含引号
+        // 确保明确指定为 attachment（不是 inline），避免被识别为内嵌图片
+        attPart += `Content-Disposition: attachment; filename="${attachment.filename}"\r\n`;
+        attPart += `\r\n`;
+
+        // 将 ArrayBuffer 转换为 base64（分块处理避免栈溢出）
+        const bytes = new Uint8Array(attachment.content);
+        let base64 = '';
+        const chunkSize = 0x8000; // 32KB chunks
+
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.slice(i, i + chunkSize);
+            base64 += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
+        }
+
+        // 每76个字符换行（RFC 2045 规定）
+        const base64WithLineBreaks = base64.match(/.{1,76}/g)?.join('\r\n') || base64;
+        attPart += base64WithLineBreaks + '\r\n';
+
+        parts.push(attPart);
+    }
+
+    // 结束边界
+    const epilogue = `--${boundary}--\r\n`;
+
+    // 组装完整邮件
+    return headers.join('\r\n') + '\r\n\r\n' + preamble + parts.join('') + epilogue;
 }
 
-// 模拟邮件接收接口（仅在调试模式下启用，且仅管理员可访问）
-app.post('/api/debug/simulate-email', jwtAuthMiddleware, adminAuthMiddleware, debugModeMiddleware, async (c: any) => {
+// 模拟邮件接收接口（仅在调试模式下启用）
+app.post('/api/debug/simulate-email', jwtAuthMiddleware, debugModeMiddleware, async (c: any) => {
 
     try {
-        const { to, from, subject, content, content_type } = await c.req.json();
+        // 解析 multipart/form-data
+        const formData = await c.req.formData();
+
+        const to = formData.get('to') as string;
+        const from = formData.get('from') as string;
+        const subject = formData.get('subject') as string;
+        const content = formData.get('content') as string;
+        const content_type = formData.get('content_type') as string;
 
         if (!to || !from) {
             return c.json({
@@ -226,30 +297,61 @@ app.post('/api/debug/simulate-email', jwtAuthMiddleware, adminAuthMiddleware, de
         const emailContent = content || '这是一封测试邮件';
         const contentType = (content_type || 'text') as 'text' | 'html';
 
-        // 生成符合 RFC 822 标准的原始邮件
-        const rawEmail = generateRFC822RawEmail(from, to, subject || '测试邮件', emailContent, contentType);
+        // 处理附件
+        const attachments: Array<{ filename: string; content: ArrayBuffer; contentType: string }> = [];
+        const attachmentFiles = formData.getAll('attachments');
+
+        for (const file of attachmentFiles) {
+            if (file instanceof File) {
+                const arrayBuffer = await file.arrayBuffer();
+                attachments.push({
+                    filename: file.name,
+                    content: arrayBuffer,
+                    contentType: file.type || 'application/octet-stream'
+                });
+            }
+        }
+
+        // 生成符合 RFC 822 标准的原始邮件（包含附件）
+        const rawEmail = generateRFC822RawEmail(from, to, subject || '测试邮件', emailContent, contentType, attachments);
 
         // 构造模拟邮件对象
+        const rawEmailBytes = new TextEncoder().encode(rawEmail);
+        const contentTypeHeader = attachments.length > 0
+            ? rawEmail.match(/Content-Type:\s*(.+)/)?.[1] || 'text/plain; charset=UTF-8'
+            : (contentType === 'html' ? 'text/html; charset=UTF-8' : 'text/plain; charset=UTF-8');
+
         const mockMessage = {
             to,
             from,
+            rawSize: rawEmailBytes.length, // 原始邮件大小（字节）
             headers: new Map([
                 ['Subject', subject || '测试邮件'],
                 ['Message-ID', rawEmail.match(/Message-ID:\s*(.+)/)?.[1] || `test-${Date.now()}@debug.local`],
                 ['Date', rawEmail.match(/Date:\s*(.+)/)?.[1] || new Date().toUTCString()],
-                ['Content-Type', contentType === 'html' ? 'text/html; charset=UTF-8' : 'text/plain; charset=UTF-8']
+                ['Content-Type', contentTypeHeader]
             ]),
             text: () => Promise.resolve(contentType === 'text' ? emailContent : ''),
             html: () => Promise.resolve(contentType === 'html' ? emailContent : ''),
-            raw: () => Promise.resolve(rawEmail) // 返回符合 RFC 822 标准的原始邮件
+            // raw 应该返回 ReadableStream，而不是字符串 Promise
+            raw: new ReadableStream({
+                start(controller) {
+                    controller.enqueue(rawEmailBytes);
+                    controller.close();
+                }
+            })
         };
 
         await emailHandler.email(mockMessage, c.env, {});
 
         return c.json({
             success: true,
-            message: '模拟邮件发送成功',
-            raw_email_preview: rawEmail.substring(0, 500) + (rawEmail.length > 500 ? '...' : '') // 返回前500字符预览
+            message: `模拟邮件发送成功${attachments.length > 0 ? `，包含 ${attachments.length} 个附件` : ''}`,
+            attachments_count: attachments.length,
+            raw_email_preview: rawEmail.substring(0, 500) + (rawEmail.length > 500 ? '...' : ''),
+            format_info: attachments.length > 0
+                ? '邮件使用 RFC 822 MIME multipart/mixed 格式，包含附件（base64 编码）'
+                : '邮件使用 RFC 822 标准格式（\\r\\n 换行符，邮件头之间无空行），可被 postal-mime 正确解析'
         });
 
     } catch (error) {

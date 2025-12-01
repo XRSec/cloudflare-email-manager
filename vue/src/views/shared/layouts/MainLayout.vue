@@ -41,13 +41,12 @@
             {{ refreshing ? '🔄 刷新中...' : '🔄 刷新' }}
           </Button>
         </div>
-        <div class="user-info">
+        <div class="user-info clickable" @click="openUserInfoModal">
           <div class="user-avatar">
             {{ userInitials }}
           </div>
           <div class="user-details">
-            <div class="user-email">{{ userEmail }}</div>
-            <div class="user-type">{{ userType }}</div>
+            <div class="user-name">{{ authStore.user?.username || '未登录' }}</div>
           </div>
         </div>
       </div>
@@ -57,6 +56,22 @@
         <router-view />
       </div>
     </div>
+
+    <!-- 修改用户信息模态框 -->
+    <Modal :show="showPasswordModal" title="修改用户信息" @close="closePasswordModal" size="small">
+      <form @submit.prevent="handleChangeUserInfo">
+        <FormField v-model="userForm.username" label="用户名" type="text" placeholder="请输入用户名（3-50个字符）" />
+        <FormField v-model="userForm.newPassword" label="新密码" type="password" placeholder="请输入新密码（至少6位，留空则不修改）" />
+        <FormField v-model="userForm.confirmPassword" label="确认密码" type="password" placeholder="请再次输入新密码" />
+        <div v-if="passwordError" class="error-message">{{ passwordError }}</div>
+      </form>
+      <template #footer>
+        <Button variant="secondary" @click="closePasswordModal">取消</Button>
+        <Button variant="primary" @click="handleChangeUserInfo" :disabled="changingPassword">
+          {{ changingPassword ? '修改中...' : '确认修改' }}
+        </Button>
+      </template>
+    </Modal>
   </div>
 </template>
 
@@ -66,7 +81,9 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/composables/stores'
 import { useSystemStore } from '@/composables/system'
 import { useUnifiedGlobalRefreshManager } from '@/composables/globalRefreshManager'
-import { Button } from '@/components/common'
+import { Button, Modal, FormField } from '@/components/common'
+import { userApiService } from '@/composables/api'
+import { toast } from '@/utils'
 // 在开发模式下导入测试
 if (import.meta.env.DEV) {
   import('@/composables/testRouteApiMapper')
@@ -102,16 +119,6 @@ const userInitials = computed(() => {
   return 'A'
 })
 
-const userEmail = computed(() => {
-  if (authStore.user?.email) {
-    return authStore.user.email
-  }
-  return 'admin@example.com'
-})
-
-const userType = computed(() => '管理员')
-
-// 导航配置 - 精简为单管理员模式
 const navigationSections = computed(() => [
   {
     title: '',
@@ -128,13 +135,6 @@ const navigationSections = computed(() => [
         path: '/all-emails',
         title: '全部邮件',
         icon: '📨',
-        show: true,
-        exactMatch: false
-      },
-      {
-        path: '/forward-rules',
-        title: '转发管理',
-        icon: '🔄',
         show: true,
         exactMatch: false
       },
@@ -195,6 +195,110 @@ const refreshCurrentPage = async () => {
 // 处理退出登录
 const handleLogout = () => {
   emit('logout')
+}
+
+// 修改用户信息相关
+const showPasswordModal = ref(false)
+const changingPassword = ref(false)
+const passwordError = ref('')
+const userForm = ref({
+  username: '',
+  newPassword: '',
+  confirmPassword: ''
+})
+
+const openUserInfoModal = () => {
+  // 初始化表单，使用当前用户名
+  userForm.value = {
+    username: authStore.user?.username || '',
+    newPassword: '',
+    confirmPassword: ''
+  }
+  showPasswordModal.value = true
+}
+
+const closePasswordModal = () => {
+  showPasswordModal.value = false
+  userForm.value = {
+    username: '',
+    newPassword: '',
+    confirmPassword: ''
+  }
+  passwordError.value = ''
+}
+
+const handleChangeUserInfo = async () => {
+  // 验证：至少需要修改用户名或密码中的一项
+  const hasUsernameChange = userForm.value.username && userForm.value.username !== authStore.user?.username
+  const hasPasswordChange = userForm.value.newPassword || userForm.value.confirmPassword
+
+  if (!hasUsernameChange && !hasPasswordChange) {
+    passwordError.value = '请至少修改用户名或密码中的一项'
+    return
+  }
+
+  // 验证用户名
+  if (hasUsernameChange) {
+    const username = userForm.value.username.trim()
+    if (username.length < 3 || username.length > 50) {
+      passwordError.value = '用户名长度必须在3-50个字符之间'
+      return
+    }
+  }
+
+  // 验证密码（如果填写了密码）
+  if (hasPasswordChange) {
+    if (!userForm.value.newPassword || !userForm.value.confirmPassword) {
+      passwordError.value = '修改密码时，新密码和确认密码都需要填写'
+      return
+    }
+
+    if (userForm.value.newPassword.length < 6) {
+      passwordError.value = '密码长度至少为6位'
+      return
+    }
+
+    if (userForm.value.newPassword !== userForm.value.confirmPassword) {
+      passwordError.value = '两次输入的密码不一致'
+      return
+    }
+  }
+
+  changingPassword.value = true
+  passwordError.value = ''
+
+  try {
+    const updateData: any = {}
+
+    // 如果修改了用户名，添加到更新数据
+    if (hasUsernameChange) {
+      updateData.username = userForm.value.username.trim()
+    }
+
+    // 如果修改了密码，添加到更新数据
+    if (hasPasswordChange) {
+      updateData.password = userForm.value.newPassword
+      updateData.password_confirm = userForm.value.confirmPassword
+    }
+
+    const response = await userApiService.updateUserSettings(updateData)
+
+    if (response.success) {
+      // 如果修改了用户名，刷新用户信息
+      if (hasUsernameChange) {
+        await authStore.fetchCurrentUser()
+      }
+      toast.success('用户信息修改成功')
+      closePasswordModal()
+    } else {
+      passwordError.value = response.message || '用户信息修改失败'
+    }
+  } catch (error: any) {
+    console.error('修改用户信息失败:', error)
+    passwordError.value = error.response?.data?.message || error.message || '用户信息修改失败'
+  } finally {
+    changingPassword.value = false
+  }
 }
 
 // 初始化
@@ -437,6 +541,15 @@ onMounted(async () => {
   border-radius: 5px;
 }
 
+.user-info.clickable {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.user-info.clickable:hover {
+  background-color: #f0f0f0;
+}
+
 .user-avatar {
   width: 40px;
   height: 40px;
@@ -455,7 +568,7 @@ onMounted(async () => {
   flex-direction: column;
 }
 
-.user-email,
+.user-name,
 .user-type {
   font-size: 0.8rem;
   color: #6c757d;
@@ -487,6 +600,16 @@ onMounted(async () => {
     height: 35px;
     font-size: 14px;
   }
+}
+
+.error-message {
+  color: #e74c3c;
+  font-size: 14px;
+  margin-top: 10px;
+  padding: 8px;
+  background: #fee;
+  border-radius: 4px;
+  border: 1px solid #fcc;
 }
 
 @media (max-width: 480px) {

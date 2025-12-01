@@ -53,9 +53,16 @@ const handleLoginSuccess = async () => {
   // 触发登录成功事件，让 App.vue 处理预加载
   console.log('🚀 触发登录成功事件')
 
-  // 使用 nextTick 确保在下一个 tick 中触发事件
-  await nextTick()
-  emit('login-success')
+  // 优先使用全局函数（更可靠）
+  if (window.handleLoginSuccess) {
+    console.log('📞 使用全局 handleLoginSuccess 函数')
+    await window.handleLoginSuccess()
+  } else {
+    // 降级到事件传递
+    console.log('📡 使用事件传递方式')
+    await nextTick()
+    emit('login-success')
+  }
 }
 
 // 声明全局类型
@@ -64,7 +71,6 @@ declare global {
     CEM_CONFIG?: {
       allow_registration: number
       debug_mode: number
-      supported_domains: string[]
       attachment_max_size: number
       api_base_url: string
       version: string
@@ -73,9 +79,9 @@ declare global {
     ConfigManager?: {
       isRegistrationAllowed(): boolean
       isDebugMode(): boolean
-      getSupportedDomains(): string[]
       getMaxAttachmentSize(): number
     }
+    handleLoginSuccess?: () => Promise<void>
   }
 }
 

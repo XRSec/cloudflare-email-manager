@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import naive from 'naive-ui'
 import router from './composables/routes'
 import App from './App.vue'
 
@@ -12,7 +11,6 @@ app.use(createPinia())
 // 注册路由
 app.use(router)
 
-// 注册 Naive UI
-app.use(naive)
+// Naive UI 通过 unplugin-vue-components 自动导入，无需全局注册
 
 app.mount('#app')

@@ -21,13 +21,11 @@ export const useSystemStore = defineStore('system', () => {
     debug_mode?: number;
     allow_registration?: number;
     auto_approve_mailbox?: number;
-    supported_domains?: string[];
     mail_retention_days?: number;
     attachment_retention_days?: number;
     attachment_max_size?: number;
     cookie_max_age?: number;
     jwt_secret?: string;
-    domains?: string[];
   } | null>('systemConfig', null, localStorage, {
     serializer: {
       read: (value: string) => {
@@ -41,13 +39,11 @@ export const useSystemStore = defineStore('system', () => {
         debug_mode?: number;
         allow_registration?: number;
         auto_approve_mailbox?: number;
-        supported_domains?: string[];
         mail_retention_days?: number;
         attachment_retention_days?: number;
         attachment_max_size?: number;
         cookie_max_age?: number;
         jwt_secret?: string;
-        domains?: string[];
       } | null) => {
         return value ? JSON.stringify(value) : ''
       }

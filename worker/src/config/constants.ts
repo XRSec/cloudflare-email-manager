@@ -20,9 +20,6 @@ export const SYSTEM_DEFAULTS = {
     COOKIE_MAX_AGE: 172800,                 // 48小时（秒）= 48 * 60 * 60
     JWT_EXPIRY: 86400,                      // 24小时（秒）
 
-    // 域名相关
-    // 注意：supported_domains 需要用户配置，没有默认值
-
     // 管理员
     ADMIN_EMAIL: '',                        // 可选
 
@@ -93,8 +90,7 @@ export const REQUIRED_CONFIGS = [
     'mail_retention_days',
     'max_attachment_size',
     'cookie_max_age',
-    'jwt_secret',
-    'supported_domains'  // 至少需要一个域名
+    'jwt_secret'
 ] as const;
 
 /**
@@ -148,22 +144,6 @@ export function validateConfigValue(key: string, value: any): { valid: boolean; 
             const maxRequests = parseInt(value);
             if (isNaN(maxRequests) || maxRequests < CONFIG_VALIDATION.API_RATE_LIMIT_MAX_REQUESTS.min || maxRequests > CONFIG_VALIDATION.API_RATE_LIMIT_MAX_REQUESTS.max) {
                 return { valid: false, error: CONFIG_VALIDATION.API_RATE_LIMIT_MAX_REQUESTS.error };
-            }
-            break;
-
-        case 'supported_domains':
-            try {
-                const domains = JSON.parse(value);
-                if (!Array.isArray(domains) || domains.length === 0) {
-                    return { valid: false, error: '域名列表必须是非空数组' };
-                }
-                for (const domain of domains) {
-                    if (typeof domain !== 'string' || !domain.includes('.')) {
-                        return { valid: false, error: '域名格式无效' };
-                    }
-                }
-            } catch (e) {
-                return { valid: false, error: '域名列表必须是有效的 JSON 数组' };
             }
             break;
 

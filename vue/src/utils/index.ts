@@ -1,5 +1,65 @@
+import { ElNotification } from 'element-plus'
+
 // 工具函数
 export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+/**
+ * 统一的消息提示工具
+ * 使用 ElNotification 提供一致的用户体验
+ */
+export const toast = {
+  /**
+   * 成功提示
+   */
+  success: (message: string, title: string = '成功') => {
+    ElNotification({
+      title,
+      message,
+      type: 'success',
+      duration: 3000,
+      position: 'top-right'
+    })
+  },
+
+  /**
+   * 错误提示
+   */
+  error: (message: string, title: string = '错误') => {
+    ElNotification({
+      title,
+      message,
+      type: 'error',
+      duration: 4000, // 错误提示显示时间稍长
+      position: 'top-right'
+    })
+  },
+
+  /**
+   * 警告提示
+   */
+  warning: (message: string, title: string = '警告') => {
+    ElNotification({
+      title,
+      message,
+      type: 'warning',
+      duration: 3500,
+      position: 'top-right'
+    })
+  },
+
+  /**
+   * 信息提示
+   */
+  info: (message: string, title: string = '提示') => {
+    ElNotification({
+      title,
+      message,
+      type: 'info',
+      duration: 3000,
+      position: 'top-right'
+    })
+  }
+}
 
 export const formatDate = (date: string | Date) => {
   return new Intl.DateTimeFormat('zh-CN', {

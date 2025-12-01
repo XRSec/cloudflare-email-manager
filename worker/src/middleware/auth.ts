@@ -48,8 +48,7 @@ export async function jwtAuthMiddleware(c: Context<{ Bindings: Env }>, next: Nex
         // 同时设置user对象以保持兼容性
         c.set('user' as any, {
             id: payload.user_id,
-            username: payload.username,
-            user_type: payload.user_type
+            username: payload.username
         });
 
         await next();
@@ -61,56 +60,6 @@ export async function jwtAuthMiddleware(c: Context<{ Bindings: Env }>, next: Nex
 }
 
 /**
- * 管理员权限中间件
- */
-export async function adminAuthMiddleware(c: Context<{ Bindings: Env }>, next: Next) {
-    const payload = c.get('jwtPayload');
-
-    if (!payload) {
-        throw new HTTPException(401, { message: '未提供认证令牌' });
-    }
-
-    if (payload.user_type !== 1) {
-        throw new HTTPException(403, { message: '需要管理员权限' });
-    }
-
-    await next();
-}
-
-/**
- * 用户权限中间件 - 确保用户只能访问自己的资源
- */
-export async function userResourceMiddleware(c: Context<{ Bindings: Env }>, next: Next) {
-    const payload = c.get('jwtPayload');
-
-    if (!payload) {
-        throw new HTTPException(401, { message: '未提供认证令牌' });
-    }
-
-    // 管理员可以访问所有资源
-    if (payload.user_type === 1) {
-        await next();
-        return;
-    }
-
-    // 普通用户只能访问自己的资源
-    // 这里可以根据具体的路由参数进行更细粒度的权限控制
-    await next();
-}
-
-/**
  * 简化的认证中间件 - 用于路由装饰器
  */
 export const requireAuth = jwtAuthMiddleware;
-
-/**
- * 简化的管理员认证中间件 - 用于路由装饰器
- * 包含完整的认证流程：JWT验证 + 管理员权限检查
- */
-export const requireAdmin = async (c: Context<{ Bindings: Env }>, next: Next) => {
-    // 先进行JWT认证
-    await jwtAuthMiddleware(c, async () => {
-        // 然后进行管理员权限检查
-        await adminAuthMiddleware(c, next);
-    });
-};

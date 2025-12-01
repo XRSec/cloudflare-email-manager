@@ -39,7 +39,6 @@ export async function initializeSystemSettings(db: D1Database): Promise<void> {
             'debug_mode': String(SYSTEM_DEFAULTS.DEBUG_MODE),
             'api_rate_limit': String(SYSTEM_DEFAULTS.API_RATE_LIMIT),
             'api_rate_limit_max_requests': String(SYSTEM_DEFAULTS.API_RATE_LIMIT_MAX_REQUESTS),
-            // 注意：supported_domains 需要用户配置，没有默认值
         };
 
         // 特殊处理 JWT Secret
@@ -152,44 +151,14 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
         const mailRetentionDays = parseInt(getRequiredSetting('mail_retention_days'));
         const attachmentRetentionDays = parseInt(getOptionalSetting('attachment_retention_days', String(mailRetentionDays)));
 
-        // 获取域名列表
-        let domains: string[] = [];
-        const domainsStr = systemSettingsCache.get('supported_domains');
-        if (domainsStr) {
-            try {
-                domains = JSON.parse(domainsStr);
-            } catch (error) {
-                const { errorLog } = await import('../utils/debug');
-                errorLog('系统设置', '解析域名配置失败:', error);
-            }
-        }
-
-        // 如果没有配置多域名，尝试单个域名（兼容旧数据）
-        if (domains.length === 0) {
-            const oldDomainsStr = systemSettingsCache.get('domains');
-            if (oldDomainsStr) {
-                try {
-                    domains = JSON.parse(oldDomainsStr);
-                } catch (error) {
-                    const { errorLog } = await import('../utils/debug');
-                    errorLog('系统设置', '解析旧域名配置失败:', error);
-                }
-            }
-        }
-
-        // 如果还是没有，尝试单个域名（兼容旧数据）
-        if (domains.length === 0) {
-            const singleDomain = systemSettingsCache.get('domain');
-            if (singleDomain) {
-                domains = [singleDomain];
-            } else {
-                throw new Error('未配置任何域名');
-            }
-        }
-
         // 获取 JWT 密钥 - 必须存在且有效
         const jwtSecret = await getJWTSecret(db);
         const maskedJWTSecret = maskJWTSecret(jwtSecret);
+
+        // 获取默认Webhook配置
+        const defaultWebhookUrl = getOptionalSetting('default_webhook_url', '');
+        const defaultWebhookSecret = getOptionalSetting('default_webhook_secret', '');
+        const defaultWebhookType = getOptionalSetting('default_webhook_type', '') as 'dingtalk' | 'feishu' | 'bark' | undefined;
 
         return {
             allow_registration: allowRegistration ? 1 : 0,
@@ -197,11 +166,13 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
             attachment_retention_days: attachmentRetentionDays,
             attachment_max_size: maxAttachmentSize,
             debug_mode: debugMode ? 1 : 0,
-            supported_domains: domains, // 必需字段
             cookie_max_age: cookieMaxAge,
             jwt_secret: maskedJWTSecret, // 显示前后各四位
             api_rate_limit: apiRateLimit ? 1 : 0,
-            api_rate_limit_max_requests: apiRateLimitMaxRequests
+            api_rate_limit_max_requests: apiRateLimitMaxRequests,
+            default_webhook_url: defaultWebhookUrl || undefined,
+            default_webhook_secret: defaultWebhookSecret || undefined,
+            default_webhook_type: defaultWebhookType || undefined
         };
     } catch (error) {
         const { errorLog } = await import('../utils/debug');
@@ -244,13 +215,6 @@ export async function updateSystemConfig(db: D1Database, config: Partial<SystemC
         updates.push({ key: 'api_rate_limit_max_requests', value: config.api_rate_limit_max_requests.toString() });
     }
 
-    // 更新域名列表
-    if (config.supported_domains !== undefined) {
-        if (Array.isArray(config.supported_domains) && config.supported_domains.length > 0) {
-            updates.push({ key: 'supported_domains', value: JSON.stringify(config.supported_domains) });
-        }
-    }
-
     if (config.cookie_max_age !== undefined) {
         updates.push({ key: 'cookie_max_age', value: config.cookie_max_age.toString() });
     }
@@ -272,6 +236,15 @@ export async function updateSystemConfig(db: D1Database, config: Partial<SystemC
     }
 
     // 默认 Webhook 配置
+    if (config.default_webhook_url !== undefined) {
+        updates.push({ key: 'default_webhook_url', value: config.default_webhook_url || '' });
+    }
+    if (config.default_webhook_secret !== undefined) {
+        updates.push({ key: 'default_webhook_secret', value: config.default_webhook_secret || '' });
+    }
+    if (config.default_webhook_type !== undefined) {
+        updates.push({ key: 'default_webhook_type', value: config.default_webhook_type || '' });
+    }
 
     // 批量更新
     for (const update of updates) {
@@ -350,52 +323,3 @@ export async function getJWTSecret(db: D1Database): Promise<string> {
 /**
  * 获取主域名（从数据库读取）
  */
-/**
- * 获取主域名（使用 domains[0]）
- * @deprecated 直接使用 domains[0] 即可
- */
-export async function getPrimaryDomain(db: D1Database): Promise<string> {
-    await initializeSystemSettings(db);
-
-    // 获取域名列表（优先使用 supported_domains，兼容旧数据 domains）
-    const domainsStr = systemSettingsCache.get('supported_domains') || systemSettingsCache.get('domains');
-    if (domainsStr) {
-        try {
-            const domains = JSON.parse(domainsStr);
-            if (Array.isArray(domains) && domains.length > 0) {
-                return domains[0];
-            }
-        } catch (error) {
-            const { errorLog } = await import('../utils/debug');
-            errorLog('系统设置', '解析域名列表失败:', error);
-        }
-    }
-
-    // 尝试单个域名配置（兼容旧数据）
-    const singleDomain = systemSettingsCache.get('domain');
-    if (singleDomain) {
-        return singleDomain;
-    }
-
-    throw new Error('未找到任何可用域名配置');
-}
-
-/**
- * 根据邮件地址自动匹配域名
- */
-export async function matchDomainForEmail(db: D1Database, emailAddress: string): Promise<string | null> {
-    const config = await getSystemConfig(db);
-    const emailDomain = emailAddress.split('@')[1]?.toLowerCase();
-
-    if (!emailDomain) {
-        return null;
-    }
-
-    // 查找匹配的域名（使用 supported_domains）
-    const domains = config.supported_domains || [];
-    const matchedDomain = domains.find(domain =>
-        domain.toLowerCase() === emailDomain
-    );
-
-    return matchedDomain || null;
-}

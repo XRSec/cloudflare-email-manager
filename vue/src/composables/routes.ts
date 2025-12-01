@@ -10,7 +10,6 @@ const DashboardView = () => import('@/views/shared/dashboard/DashboardView.vue')
 
 // 管理员视图（精简）
 const AdminAllEmailsView = () => import('@/views/admin/emails/AllEmailsView.vue')
-const AdminForwardRulesView = () => import('@/views/admin/mailboxes/ForwardRulesView.vue')
 const AdminSystemSettingsView = () => import('@/views/admin/settings/SystemSettingsView.vue')
 const AdminDebugView = () => import('@/views/admin/settings/DebugView.vue')
 
@@ -43,11 +42,6 @@ const router = createRouter({
           path: 'all-emails',
           name: 'all-emails',
           component: AdminAllEmailsView
-        },
-        {
-          path: 'forward-rules',
-          name: 'forward-rules',
-          component: AdminForwardRulesView
         },
         {
           path: 'system-settings',

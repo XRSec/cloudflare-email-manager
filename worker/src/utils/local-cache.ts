@@ -240,10 +240,8 @@ export const LOCAL_CACHE_KEYS = {
     USER_INFO: 'user_info',
     DEBUG_MODE: 'debug_mode',
     ALLOW_REGISTRATION: 'allow_registration',
-    SUPPORTED_DOMAINS: 'supported_domains',
     EMAIL_LIST: 'email_list',
     ADMIN_USERS: 'admin_users',
-    FORWARD_RULES: 'forward_rules',
     CURRENT_PAGE: 'current_page',
     FILTER_SETTINGS: 'filter_settings',
     SORT_SETTINGS: 'sort_settings'

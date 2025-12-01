@@ -12,37 +12,29 @@
         <div v-for="section in settingsSections" :key="section.title" class="settings-section">
           <h3>{{ section.title }}</h3>
 
-          <!-- 特殊处理：安全域名列表使用自定义组件 -->
-          <template v-if="section.title === '安全配置'">
-            <DomainListInput v-model="formData.supported_domains" label="安全域名列表" placeholder="输入域名后按回车或点击加号添加"
-              help="邮件接收时只处理这些域名下的邮件地址" :required="true" :disabled="saving" />
-
-            <!-- 安全配置的其他字段 -->
-            <div v-for="field in section.fields" :key="field.key">
-              <FormField v-if="field.type !== 'checkbox'" v-model="(formData as any)[field.key]" :label="field.label"
-                :type="field.type" :placeholder="(field as any).placeholder" :required="(field as any).required"
-                :disabled="((field as any).disabled || saving)" :min="(field as any).min" :max="(field as any).max"
-                :step="(field as any).step" :rows="(field as any).rows" :error="(field as any).error"
-                :help="(field as any).help" />
-              <CheckboxField v-else v-model="(formData as any)[field.key]" :label="field.label"
-                :disabled="((field as any).disabled || saving)" :error="(field as any).error"
-                :help="(field as any).help" />
+          <!-- 所有字段使用统一逻辑 -->
+          <div v-for="field in section.fields" :key="field.key">
+            <FormField v-if="field.type !== 'checkbox' && field.type !== 'select'"
+              v-model="(formData as any)[field.key]" :label="field.label" :type="field.type"
+              :placeholder="(field as any).placeholder" :required="(field as any).required"
+              :disabled="((field as any).disabled || saving)" :min="(field as any).min" :max="(field as any).max"
+              :step="(field as any).step" :rows="(field as any).rows" :error="(field as any).error"
+              :help="(field as any).help" />
+            <div v-else-if="field.type === 'select'" class="form-group">
+              <label v-if="field.label" :for="`field-${field.key}`">{{ field.label }}</label>
+              <select :id="`field-${field.key}`" :value="(formData as any)[field.key]"
+                :disabled="((field as any).disabled || saving)" class="form-control"
+                @change="(formData as any)[field.key] = ($event.target as HTMLSelectElement).value">
+                <option v-for="option in (field as any).options" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+              <div v-if="(field as any).help" class="form-help">{{ (field as any).help }}</div>
             </div>
-          </template>
-
-          <!-- 其他字段使用原有逻辑 -->
-          <template v-else>
-            <div v-for="field in section.fields" :key="field.key">
-              <FormField v-if="field.type !== 'checkbox'" v-model="(formData as any)[field.key]" :label="field.label"
-                :type="field.type" :placeholder="(field as any).placeholder" :required="(field as any).required"
-                :disabled="((field as any).disabled || saving)" :min="(field as any).min" :max="(field as any).max"
-                :step="(field as any).step" :rows="(field as any).rows" :error="(field as any).error"
-                :help="(field as any).help" />
-              <CheckboxField v-else v-model="(formData as any)[field.key]" :label="field.label"
-                :disabled="((field as any).disabled || saving)" :error="(field as any).error"
-                :help="(field as any).help" />
-            </div>
-          </template>
+            <CheckboxField v-else v-model="(formData as any)[field.key]" :label="field.label"
+              :disabled="((field as any).disabled || saving)" :error="(field as any).error"
+              :help="(field as any).help" />
+          </div>
         </div>
 
         <div class="form-actions">
@@ -62,8 +54,8 @@ import { useUnifiedPageData } from '@/composables/useUnifiedPageData'
 import { useSystemStore } from '@/composables/system'
 import { systemApiService } from '@/composables/api'
 import { useRouteApiManager } from '@/composables/routeApiManager'
-import { ElMessage } from 'element-plus'
-import { PageHeader, DebugInfo, PageStates, FormField, CheckboxField, Button, DomainListInput } from '@/components'
+import { PageHeader, DebugInfo, PageStates, FormField, CheckboxField, Button } from '@/components'
+import { toast } from '@/utils'
 
 const systemStore = useSystemStore()
 const { clearCurrentRouteCache } = useRouteApiManager()
@@ -100,7 +92,9 @@ const formData = ref({
   apiRateLimit: true,
   apiRateLimitMaxRequests: 100,
   sessionTimeout: 60,
-  supported_domains: [] as string[]
+  defaultWebhookUrl: '',
+  defaultWebhookSecret: '',
+  defaultWebhookType: 'dingtalk' as 'dingtalk' | 'feishu' | 'bark'
 })
 
 // 原始数据备份
@@ -142,13 +136,15 @@ const settingsSections = computed(() => [
         key: 'allowUserRegistration',
         label: '允许新用户注册',
         type: 'checkbox' as const,
-        help: '开发中 - 当前系统为单管理员模式，暂不支持用户注册'
+        disabled: true,
+        help: '当前系统为单管理员模式，不支持用户注册'
       },
       {
         key: 'requireEmailVerification',
         label: '注册时需要邮箱验证',
         type: 'checkbox' as const,
-        help: '开发中 - 当前系统为单管理员模式，暂不支持用户注册功能'
+        disabled: true,
+        help: '当前系统为单管理员模式，不支持用户注册功能'
       }
     ]
   },
@@ -184,13 +180,43 @@ const settingsSections = computed(() => [
         help: '范围：60-2880 分钟（1小时-48小时），默认：2880 分钟（48小时）'
       }
     ]
+  },
+  {
+    title: '默认推送渠道',
+    fields: [
+      {
+        key: 'defaultWebhookUrl',
+        label: 'Webhook URL',
+        type: 'text' as const,
+        placeholder: 'https://oapi.dingtalk.com/robot/send?access_token=xxx',
+        help: '支持钉钉、飞书、Bark。所有邮件都会发送到此webhook，消息格式：你有一封来自 xxx 的邮件'
+      },
+      {
+        key: 'defaultWebhookSecret',
+        label: 'Webhook 密钥（可选）',
+        type: 'text' as const,
+        placeholder: '用于钉钉加签等',
+        help: '钉钉机器人加签密钥（可选）'
+      },
+      {
+        key: 'defaultWebhookType',
+        label: 'Webhook 类型',
+        type: 'select' as const,
+        options: [
+          { value: 'dingtalk', label: '钉钉' },
+          { value: 'feishu', label: '飞书' },
+          { value: 'bark', label: 'Bark' }
+        ],
+        help: '选择webhook类型'
+      }
+    ]
   }
 ])
 
 // 监听数据变化，初始化表单
 watch(data, (newData) => {
   if (newData) {
-    // 后端返回的数据结构: { success: true, data: { config: {...}, user_role: 'admin' } }
+    // 后端返回的数据结构: { success: true, data: { config: {...} } }
     // 或者直接是 API 响应: { data: { config: {...} } }
     const config = newData.data?.config || newData.data || {}
     console.log('📋 系统设置数据更新:', config)
@@ -207,7 +233,9 @@ watch(data, (newData) => {
       apiRateLimit: config.api_rate_limit === 1 || config.api_rate_limit !== false,
       apiRateLimitMaxRequests: config.api_rate_limit_max_requests || 100,
       sessionTimeout: config.cookie_max_age ? Math.floor(config.cookie_max_age / 60) : (config.session_timeout || 60),
-      supported_domains: config.supported_domains || []
+      defaultWebhookUrl: config.default_webhook_url || '',
+      defaultWebhookSecret: config.default_webhook_secret || '',
+      defaultWebhookType: (config.default_webhook_type || 'dingtalk') as 'dingtalk' | 'feishu' | 'bark'
     }
     originalData.value = { ...formData.value } as any
     console.log('✅ 表单数据已更新，debugMode:', formData.value.debugMode)
@@ -263,15 +291,15 @@ const saveSettings = async (data: any) => {
       updateData.cookie_max_age = data.sessionTimeout * 60 // 分钟转秒
     }
 
-    // 安全域名列表：直接使用数组
-    if (data.supported_domains !== undefined && Array.isArray(data.supported_domains) && data.supported_domains.length > 0) {
-      // 过滤空值并转换为小写
-      const domains = data.supported_domains
-        .map((domain: string) => domain.trim().toLowerCase())
-        .filter((domain: string) => domain.length > 0)
-      if (domains.length > 0) {
-        updateData.supported_domains = domains
-      }
+    // 默认Webhook配置
+    if (data.defaultWebhookUrl !== undefined) {
+      updateData.default_webhook_url = data.defaultWebhookUrl.trim() || ''
+    }
+    if (data.defaultWebhookSecret !== undefined) {
+      updateData.default_webhook_secret = data.defaultWebhookSecret.trim() || ''
+    }
+    if (data.defaultWebhookType !== undefined) {
+      updateData.default_webhook_type = data.defaultWebhookType.trim() || ''
     }
 
     // 注意：以下字段后端暂不支持，暂时不发送
@@ -282,7 +310,7 @@ const saveSettings = async (data: any) => {
 
     // 如果没有可更新的字段，提示用户
     if (Object.keys(updateData).length === 0) {
-      ElMessage.warning('没有可保存的配置项')
+      toast.warning('没有可保存的配置项')
       return
     }
 
@@ -313,14 +341,14 @@ const saveSettings = async (data: any) => {
       // 更新原始数据备份（使用最新的表单数据）
       originalData.value = { ...formData.value }
 
-      ElMessage.success(response.message || '系统设置保存成功')
+      toast.success(response.message || '系统设置保存成功')
     } else {
-      ElMessage.error(response.message || '保存失败')
+      toast.error(response.message || '保存失败')
     }
   } catch (error: any) {
     console.error('保存系统设置失败:', error)
     const errorMessage = error.response?.data?.message || error.message || '保存失败，请稍后重试'
-    ElMessage.error(errorMessage)
+    toast.error(errorMessage)
   } finally {
     saving.value = false
   }
@@ -370,5 +398,44 @@ onMounted(() => {
   margin-top: 20px;
   padding-top: 20px;
   border-top: 1px solid #e0e0e0;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+  color: #555;
+}
+
+.form-control {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.form-control:disabled {
+  background-color: #f8f9fa;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.form-help {
+  color: #6c757d;
+  font-size: 12px;
+  margin-top: 5px;
 }
 </style>

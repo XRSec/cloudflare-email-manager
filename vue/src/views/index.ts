@@ -7,7 +7,6 @@ export { default as NotFoundView } from './shared/error/NotFoundView.vue'
 
 // 管理员视图（精简）
 export { default as AdminAllEmailsView } from './admin/emails/AllEmailsView.vue'
-export { default as AdminForwardRulesView } from './admin/mailboxes/ForwardRulesView.vue'
 export { default as AdminSystemSettingsView } from './admin/settings/SystemSettingsView.vue'
 export { default as AdminDebugView } from './admin/settings/DebugView.vue'
 

@@ -6,10 +6,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { jwtAuthMiddleware } from '../middleware/auth';
 import { debugLog, errorLog } from '../utils/debug';
-import {
-    findUserById,
-    updateUserSettings
-} from '../services/user';
+import { updateUserSettings } from '../services/user';
 import type { Env, ApiResponse, UserSettingsUpdate } from '../types';
 
 const userRoutes = new Hono<{ Bindings: Env }>();
@@ -24,31 +21,25 @@ userRoutes.use('*', jwtAuthMiddleware);
 userRoutes.get('/me', async (c) => {
     try {
         const payload = c.get('jwtPayload');
-        const userData = await findUserById(c.env.DB, payload.user_id);
 
-        if (!userData) {
+        // 直接查询用户信息
+        const result = await c.env.DB.prepare(`
+            SELECT id, username, created_at, updated_at
+            FROM users
+            WHERE id = ? AND status = 1
+        `).bind(payload.user_id).first();
+
+        if (!result) {
             throw new HTTPException(404, { message: '用户不存在' });
         }
-
-        // 获取系统配置以获取域名
-        const { getSystemConfig } = await import('../services/settings');
-        const config = await getSystemConfig(c.env.DB);
 
         return c.json<ApiResponse>({
             success: true,
             data: {
-                id: userData.id,
-                username: userData.username,
-                email: userData.username + '@' + (config.supported_domains?.[0] || 'example.com'), // 使用第一个域名
-                user_type: userData.user_type,
-                created_at: userData.created_at,
-                updated_at: userData.updated_at,
-                settings: {
-                    webhook_url: userData.webhook_url,
-                    webhook_secret: userData.webhook_secret ? '***已设置***' : null,
-                    webhook_type: userData.webhook_type,
-                    webhook_custom_message: userData.webhook_custom_message
-                }
+                id: result.id as number,
+                username: result.username as string,
+                created_at: result.created_at as string | undefined,
+                updated_at: result.updated_at as string | undefined
             }
         });
     } catch (error) {
@@ -72,40 +63,32 @@ userRoutes.put('/me', async (c) => {
         debugLog('[用户设置] 更新请求:', JSON.stringify(updates, null, 2));
 
         // 验证输入
-        const validatedUpdates: UserSettingsUpdate = {};
+        const validatedUpdates: { username?: string; password?: string } = {};
 
-        // 处理密码更新
+        // 处理用户名更新
+        if (updates.username !== undefined) {
+            const username = updates.username.trim();
+            if (username.length < 3 || username.length > 50) {
+                throw new HTTPException(400, { message: '用户名长度必须在3-50个字符之间' });
+            }
+            validatedUpdates.username = username;
+        }
+
+        // 处理密码更新（需要二次验证）
         if (updates.password && updates.password.trim()) {
             if (updates.password.length < 6) {
                 throw new HTTPException(400, { message: '密码长度至少为6位' });
             }
-            validatedUpdates.password = updates.password;
-        }
-
-        // 处理webhook URL更新
-        if (updates.webhook_url !== undefined) {
-            const webhookUrl = updates.webhook_url.trim();
-            if (webhookUrl && !webhookUrl.startsWith('http')) {
-                throw new HTTPException(400, { message: 'Webhook URL必须以http或https开头' });
+            // 检查是否有密码确认
+            if (!updates.password_confirm) {
+                throw new HTTPException(400, { message: '请确认密码' });
             }
-            validatedUpdates.webhook_url = webhookUrl || undefined;
-        }
-
-        // 处理webhook secret更新
-        if (updates.webhook_secret !== undefined) {
-            const webhookSecret = updates.webhook_secret.trim();
-            validatedUpdates.webhook_secret = webhookSecret || undefined;
-        }
-
-        // 处理webhook type更新
-        if (updates.webhook_type !== undefined) {
-            validatedUpdates.webhook_type = updates.webhook_type;
-        }
-
-        // 处理webhook custom message更新
-        if (updates.webhook_custom_message !== undefined) {
-            const webhookCustomMessage = updates.webhook_custom_message.trim();
-            validatedUpdates.webhook_custom_message = webhookCustomMessage || undefined;
+            if (updates.password !== updates.password_confirm) {
+                throw new HTTPException(400, { message: '两次输入的密码不一致' });
+            }
+            // 哈希密码
+            const { hashPassword } = await import('../utils/crypto');
+            validatedUpdates.password = await hashPassword(updates.password);
         }
 
         // 检查是否有需要更新的内容
@@ -127,7 +110,8 @@ userRoutes.put('/me', async (c) => {
             throw error;
         }
         errorLog('[用户设置] 更新失败:', error);
-        throw new HTTPException(500, { message: '更新设置失败' });
+        const errorMessage = error instanceof Error ? error.message : '更新设置失败';
+        throw new HTTPException(500, { message: errorMessage });
     }
 });
 

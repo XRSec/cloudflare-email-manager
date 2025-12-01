@@ -15,9 +15,9 @@ import { retryR2Operation } from '../utils/retry';
 import { authRoutes } from './auth';
 import { userRoutes } from './user';
 import { systemRoutes } from './system';
-import { forwardRuleRoutes } from './forward-rules';
 import { databaseRoutes } from './database';
 import testEmailRoutes from './test-email';
+import { kvCacheRouter } from './kv-cache';
 
 // 导入服务
 import {
@@ -66,9 +66,8 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
       // 注意：已移除 scope 参数，单用户模式下不再需要
     };
 
-    // 单用户模式：所有邮件都关联到管理员，直接查询所有邮件
-    // userId 设为 undefined 表示查询所有邮件（包括 user_id 为 null 的邮件，虽然理论上不应该存在）
-    const result = await getAllEmails(c.env.DB, undefined, queryParams);
+    // 单用户模式：所有邮件都不绑定用户ID，直接查询所有邮件
+    const result = await getAllEmails(c.env.DB, queryParams);
 
     // 转换字段名以匹配前端期望的格式
     const items = result.emails.map(email => ({
@@ -110,11 +109,6 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
     const email = await getEmailById(c.env.DB, emailId);
     if (!email) {
       throw new HTTPException(404, { message: '邮件不存在' });
-    }
-
-    // 检查权限：普通用户只能查看自己的邮件
-    if (payload.user_type !== 1 && email.user_id !== payload.user_id) {
-      throw new HTTPException(403, { message: '无权访问此邮件' });
     }
 
     // 自动标记为已读（如果当前是未读状态）
@@ -159,11 +153,16 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
       const rawEmail = await getRawEmailFromR2(c.env.R2, emailId);
 
       if (rawEmail) {
+        debugLog('[邮件详情] 🐛 从 R2 读取的 .eml 前500字符:', rawEmail.substring(0, 500));
+
         // 使用 postal-mime 解析邮件
         const encoder = new TextEncoder();
         const rawEmailBytes = encoder.encode(rawEmail);
         const parser = new PostalMime();
         const parsedEmail = await parser.parse(rawEmailBytes);
+
+        debugLog('[邮件详情] 🐛 parsedEmail.text:', parsedEmail.text ? parsedEmail.text.substring(0, 200) : 'null');
+        debugLog('[邮件详情] 🐛 parsedEmail.html:', parsedEmail.html ? parsedEmail.html.substring(0, 200) : 'null');
 
         // 提取内容
         if (parsedEmail.html && parsedEmail.html.trim()) {
@@ -195,6 +194,9 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
           fullContent = parsedEmail.text;
           fullContentType = 'text';
           debugLog('[邮件详情] 使用纯文本内容，长度:', fullContent.length);
+        } else {
+          debugLog('[邮件详情] ⚠️ parsedEmail 没有 text 也没有 html！');
+          debugLog('[邮件详情] 🐛 parsedEmail 完整对象:', JSON.stringify(parsedEmail, null, 2).substring(0, 1000));
         }
       } else {
         debugLog('[邮件详情] 未找到 .eml 文件，使用数据库预览');
@@ -281,11 +283,6 @@ api.get('/emails/:id/raw', jwtAuthMiddleware, async (c) => {
       throw new HTTPException(404, { message: '邮件不存在' });
     }
 
-    // 检查权限：普通用户只能查看自己的邮件
-    if (payload.user_type !== 1 && email.user_id !== payload.user_id) {
-      throw new HTTPException(403, { message: '无权访问此邮件' });
-    }
-
     let rawEmail: string | null = null;
 
     // 如果有 KV，尝试从 KV 缓存读取
@@ -368,20 +365,7 @@ api.patch('/emails/batch/read-status', jwtAuthMiddleware, async (c) => {
       throw new HTTPException(400, { message: 'is_read 参数必须是布尔值' });
     }
 
-    // 单管理员模式：管理员可以批量更新所有邮件
-    // 普通用户只能更新自己的邮件（虽然单管理员模式下不应该有普通用户）
-    if (payload.user_type !== 1) {
-      // 检查权限：验证所有邮件都属于当前用户
-      for (const emailId of emailIds) {
-        const email = await getEmailById(c.env.DB, emailId);
-        if (!email) {
-          throw new HTTPException(404, { message: `邮件 ${emailId} 不存在` });
-        }
-        if (email.user_id !== payload.user_id) {
-          throw new HTTPException(403, { message: `无权更新邮件 ${emailId}` });
-        }
-      }
-    }
+    // 单管理员模式：所有用户都是管理员，可以批量更新所有邮件
 
     const updatedCount = await batchUpdateEmailReadStatus(c.env.DB, emailIds, is_read);
 
@@ -417,11 +401,6 @@ api.patch('/emails/:id/read-status', jwtAuthMiddleware, async (c) => {
       throw new HTTPException(404, { message: '邮件不存在' });
     }
 
-    // 检查权限：普通用户只能更新自己邮件的状态
-    if (payload.user_type !== 1 && email.user_id !== payload.user_id) {
-      throw new HTTPException(403, { message: '无权更新此邮件状态' });
-    }
-
     await updateEmailReadStatus(c.env.DB, emailId, is_read);
 
     return c.json<ApiResponse>({
@@ -450,20 +429,7 @@ api.delete('/emails/batch', jwtAuthMiddleware, async (c) => {
       throw new HTTPException(400, { message: 'emailIds 必须是非空数组' });
     }
 
-    // 单管理员模式：管理员可以批量删除所有邮件
-    // 普通用户只能删除自己的邮件（虽然单管理员模式下不应该有普通用户）
-    if (payload.user_type !== 1) {
-      // 检查权限：验证所有邮件都属于当前用户
-      for (const emailId of emailIds) {
-        const email = await getEmailById(c.env.DB, emailId);
-        if (!email) {
-          throw new HTTPException(404, { message: `邮件 ${emailId} 不存在` });
-        }
-        if (email.user_id !== payload.user_id) {
-          throw new HTTPException(403, { message: `无权删除邮件 ${emailId}` });
-        }
-      }
-    }
+    // 单管理员模式：所有用户都是管理员，可以批量删除所有邮件
 
     const result = await batchDeleteEmails(c.env.DB, c.env.R2, emailIds);
 
@@ -492,11 +458,6 @@ api.delete('/emails/:id', jwtAuthMiddleware, async (c) => {
     const email = await getEmailById(c.env.DB, emailId);
     if (!email) {
       throw new HTTPException(404, { message: '邮件不存在' });
-    }
-
-    // 检查权限：普通用户只能删除自己的邮件
-    if (payload.user_type !== 1 && email.user_id !== payload.user_id) {
-      throw new HTTPException(403, { message: '无权删除此邮件' });
     }
 
     const result = await deleteEmail(c.env.DB, c.env.R2, emailId);
@@ -538,11 +499,6 @@ api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) =>
     const email = await getEmailById(c.env.DB, emailId);
     if (!email) {
       throw new HTTPException(404, { message: '邮件不存在' });
-    }
-
-    // 检查权限：普通用户只能下载自己邮件的附件
-    if (payload.user_type !== 1 && email.user_id !== payload.user_id) {
-      throw new HTTPException(403, { message: '无权下载此附件' });
     }
 
     const attachment = await getAttachmentById(c.env.DB, attachmentId);
@@ -669,11 +625,6 @@ api.get('/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
       throw new HTTPException(404, { message: '关联的邮件不存在' });
     }
 
-    // 检查权限：普通用户只能下载自己邮件的附件
-    if (payload.user_type !== 1 && email.user_id !== payload.user_id) {
-      throw new HTTPException(403, { message: '无权下载此附件' });
-    }
-
     debugLog(`[下载附件-简洁路径] 附件ID: ${attachmentId}, 文件名: ${attachment.filename}, 邮件ID: ${attachment.email_id}`);
 
     // 检查是否有 If-None-Match 头（条件请求）
@@ -781,19 +732,12 @@ api.post('/emails/send', jwtAuthMiddleware, async (c) => {
       throw new HTTPException(400, { message: '收件人、主题和内容不能为空' });
     }
 
-    // 只有管理员可以发送邮件（单管理员模式）
-    if (payload.user_type !== 1) {
-      throw new HTTPException(403, { message: '只有管理员可以发送邮件' });
-    }
+    // 单管理员模式：所有用户都是管理员，可以发送邮件
 
-    // 获取系统配置以获取域名
-    const config = await getSystemConfig(c.env.DB);
-    const primaryDomain = config.supported_domains && config.supported_domains.length > 0
-      ? config.supported_domains[0]
-      : 'example.com';
+    // 发送邮件（使用默认域名）
     await sendEmail(c.env, {
       to,
-      from: from || 'noreply@' + primaryDomain,
+      from: from || 'noreply@example.com',
       subject,
       content,
       content_type
@@ -812,14 +756,14 @@ api.post('/emails/send', jwtAuthMiddleware, async (c) => {
   }
 });
 
-// ==================== 转发规则相关 ====================
-api.route('/forward-rules', forwardRuleRoutes);
-
 // ==================== 系统相关 ====================
 api.route('/system', systemRoutes);
 
 // ==================== 数据库管理 ====================
 api.route('/database', databaseRoutes);
+
+// ==================== KV 缓存管理 ====================
+api.route('/kv-cache', kvCacheRouter);
 
 // ==================== 测试端点（仅开发环境）====================
 api.route('/test', testEmailRoutes);

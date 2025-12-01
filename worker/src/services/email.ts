@@ -669,17 +669,16 @@ export async function createEmail(
     // 2. 原始邮件信息（message_id、headers_json 等）从 message.raw 直接提取并存入数据库
     const sql = `
         INSERT INTO emails (
-            id, user_id, subject, from_address, to_address, content,
+            id, subject, from_address, to_address, content,
             is_read, attachment_count, message_id, headers_json, size_bytes,
             date, reply_to, cc, bcc, content_type,
             received_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `;
 
     const bound = [
         emailId,
-        emailData.user_id || null,
         emailData.subject || null,
         emailData.from_address || null,
         emailData.to_address || null,
@@ -728,7 +727,7 @@ export async function getEmailById(db: D1Database, id: string): Promise<Email | 
     // 使用重试机制执行 SELECT 操作
     const result = await retryD1Operation(`查询邮件 ${id}`, async () => {
         return await db.prepare(`
-            SELECT id, user_id, subject, from_address, to_address, content,
+            SELECT id, subject, from_address, to_address, content,
                    is_read, attachment_count, message_id, headers_json, size_bytes,
                    date, reply_to, cc, bcc, content_type,
                    received_at, created_at, updated_at
@@ -743,7 +742,6 @@ export async function getEmailById(db: D1Database, id: string): Promise<Email | 
 
     return {
         id: result.id as string,
-        user_id: result.user_id as number | null,
         subject: result.subject as string | null,
         from_address: result.from_address as string | null,
         to_address: result.to_address as string | null,
@@ -765,136 +763,16 @@ export async function getEmailById(db: D1Database, id: string): Promise<Email | 
 }
 
 /**
- * 获取用户邮件列表
- */
-export async function getUserEmails(
-    db: D1Database,
-    userId: number,
-    params: EmailQueryParams = {}
-): Promise<{ emails: Email[]; total: number }> {
-    const {
-        page = 1,
-        limit = 20,
-        search,
-        sender,
-        subject,
-        start_date,
-        end_date,
-        has_attachments,
-        sort = 'received_at',
-        order = 'desc'
-    } = params;
-
-    const offset = (page - 1) * limit;
-    const conditions: string[] = ['user_id = ?'];
-    const values: any[] = [userId];
-
-    // 构建查询条件
-    if (search) {
-        conditions.push('(subject LIKE ? OR content LIKE ? OR from_address LIKE ?)');
-        const searchPattern = `%${search}%`;
-        values.push(searchPattern, searchPattern, searchPattern);
-    }
-
-    if (sender) {
-        conditions.push('from_address LIKE ?');
-        values.push(`%${sender}%`);
-    }
-
-    if (subject) {
-        conditions.push('subject LIKE ?');
-        values.push(`%${subject}%`);
-    }
-
-    if (start_date) {
-        conditions.push('received_at >= ?');
-        values.push(start_date);
-    }
-
-    if (end_date) {
-        conditions.push('received_at <= ?');
-        values.push(end_date);
-    }
-
-    // 不再支持 has_attachments 查询，因为不再保存附件
-    // 保留此代码以保持向后兼容，但始终返回 attachment_count = 0 的结果
-    if (has_attachments !== undefined) {
-        // 由于不再保存附件，attachment_count 始终为 0
-        if (has_attachments) {
-            // 如果查询有附件，返回空结果（因为不再保存附件）
-            conditions.push('1 = 0'); // 永远不匹配
-        } else {
-            // 如果查询无附件，返回所有邮件（因为所有邮件都没有附件）
-            // 不添加条件，让所有邮件都匹配
-        }
-    }
-
-    const whereClause = conditions.join(' AND ');
-    const orderClause = `ORDER BY ${sort} ${order.toUpperCase()}`;
-
-    // 获取邮件列表
-    // 注意：不再查询 message_id 和 raw_r2_key 字段
-    // messageId 就是 id（清理后），原始的 Message-ID 可以从 meta.json.headers['message-id'] 读取
-    // raw_r2_key 与 id 相同，直接使用 id 即可
-    const emailsResult = await db.prepare(`
-            SELECT id, user_id, subject, from_address, to_address, content,
-                   is_read, attachment_count, received_at, created_at, updated_at
-            FROM emails
-            WHERE ${whereClause}
-            ${orderClause}
-            LIMIT ? OFFSET ?
-        `).bind(...values, limit, offset).all();
-
-    // 获取总数
-    const countResult = await db.prepare(`
-            SELECT COUNT(*) as total
-            FROM emails
-            WHERE ${whereClause}
-        `).bind(...values).first();
-
-    const emails = emailsResult.results.map(result => ({
-        id: result.id as string,
-        user_id: result.user_id as number | null,
-        subject: result.subject as string | null,
-        from_address: result.from_address as string | null,
-        to_address: result.to_address as string | null,
-        content: result.content as string | null,
-        is_read: result.is_read as number,
-        attachment_count: (result.attachment_count as number) || 0,
-        message_id: result.message_id as string | null,
-        headers_json: result.headers_json as string | null,
-        size_bytes: result.size_bytes as number | null,
-        date: result.date as string | null,
-        reply_to: result.reply_to as string | null,
-        cc: result.cc as string | null,
-        bcc: result.bcc as string | null,
-        content_type: result.content_type as string | null,
-        received_at: result.received_at as string,
-        created_at: result.created_at as string | undefined,
-        updated_at: result.updated_at as string | undefined,
-    }));
-
-    return {
-        emails,
-        total: countResult?.total as number || 0
-    };
-}
-
-/**
- * 获取所有邮件
+ * 获取所有邮件（单管理员模式）
  * 
- * 单用户模式：系统中只有一个管理员用户，所有邮件都关联到该管理员。
- * 当 userId 为 undefined 时，查询所有邮件（包括 user_id 为 null 的邮件，虽然理论上不应该存在）。
- * 当 userId 指定时，只查询该用户的邮件。
+ * 单管理员模式：系统中只有一个管理员用户，所有邮件都不绑定用户ID。
  * 
  * @param db 数据库实例
- * @param userId 用户ID（可选，undefined 表示查询所有邮件）
  * @param params 查询参数（分页、搜索等）
  * @returns 邮件列表和总数
  */
 export async function getAllEmails(
     db: D1Database,
-    userId?: number,
     params: EmailQueryParams = {}
 ): Promise<{ emails: Email[]; total: number }> {
     try {
@@ -917,12 +795,6 @@ export async function getAllEmails(
         const offset = (page - 1) * limit;
         const conditions: string[] = [];
         const values: any[] = [];
-
-        // 如果指定了 userId，只查询该用户的邮件
-        if (userId !== undefined) {
-            conditions.push('user_id = ?');
-            values.push(userId);
-        }
 
         // 构建查询条件
         if (search) {
@@ -965,17 +837,15 @@ export async function getAllEmails(
 
         debugLog('邮件查询', '查询条件:', { whereClause, orderClause, values, limit, offset });
 
-        // 获取邮件列表（包含用户信息和从 message.raw 提取的信息）
+        // 获取邮件列表（从 message.raw 提取的信息）
         const emailsResult = await db.prepare(`
             SELECT 
-                e.id, e.user_id, e.subject, e.from_address, e.to_address, 
+                e.id, e.subject, e.from_address, e.to_address, 
                 e.content, e.is_read, e.attachment_count,
                 e.message_id, e.headers_json, e.size_bytes,
                 e.date, e.reply_to, e.cc, e.bcc, e.content_type,
-                e.received_at, e.created_at, e.updated_at,
-                u.username as owner_username
+                e.received_at, e.created_at, e.updated_at
             FROM emails e
-            LEFT JOIN users u ON e.user_id = u.id
             ${whereClause}
             ${orderClause}
             LIMIT ? OFFSET ?
@@ -994,7 +864,6 @@ export async function getAllEmails(
 
         const emails = emailsResult.results.map(result => ({
             id: result.id as string,
-            user_id: result.user_id as number | null,
             subject: result.subject as string | null,
             from_address: result.from_address as string | null,
             to_address: result.to_address as string | null,
@@ -1012,7 +881,6 @@ export async function getAllEmails(
             received_at: result.received_at as string,
             created_at: result.created_at as string | undefined,
             updated_at: result.updated_at as string | undefined,
-            owner_username: (result as any).owner_username as string | null,
         }));
 
         debugLog('邮件查询', '返回结果:', { emails: emails.length, total: countResult?.total || 0 });

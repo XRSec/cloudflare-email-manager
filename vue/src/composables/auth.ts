@@ -45,7 +45,7 @@ api.interceptors.response.use(
       // 未授权，清理所有认证数据并重定向到登录页
       console.log('🧹 检测到401错误，清理认证数据并重定向...')
 
-      // 清理所有本地数据
+      // 清理所有本地数据（用户未登录时应该清理所有数据）
       localStorage.clear()
       document.cookie = 'session_cookies=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
 
@@ -133,7 +133,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   // 计算属性
   const isAuthenticated = computed(() => !!user.value)
-  const isAdmin = computed(() => user.value?.user_type === 1)
+  // 单管理员模式：所有用户都是管理员，不再需要 isAdmin 判断
 
   // 获取当前用户信息
   const fetchCurrentUser = async () => {
@@ -151,11 +151,27 @@ export const useAuthStore = defineStore('auth', () => {
         return { success: false, error: response.message || '获取用户信息失败' }
       }
     } catch (error: any) {
-      user.value = null
-      userStorage.value = null
-      return {
-        success: false,
-        error: error.response?.data?.message || '网络错误'
+      // 检查是否是初始化认证检查（用于判断登录状态）
+      // 在登录页或根路径时，401 是正常的检查结果，不应该清理数据
+      const isInitialAuthCheck = window.location.pathname === '/login' || window.location.pathname === '/'
+
+      if (isInitialAuthCheck && error.response?.status === 401) {
+        // 初始化认证检查时的 401 是正常的，用于判断用户是否已登录
+        // 不清理数据，保持原样，让 App.vue 的认证流程处理
+        console.log('🔍 初始化认证检查：用户未登录或 cookies 无效（正常情况）')
+        // 不清理 user.value 和 userStorage.value，保持之前的状态（可能是从 localStorage 恢复的）
+        return {
+          success: false,
+          error: '用户未登录'
+        }
+      } else {
+        // 其他情况（已登录后 session 过期等），清理数据
+        user.value = null
+        userStorage.value = null
+        return {
+          success: false,
+          error: error.response?.data?.message || '网络错误'
+        }
       }
     } finally {
       loading.value = false
@@ -234,7 +250,6 @@ export const useAuthStore = defineStore('auth', () => {
 
     // 计算属性
     isAuthenticated,
-    isAdmin,
 
     // 方法
     login,
@@ -252,7 +267,6 @@ export const useAuthCore = () => {
     user: store.user,
     loading: store.loading,
     isAuthenticated: store.isAuthenticated,
-    isAdmin: store.isAdmin,
     fetchCurrentUser: store.fetchCurrentUser,
     logout: store.logout,
     initAuth: store.initAuth

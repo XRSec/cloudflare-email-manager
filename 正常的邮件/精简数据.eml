@@ -1,0 +1,65 @@
+Received: from cu-gy11p00im-quki08153201.gy.silu.net (157.255.1.67)
+        by cloudflare-email.net (cloudflare) id XCfe5YWuMl8q
+        for <k@doubi.tech>; Mon, 01 Dec 2025 02:01:44 +0000
+ARC-Seal: i=1; a=rsa-sha256; s=cf2024-1; d=cloudflare-email.net; cv=none;
+	b=Bjiqy9ODCY0f8WdupcJus2dlUeKT3IKp8RbEUL3aVJOLED52VkVFcsjXBQZ8HlXXfFYhr0SD2
+	7no2wixme6Hwwv268Q3/le3EyFSzCcJle3jJiyXfWlUiIUOoeC+CrGbkDajNO+HGXOvBTueQkol
+	kz4GXi8vrY+33gc8ldsI4tZoj+eyku3pVhoN0QXFwgzHnrzFA/yK2s3gpoI4TM1kDemk4OQxIce
+	Sf//r1qkyg+ezl+HjMtgcL5C9agX5/B8W943tiLtNNnqPdtaxjF1TtArCsj01qC4ZTGKA7AMmiD
+	tjKDiHZ+FsFmAK4LzyFsxE3xTNUrm5kL+eNSjyP9VXOQ==;
+ARC-Message-Signature: i=1; a=rsa-sha256; s=cf2024-1; d=cloudflare-email.net; c=relaxed/relaxed;
+	h=In-Reply-To:To:References:Date:Subject:From:reply-to:cc:resent-date
+	:resent-from:resent-to:resent-cc:list-id:list-help:list-subscribe
+	:list-post:list-owner:list-archive; t=1764554508; x=1765159308; bh=5nCvEpJ8
+	2dsOtvfwZaUpIeB/C03fMVtHvMf6Ji7Ic4o=; b=hkzDZ+h9VxvbaGtxKjQV2F+d9HttVZ2YKkb
+	0PIcaF0kmz0Eph/Es/Gmr6pEXfmw+4FeDAoK4Ps5cnQBemjoOxafXzigturNzWkg+GKWg/iSBRK
+	6A67g8kYuKPUjkyMa6JfI8dDPIFnX9CtcGAXrt8teMoILiQNEce+4HJfK3MA4FHqnWJ0tBvwauE
+	5Nyf2YMNPcHTkVEE94+ff1nSsBH3l4xMJzmZWRAG1PQHglTk0zzVLcvTOajHsuNjI0L8Imhuvl9
+	DUJRZzGrK3nMpi5ct6JBlLtAsF51KHxwg0lE0XFOXXikUl7IKP7tSphy2Nh7dlaUBWJI/yhzoNZ
+	EMp2hwg==;
+ARC-Authentication-Results: i=1; mx.cloudflare.net;
+	dkim=pass header.d=icloud.com header.s=1a1hai header.b=mFEq2YPw;
+	dmarc=pass header.from=icloud.com policy.dmarc=quarantine;
+	spf=none (mx.cloudflare.net: no SPF records found for postmaster@cu-gy11p00im-quki08153201.gy.silu.net) smtp.helo=cu-gy11p00im-quki08153201.gy.silu.net;
+	spf=pass (mx.cloudflare.net: domain of xr_sec@icloud.com designates 157.255.1.67 as permitted sender) smtp.mailfrom=xr_sec@icloud.com;
+	arc=none smtp.remote-ip=157.255.1.67
+Received-SPF: pass (mx.cloudflare.net: domain of xr_sec@icloud.com designates 157.255.1.67 as permitted sender)
+	receiver=mx.cloudflare.net; client-ip=157.255.1.67; envelope-from="xr_sec@icloud.com"; helo=cu-gy11p00im-quki08153201.gy.silu.net;
+Authentication-Results: mx.cloudflare.net;
+	dkim=pass header.d=icloud.com header.s=1a1hai header.b=mFEq2YPw;
+	dmarc=pass header.from=icloud.com policy.dmarc=quarantine;
+	spf=none (mx.cloudflare.net: no SPF records found for postmaster@cu-gy11p00im-quki08153201.gy.silu.net) smtp.helo=cu-gy11p00im-quki08153201.gy.silu.net;
+	spf=pass (mx.cloudflare.net: domain of xr_sec@icloud.com designates 157.255.1.67 as permitted sender) smtp.mailfrom=xr_sec@icloud.com;
+	arc=none smtp.remote-ip=157.255.1.67
+Received: from smtpclient.apple (gy11p00im-asmtpcmvip.gy.silu.net [112.19.199.76])
+	by gy11p00im-quki08153201.gy.silu.net (Postfix) with ESMTPSA id CE4DB24600B5
+	for <k@doubi.tech>; Mon,  1 Dec 2025 02:01:39 +0000 (UTC)
+Dkim-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=icloud.com; s=1a1hai; bh=5nCvEpJ82dsOtvfwZaUpIeB/C03fMVtHvMf6Ji7Ic4o=; h=From:Content-Type:Mime-Version:Subject:Date:To:Message-Id:x-icloud-hme; b=mFEq2YPwoc27WCEjm2LWLWUbY0fmVxwThLHKo/zNqubBdwNNQ80ewkr6HIIBNPdnxxPrFYtiyjrNFFkg8mhvhq71bJGnnszZNuCRjt8CeWA3iD1oESiR2VSMO9e/TVHFz0phRTgrctLUDm+XlLyTCVp5tfgjqPufdGUWNTLN1fhHHi42gHHSg/RBpNSHd2ZQzosbQ/gaU1L3WbtqPGtEH/vO1f/06bT5mUG+z9vn83KpfejYxBQXstwKBWUTUwIfxj5XvI6ep7aHASvHPB0X00AOO2iePXF4HVt0daotNEy5L1LZnoHbI+PoFcttDjxqc6Br9EbxljVimgQaZyCTVA==
+From: xr_sec@icloud.com
+Mime-Version: 1.0 (Mac OS X Mail 16.0 \(3826.400.131.1.6\))
+Subject: =?utf-8?B?5rWL6K+V?=
+Date: Mon, 1 Dec 2025 10:01:28 +0800
+References: <4E718D5D-3CCA-452E-AB12-30784B6FF5E9@icloud.com>
+ <B53DE4B3-B1A8-4AA3-9C9F-28D4E78412CA@icloud.com>
+ <5573594B-C81B-49FA-B54A-C731B9BE6BF0@icloud.com>
+To: k@doubi.tech
+In-Reply-To: <5573594B-C81B-49FA-B54A-C731B9BE6BF0@icloud.com>
+Message-Id: <42565E11-FDDF-4C47-97DB-4184E6539D2B@icloud.com>
+X-Mailer: Apple Mail (2.3826.400.131.1.6)
+X-Proofpoint-ORIG-GUID: wTPt2ePPhtfGnz-eC6CpQ4YGwCWdN79X
+X-Proofpoint-Spam-Details-Enc: AW1haW4tMjUxMjAxMDAxMyBTYWx0ZWRfX8iBDaQJdwNFH
+ ZNI3dX157Ef20Cte8YPR/JYsInnUUAnxMMxhz9jX6+mZbZ9YjQdD7YvSycEOPgxyWVIP6RLtVHJ
+ XJs/q5DQRDHybWyS5pKzC0KhcAX2mst00lFZ94jSmUx06sTrgZorIwfFKcnyPDPpQNbOqtySlAE
+ vVCMiqpBxZDF67gqgh33mIbjWHPq+/mmB9t5i19OKySJCLt9tVTMdUk56XaKk6swrLePFfYmDOU
+ D7HH6l0GDciJLgDQZoz0jYECvepEo+sz59XvzgORdj38aJwQpE2iykd/oPRuy5x8BzY1EEaqA8O
+ 4mWywyVD6uphxg5M39a
+X-Proofpoint-GUID: wTPt2ePPhtfGnz-eC6CpQ4YGwCWdN79X
+X-Proofpoint-Virus-Version: 
+X-Proofpoint-Spam-Details: rule=notspam policy=default score=0 phishscore=0
+ mlxscore=0 suspectscore=0 malwarescore=0 mlxlogscore=677 adultscore=0
+ spamscore=0 clxscore=-2147483648 bulkscore=0 classifier=spam adjust=0
+ reason=mlx scancount=1 engine=8.22.0-2506270000 definitions=main-2512010013
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: 8bit
+
+测试

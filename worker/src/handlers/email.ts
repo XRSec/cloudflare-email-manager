@@ -5,8 +5,7 @@
 import { debugLog, errorLog, infoLog } from '../utils/debug';
 import { createEmail, saveRawEmailToR2, extractHeadersFromRawEmail, extractTextFromHtml } from '../services/email';
 import { handleEmailForwarding } from '../services/webhook';
-import { matchDomainForEmail, getSystemSetting } from '../services/settings';
-import { getUserIdByEmail, getAdminUserId } from '../services/mailbox';
+import { getSystemSetting } from '../services/settings';
 import { retryR2Operation } from '../utils/retry';
 import type { Env, Email } from '../types';
 import PostalMime from 'postal-mime';
@@ -56,12 +55,29 @@ function buildStrippedEmlFile(rawEmail: string, parsedEmail: any): string {
     let body = '';
     let contentType = 'text/plain; charset=utf-8';
 
+    // 优先使用 HTML
     if (parsedEmail.html && parsedEmail.html.trim()) {
         body = parsedEmail.html;
         contentType = 'text/html; charset=utf-8';
+        debugLog('[精简邮件] 使用 HTML 正文，长度:', body.length);
     } else if (parsedEmail.text && parsedEmail.text.trim()) {
         body = parsedEmail.text;
         contentType = 'text/plain; charset=utf-8';
+        debugLog('[精简邮件] 使用纯文本正文，长度:', body.length);
+    } else {
+        // 如果 postal-mime 解析失败，尝试手动提取正文
+        errorLog('[精简邮件] ⚠️ parsedEmail 没有 text 也没有 html，尝试手动提取');
+
+        // 尝试从原始邮件中提取第一个 text/plain 或 text/html 部分
+        const bodyMatch = rawEmail.match(/Content-Type:\s*(text\/(plain|html))[^\r\n]*\r?\n(?:Content-Transfer-Encoding:[^\r\n]*\r?\n)?\r?\n([\s\S]*?)(?=\r?\n--)/);
+        if (bodyMatch && bodyMatch[3]) {
+            body = bodyMatch[3].trim();
+            contentType = bodyMatch[1] + '; charset=utf-8';
+            debugLog('[精简邮件] 手动提取正文成功，长度:', body.length);
+        } else {
+            body = '[无法提取邮件正文内容]';
+            errorLog('[精简邮件] ❌ 手动提取正文也失败');
+        }
     }
 
     // 第三步：添加新的 Content-Type 头（单一类型，不再是 multipart）
@@ -70,7 +86,11 @@ function buildStrippedEmlFile(rawEmail: string, parsedEmail: any): string {
 
     // 第四步：组装完整的 .eml 文件
     // RFC 822 格式：头部 + 空行 + 正文
-    return headers.join('\r\n') + '\r\n\r\n' + body;
+    const result = headers.join('\r\n') + '\r\n\r\n' + body;
+
+    debugLog('[精简邮件] 最终邮件长度:', result.length, '字节');
+
+    return result;
 }
 
 /**
@@ -313,43 +333,12 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
         // 邮件ID（使用 UUID）
         const emailId = crypto.randomUUID();
 
-        // 其他变量
-        let userId: number | null = null;
         // ==================== 变量定义区域结束 ====================
 
         // 验证收件人邮箱格式
         if (!recipientEmail || !recipientEmail.includes('@')) {
             errorLog('[邮件处理] 无效的收件人邮箱格式:', recipientEmail);
             return;
-        }
-
-        // 提取邮件前缀（用户名部分）
-        const [emailPrefix, domain] = recipientEmail.split('@');
-        if (!emailPrefix || !domain) {
-            errorLog('[邮件处理] 无法解析邮件地址:', recipientEmail);
-            return;
-        }
-
-        // 验证域名是否在配置的域名列表中
-        const matchedDomain = await matchDomainForEmail(env.DB, recipientEmail);
-
-        // 根据邮箱地址获取用户ID
-        // 单用户模式：如果找不到对应的用户，默认将邮件关联到管理员用户
-        userId = await getUserIdByEmail(env.DB, recipientEmail);
-        if (!userId) {
-            // 未找到用户，默认使用管理员用户ID（单用户模式）
-            const adminUserId = await getAdminUserId(env.DB);
-            if (adminUserId) {
-                userId = adminUserId;
-                if (matchedDomain) {
-                    infoLog('[邮件处理] 未找到邮箱对应的用户，但域名匹配成功，默认关联到管理员（单用户模式）:', recipientEmail, '管理员ID:', userId);
-                } else {
-                    infoLog('[邮件处理] 未找到邮箱对应的用户，域名不在配置列表，默认关联到管理员（单用户模式）:', recipientEmail, '管理员ID:', userId);
-                }
-            } else {
-                // 如果连管理员都不存在，记录警告但继续处理（user_id 为 null）
-                errorLog('[邮件处理] 警告：未找到管理员用户，邮件 user_id 将设为 null:', recipientEmail);
-            }
         }
 
         // 步骤1: 获取原始邮件数据
@@ -375,6 +364,37 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                 // 生成最简单的邮件格式
                 rawEmail = generateBasicRawEmail(messageId, senderEmail, recipientEmail, subject, '');
                 rawEmailBytes = new TextEncoder().encode(rawEmail);
+            }
+        }
+
+        // 步骤1.5: 【调试功能】临时保存原始邮件到 R2（完整未处理版本）
+        // 用于调试和模拟邮件发送，获取真实的邮件数据
+        if (env.R2 && rawEmailBytes) {
+            try {
+                const timestamp = Date.now();
+                const randomId = crypto.randomUUID().split('-')[0]; // 取 UUID 前8位
+                const debugKey = `debug/raw-emails/${timestamp}-${randomId}.eml`;
+
+                await retryR2Operation('保存调试用原始邮件', async () => {
+                    return await env.R2.put(debugKey, rawEmailBytes, {
+                        httpMetadata: {
+                            contentType: 'message/rfc822',
+                            contentDisposition: `attachment; filename="debug_${timestamp}.eml"`
+                        },
+                        customMetadata: {
+                            from: senderEmail,
+                            to: recipientEmail,
+                            savedAt: new Date().toISOString(),
+                            purpose: 'debug-raw-email',
+                            note: 'Original unprocessed email for debugging'
+                        }
+                    });
+                });
+
+                debugLog('[步骤1.5] 🐛 调试用原始邮件已保存 - Key:', debugKey, `(${(rawEmailBytes.length / 1024).toFixed(2)} KB)`);
+            } catch (error) {
+                errorLog('[步骤1.5] 保存调试用原始邮件失败:', error);
+                // 不影响正常流程
             }
         }
 
@@ -413,6 +433,15 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                         const contentSize = att.content instanceof Uint8Array ? att.content.length :
                             att.content instanceof ArrayBuffer ? att.content.byteLength :
                                 att.content.length;
+
+                        // 🐛 调试：打印 postal-mime 解析后的附件信息
+                        debugLog('[步骤2.5] 🐛 postal-mime 解析附件信息:', {
+                            filename: att.filename,
+                            contentId: att.contentId,
+                            mimeType: att.mimeType,
+                            disposition: att.disposition,
+                            size: contentSize
+                        });
 
                         // 确定文件名、Content-ID 和 R2 存储路径
                         let filename: string;          // 数据库中保存的文件名（原始文件名）
@@ -488,6 +517,12 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                 const decoder = new TextDecoder('utf-8');
                 const originalRawEmail = decoder.decode(rawEmailBytes);
                 strippedRawEmail = buildStrippedEmlFile(originalRawEmail, parsedEmail);
+
+                // 🐛 调试：打印精简邮件的前500字符，确保正文存在
+                debugLog('[步骤2.5] 🐛 精简 .eml 预览:', strippedRawEmail.substring(0, 500));
+                debugLog('[步骤2.5] 🐛 parsedEmail.text:', parsedEmail.text ? parsedEmail.text.substring(0, 200) : 'null');
+                debugLog('[步骤2.5] 🐛 parsedEmail.html:', parsedEmail.html ? parsedEmail.html.substring(0, 200) : 'null');
+
                 debugLog('[步骤2.5] 生成精简 .eml 文件:', `原始: ${(rawEmailBytes.length / 1024).toFixed(2)} KB`, `→ 精简: ${(strippedRawEmail.length / 1024).toFixed(2)} KB`, `(节省 ${((1 - strippedRawEmail.length / rawEmailBytes.length) * 100).toFixed(1)}%)`);
 
                 debugLog('[步骤2.5] 附件处理完成 - 总数:', attachmentCount, '个（包含', attachmentRecords.filter(a => a.contentId).length, '个内嵌图片）');
@@ -507,7 +542,6 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
 
         // 步骤4: 创建邮件记录
         const emailRecord: Omit<Email, 'id' | 'created_at' | 'updated_at'> = {
-            user_id: userId || null,
             subject: subject || null,
             from_address: senderEmail || null,
             to_address: recipientEmail || null,
@@ -527,7 +561,7 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
 
         // 步骤5: 保存邮件记录到数据库
         const savedEmail = await createEmail(env.DB, emailRecord, emailId);
-        infoLog('[步骤5] 邮件记录已保存 - ID:', savedEmail.id, '主题:', subject);
+        debugLog('[步骤5] 邮件记录已保存 - ID:', savedEmail.id, '主题:', subject);
 
         // 步骤5.5: 保存附件记录到数据库
         if (attachmentRecords.length > 0) {
@@ -605,17 +639,15 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
             }
         }
 
-        // 步骤7: 处理邮件转发
-        if (userId) {
-            try {
-                await handleEmailForwarding(savedEmail, userId, env.DB);
-                debugLog('[步骤7] 邮件转发处理完成');
-            } catch (error) {
-                errorLog('[步骤7] 邮件转发失败:', error);
-            }
+        // 步骤7: 处理邮件转发（单用户模式：不需要用户ID）
+        try {
+            await handleEmailForwarding(savedEmail, null, env.DB);
+            debugLog('[步骤7] 邮件转发处理完成');
+        } catch (error) {
+            errorLog('[步骤7] 邮件转发失败:', error);
         }
 
-        infoLog('✅ 邮件处理完成 - ID:', savedEmail.id);
+        debugLog('✅ 邮件处理完成 - ID:', savedEmail.id);
 
     } catch (error) {
         errorLog('[邮件处理] 处理邮件时发生错误:', error);

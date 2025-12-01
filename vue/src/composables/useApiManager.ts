@@ -12,12 +12,6 @@ export type ApiMethod =
   | 'getEmails'
   | 'getEmail'
   | 'deleteEmail'
-  | 'getForwardRules'
-  | 'createForwardRule'
-  | 'updateForwardRule'
-  | 'deleteForwardRule'
-  | 'getDefaultWebhook'
-  | 'updateDefaultWebhook'
   | 'getSystemConfig'
   | 'updateSystemConfig'
 

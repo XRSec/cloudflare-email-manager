@@ -87,55 +87,6 @@ export const userApiService = {
     return response.data
   },
 
-
-  // 获取用户的转发规则
-  async getForwardRules(page = 1, limit = 20): Promise<ApiResponse<any>> {
-    const params = new URLSearchParams()
-    params.append('page', page.toString())
-    params.append('limit', limit.toString())
-
-    const response = await api.get(`/forward-rules?${params}`)
-    return response.data
-  },
-
-  // 创建转发规则
-  async createForwardRule(ruleData: any): Promise<ApiResponse<any>> {
-    const response = await api.post('/forward-rules', ruleData)
-    return response.data
-  },
-
-  // 更新转发规则
-  async updateForwardRule(id: number, ruleData: any): Promise<ApiResponse<any>> {
-    const response = await api.put(`/forward-rules/${id}`, ruleData)
-    return response.data
-  },
-
-  // 删除转发规则
-  async deleteForwardRule(id: number): Promise<ApiResponse<any>> {
-    const response = await api.delete(`/forward-rules/${id}`)
-    return response.data
-  },
-
-  // 获取默认转发渠道配置
-  async getDefaultWebhook(): Promise<ApiResponse<any>> {
-    const response = await api.get('/forward-rules/default-webhook')
-    return response.data
-  },
-
-  // 更新默认转发渠道配置
-  async updateDefaultWebhook(config: {
-    default_webhook_url?: string
-    default_webhook_secret?: string
-    default_webhook_type?: 'dingtalk' | 'feishu' | 'bark' | 'custom'
-    default_webhook_custom_message?: string
-  }): Promise<ApiResponse<any>> {
-    const response = await api.put('/forward-rules/default-webhook', config)
-    return response.data
-  },
-
-  // ===== 管理员功能 =====
-
-  // 获取用户列表（仅管理员）
   async getUserList(page = 1, limit = 20, query?: string): Promise<ApiResponse<any>> {
     const params = new URLSearchParams()
     params.append('page', page.toString())
@@ -148,18 +99,17 @@ export const userApiService = {
     return response.data
   },
 
-  // 创建用户（仅管理员）
+  // 创建用户
   async createUser(userData: {
     username: string
     password: string
     email: string
-    user_type?: 'user' | 'admin'
   }): Promise<ApiResponse<any>> {
     const response = await api.post('/users', userData)
     return response.data
   },
 
-  // 获取指定用户信息（仅管理员）
+  // 获取指定用户信息
   async getUserById(id: number): Promise<ApiResponse<any>> {
     const response = await api.get(`/users/${id}`)
     return response.data
@@ -168,18 +118,6 @@ export const userApiService = {
   // 删除用户（仅管理员）
   async deleteUser(id: number): Promise<ApiResponse<any>> {
     const response = await api.delete(`/users/${id}`)
-    return response.data
-  },
-
-  // 根据用户ID获取用户名
-  async getUsernameById(userId: number): Promise<ApiResponse<any>> {
-    const response = await api.get(`/user-info/username/${userId}`)
-    return response.data
-  },
-
-  // 批量获取用户名
-  async getUsernamesByIds(userIds: number[]): Promise<ApiResponse<any>> {
-    const response = await api.post('/user-info/usernames', { user_ids: userIds })
     return response.data
   }
 }
@@ -307,59 +245,6 @@ export const emailApiService = {
   }
 }
 
-// 转发规则 API
-export const forwardRuleApiService = {
-  async getForwardRules(
-    pageOrParams: number | { page?: number; limit?: number; search?: string } = 1,
-    limit = 20,
-    search?: string
-  ): Promise<ApiResponse<any>> {
-    let params: { page: number; limit: number; search?: string }
-
-    if (typeof pageOrParams === 'object') {
-      params = {
-        page: pageOrParams.page || 1,
-        limit: pageOrParams.limit || 20,
-        ...pageOrParams
-      }
-    } else {
-      params = {
-        page: pageOrParams,
-        limit,
-        search
-      }
-    }
-
-    const urlParams = new URLSearchParams()
-    urlParams.append('page', params.page.toString())
-    urlParams.append('limit', params.limit.toString())
-    if (params.search) urlParams.append('search', params.search)
-
-    const response = await api.get(`/forward-rules?${urlParams}`)
-    return response.data
-  },
-
-  async createForwardRule(ruleData: any): Promise<ApiResponse<any>> {
-    const response = await api.post('/forward-rules', ruleData)
-    return response.data
-  },
-
-  async updateForwardRule(id: number, ruleData: any): Promise<ApiResponse<any>> {
-    const response = await api.put(`/forward-rules/${id}`, ruleData)
-    return response.data
-  },
-
-  async getForwardRule(id: number): Promise<ApiResponse<any>> {
-    const response = await api.get(`/forward-rules/${id}`)
-    return response.data
-  },
-
-  async deleteForwardRule(id: number): Promise<ApiResponse<any>> {
-    const response = await api.delete(`/forward-rules/${id}`)
-    return response.data
-  }
-}
-
 // 管理员相关 API（管理员专用功能）
 // 注意：单用户模式下，这些 API 实际上与普通 API 相同，因为系统中只有一个管理员用户
 export const adminApiService = {
@@ -423,7 +308,6 @@ export const apiService = {
   ...userApiService,
   ...authApiService,
   ...emailApiService,
-  ...forwardRuleApiService,
   getUserProfile: userApiService.getUserProfile,
   updateUserSettings: userApiService.updateUserSettings,
   getSystemHealth: systemApiService.getSystemHealth,
@@ -436,13 +320,6 @@ export const apiService = {
   getEmail: emailApiService.getEmail,
   deleteEmail: emailApiService.deleteEmail,
   sendEmail: emailApiService.sendEmail,
-  getForwardRules: forwardRuleApiService.getForwardRules,
-  getForwardRule: forwardRuleApiService.getForwardRule,
-  createForwardRule: forwardRuleApiService.createForwardRule,
-  updateForwardRule: forwardRuleApiService.updateForwardRule,
-  deleteForwardRule: forwardRuleApiService.deleteForwardRule,
-  getDefaultWebhook: userApiService.getDefaultWebhook,
-  updateDefaultWebhook: userApiService.updateDefaultWebhook,
   // 数据库管理方法
   getDatabaseInfo: async (): Promise<ApiResponse<any>> => {
     const response = await api.get('/database/info')

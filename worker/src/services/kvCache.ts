@@ -34,7 +34,6 @@ export class KVCacheService {
     USER_SETTINGS: 'user:settings',
     EMAIL_LIST: 'emails:list',
     MAILBOX_LIST: 'mailboxes:list',
-    FORWARD_RULES: 'rules:forward',
     ATTACHMENT: 'attachment:',        // 附件缓存前缀
     EMAIL_RAW: 'email:raw:'          // 原始邮件缓存前缀
   } as const
@@ -284,8 +283,7 @@ export class KVCacheService {
         KVCacheService.KEYS.USER_INFO,
         KVCacheService.KEYS.USER_SETTINGS,
         KVCacheService.KEYS.EMAIL_LIST,
-        KVCacheService.KEYS.MAILBOX_LIST,
-        KVCacheService.KEYS.FORWARD_RULES
+        KVCacheService.KEYS.MAILBOX_LIST
       ]
 
       await Promise.all(knownKeys.map(key => this.kv.delete(key)))
@@ -305,8 +303,8 @@ export class KVCacheService {
    * @param ttl 过期时间（秒）
    */
   async setBinary(
-    key: string, 
-    data: ArrayBuffer | ReadableStream, 
+    key: string,
+    data: ArrayBuffer | ReadableStream,
     metadata?: Record<string, string>,
     ttl: number = KVCacheService.ATTACHMENT_CONFIG.TTL
   ): Promise<boolean> {
@@ -357,7 +355,7 @@ export class KVCacheService {
   async getBinary(key: string): Promise<{ data: ArrayBuffer, metadata: Record<string, string> } | null> {
     try {
       const result = await this.kv.getWithMetadata(key, 'arrayBuffer');
-      
+
       if (!result.value || !result.metadata) {
         this.metrics.misses++;
         return null;
@@ -366,7 +364,7 @@ export class KVCacheService {
       this.metrics.hits++;
       const { debugLog } = await import('../utils/debug');
       debugLog('KVCache', `从缓存读取附件: ${key}`);
-      
+
       return {
         data: result.value as ArrayBuffer,
         metadata: result.metadata as Record<string, string>
@@ -454,10 +452,22 @@ export class CacheStrategyService {
     if (user) return user
 
     // 2. 从数据库获取
-    const { findUserById } = await import('./user')
-    const userResult = await findUserById(this.db, userId)
-    if (!userResult) return null
-    user = userResult
+    const result = await this.db.prepare(`
+      SELECT id, username, status, created_at, updated_at
+      FROM users
+      WHERE id = ? AND status = 1
+    `).bind(userId).first()
+
+    if (!result) return null
+
+    user = {
+      id: result.id as number,
+      username: result.username as string,
+      password: '', // 不返回密码
+      status: result.status as 1 | 2 | 3,
+      created_at: result.created_at as string | undefined,
+      updated_at: result.updated_at as string | undefined,
+    }
 
     // 3. 写入 KV 缓存
     await this.kvCache.setUserInfo(userId, user)

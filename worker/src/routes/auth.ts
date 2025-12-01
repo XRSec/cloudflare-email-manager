@@ -6,7 +6,6 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { verifyPassword, generateJWT } from '../utils/crypto';
 import { errorLog } from '../utils/debug';
-import { findUserByUsername } from '../services/user';
 import { getSystemSetting, getJWTSecret } from '../services/settings';
 import type { Env, ApiResponse } from '../types';
 
@@ -24,11 +23,23 @@ authRoutes.post('/login', async (c) => {
             throw new HTTPException(400, { message: '用户名和密码不能为空' });
         }
 
-        // 查找用户
-        const user = await findUserByUsername(c.env.DB, username);
-        if (!user) {
+        // 直接查询用户
+        const result = await c.env.DB.prepare(`
+            SELECT id, username, password, status, created_at
+            FROM users
+            WHERE username = ? AND status = 1
+        `).bind(username).first();
+
+        if (!result) {
             throw new HTTPException(401, { message: '用户不存在或密码错误' });
         }
+
+        const user = {
+            id: result.id as number,
+            username: result.username as string,
+            password: result.password as string,
+            created_at: result.created_at as string | undefined
+        };
 
         // 验证密码
         const isPasswordValid = await verifyPassword(password, user.password);
@@ -36,11 +47,10 @@ authRoutes.post('/login', async (c) => {
             throw new HTTPException(401, { message: '用户不存在或密码错误' });
         }
 
-        // 生成JWT
+        // 生成JWT（单管理员模式，不需要 user_type）
         const jwtPayload = {
             user_id: user.id,
-            username: user.username,
-            user_type: user.user_type
+            username: user.username
         };
 
         const jwtSecret = await getJWTSecret(c.env.DB);
@@ -62,8 +72,6 @@ authRoutes.post('/login', async (c) => {
                 user: {
                     id: user.id,
                     username: user.username,
-                    user_type: user.user_type,
-                    webhook_url: user.webhook_url,
                     created_at: user.created_at
                 }
             }
