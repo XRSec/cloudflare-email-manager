@@ -300,8 +300,8 @@ const nonImageAttachments = computed(() => {
   return displayAttachments.value.filter(att => !isImage(att.content_type))
 })
 
-// 缓存图片 blob URLs
-const imageBlobUrls = ref<Map<string, string>>(new Map())
+// 缓存图片 blob URLs，使用普通对象以便 Vue 监测变化
+const imageBlobUrls = ref<Record<string, string>>({})
 
 const getAttachmentUrl = (attachment: Attachment) => {
   // 检查附件 ID 是否存在
@@ -310,15 +310,19 @@ const getAttachmentUrl = (attachment: Attachment) => {
     return ''
   }
 
-  // 对于图片附件，返回 blob URL（如果已缓存）或API URL
+  // 对于图片附件，返回 blob URL（如果已缓存）或触发异步加载
   if (isImage(attachment.content_type)) {
-    const cachedUrl = imageBlobUrls.value.get(attachment.id)
+    const cachedUrl = imageBlobUrls.value[attachment.id]
     if (cachedUrl) {
       return cachedUrl
     }
-    // 如果还没有 blob URL，先返回一个占位符，然后异步加载
+    // 如果还没有 blob URL，触发异步加载
     loadImageBlob(attachment)
-    return '' // 暂时返回空，等待加载
+    // 临时返回 API URL，图片加载后会自动更新
+    if (emailDetail.value?.id) {
+      return `/api/emails/${emailDetail.value.id}/attachments/${attachment.id}`
+    }
+    return ''
   }
 
   // 非图片附件：使用 API 返回的 URL 或构建 URL
@@ -337,6 +341,9 @@ const getAttachmentUrl = (attachment: Attachment) => {
 const loadImageBlob = async (attachment: Attachment) => {
   if (!attachment.id || !emailDetail.value?.id) return
 
+  // 如果已经在加载或已加载，直接返回
+  if (imageBlobUrls.value[attachment.id]) return
+
   try {
     const url = `/api/emails/${emailDetail.value.id}/attachments/${attachment.id}`
     const response = await fetch(url, {
@@ -350,7 +357,11 @@ const loadImageBlob = async (attachment: Attachment) => {
 
     const blob = await response.blob()
     const blobUrl = URL.createObjectURL(blob)
-    imageBlobUrls.value.set(attachment.id, blobUrl)
+    // 使用对象赋值以触发 Vue 响应式更新
+    imageBlobUrls.value = {
+      ...imageBlobUrls.value,
+      [attachment.id]: blobUrl
+    }
   } catch (error) {
     console.error('加载图片失败:', error)
   }
@@ -358,8 +369,8 @@ const loadImageBlob = async (attachment: Attachment) => {
 
 // 清理 blob URLs
 onBeforeUnmount(() => {
-  imageBlobUrls.value.forEach(url => URL.revokeObjectURL(url))
-  imageBlobUrls.value.clear()
+  Object.values(imageBlobUrls.value).forEach(url => URL.revokeObjectURL(url))
+  imageBlobUrls.value = {}
 })
 
 const handleImageError = (event: Event) => {

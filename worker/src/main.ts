@@ -250,15 +250,14 @@ function generateRFC822RawEmail(
         attPart += `Content-Disposition: attachment; filename="${attachment.filename}"\r\n`;
         attPart += `\r\n`;
 
-        // 将 ArrayBuffer 转换为 base64（分块处理避免栈溢出）
+        // 将 ArrayBuffer 转换为 base64
+        // 使用更可靠的方法：直接从 Uint8Array 生成 base64
         const bytes = new Uint8Array(attachment.content);
-        let base64 = '';
-        const chunkSize = 0x8000; // 32KB chunks
-
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-            const chunk = bytes.slice(i, i + chunkSize);
-            base64 += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
         }
+        const base64 = btoa(binary);
 
         // 每76个字符换行（RFC 2045 规定）
         const base64WithLineBreaks = base64.match(/.{1,76}/g)?.join('\r\n') || base64;
@@ -347,11 +346,7 @@ app.post('/api/debug/simulate-email', jwtAuthMiddleware, debugModeMiddleware, as
         return c.json({
             success: true,
             message: `模拟邮件发送成功${attachments.length > 0 ? `，包含 ${attachments.length} 个附件` : ''}`,
-            attachments_count: attachments.length,
-            raw_email_preview: rawEmail.substring(0, 500) + (rawEmail.length > 500 ? '...' : ''),
-            format_info: attachments.length > 0
-                ? '邮件使用 RFC 822 MIME multipart/mixed 格式，包含附件（base64 编码）'
-                : '邮件使用 RFC 822 标准格式（\\r\\n 换行符，邮件头之间无空行），可被 postal-mime 正确解析'
+            attachments_count: attachments.length
         });
 
     } catch (error) {
