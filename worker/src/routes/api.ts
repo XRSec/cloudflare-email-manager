@@ -16,7 +16,6 @@ import { authRoutes } from './auth';
 import { userRoutes } from './user';
 import { systemRoutes } from './system';
 import { databaseRoutes } from './database';
-import testEmailRoutes from './test-email';
 import { kvCacheRouter } from './kv-cache';
 
 // 导入服务
@@ -764,8 +763,5 @@ api.route('/database', databaseRoutes);
 
 // ==================== KV 缓存管理 ====================
 api.route('/kv-cache', kvCacheRouter);
-
-// ==================== 测试端点（仅开发环境）====================
-api.route('/test', testEmailRoutes);
 
 export { api };
