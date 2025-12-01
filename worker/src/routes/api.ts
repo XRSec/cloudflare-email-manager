@@ -152,16 +152,11 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
       const rawEmail = await getRawEmailFromR2(c.env.R2, emailId);
 
       if (rawEmail) {
-        debugLog('[邮件详情] 🐛 从 R2 读取的 .eml 前500字符:', rawEmail.substring(0, 500));
-
         // 使用 postal-mime 解析邮件
         const encoder = new TextEncoder();
         const rawEmailBytes = encoder.encode(rawEmail);
         const parser = new PostalMime();
         const parsedEmail = await parser.parse(rawEmailBytes);
-
-        debugLog('[邮件详情] 🐛 parsedEmail.text:', parsedEmail.text ? parsedEmail.text.substring(0, 200) : 'null');
-        debugLog('[邮件详情] 🐛 parsedEmail.html:', parsedEmail.html ? parsedEmail.html.substring(0, 200) : 'null');
 
         // 提取内容
         if (parsedEmail.html && parsedEmail.html.trim()) {
@@ -193,9 +188,6 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
           fullContent = parsedEmail.text;
           fullContentType = 'text';
           debugLog('[邮件详情] 使用纯文本内容，长度:', fullContent.length);
-        } else {
-          debugLog('[邮件详情] ⚠️ parsedEmail 没有 text 也没有 html！');
-          debugLog('[邮件详情] 🐛 parsedEmail 完整对象:', JSON.stringify(parsedEmail, null, 2).substring(0, 1000));
         }
       } else {
         debugLog('[邮件详情] 未找到 .eml 文件，使用数据库预览');

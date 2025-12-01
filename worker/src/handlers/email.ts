@@ -367,37 +367,6 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
             }
         }
 
-        // 步骤1.5: 【调试功能】临时保存原始邮件到 R2（完整未处理版本）
-        // 用于调试和模拟邮件发送，获取真实的邮件数据
-        if (env.R2 && rawEmailBytes) {
-            try {
-                const timestamp = Date.now();
-                const randomId = crypto.randomUUID().split('-')[0]; // 取 UUID 前8位
-                const debugKey = `debug/raw-emails/${timestamp}-${randomId}.eml`;
-
-                await retryR2Operation('保存调试用原始邮件', async () => {
-                    return await env.R2.put(debugKey, rawEmailBytes, {
-                        httpMetadata: {
-                            contentType: 'message/rfc822',
-                            contentDisposition: `attachment; filename="debug_${timestamp}.eml"`
-                        },
-                        customMetadata: {
-                            from: senderEmail,
-                            to: recipientEmail,
-                            savedAt: new Date().toISOString(),
-                            purpose: 'debug-raw-email',
-                            note: 'Original unprocessed email for debugging'
-                        }
-                    });
-                });
-
-                debugLog('[步骤1.5] 🐛 调试用原始邮件已保存 - Key:', debugKey, `(${(rawEmailBytes.length / 1024).toFixed(2)} KB)`);
-            } catch (error) {
-                errorLog('[步骤1.5] 保存调试用原始邮件失败:', error);
-                // 不影响正常流程
-            }
-        }
-
         // 步骤2: 解析邮件内容（提取 subject, messageId, content, images）
         const parsed = await parseEmailContent(rawEmailBytes, message);
         subject = parsed.subject;
@@ -433,15 +402,6 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                         const contentSize = att.content instanceof Uint8Array ? att.content.length :
                             att.content instanceof ArrayBuffer ? att.content.byteLength :
                                 att.content.length;
-
-                        // 🐛 调试：打印 postal-mime 解析后的附件信息
-                        debugLog('[步骤2.5] 🐛 postal-mime 解析附件信息:', {
-                            filename: att.filename,
-                            contentId: att.contentId,
-                            mimeType: att.mimeType,
-                            disposition: att.disposition,
-                            size: contentSize
-                        });
 
                         // 确定文件名、Content-ID 和 R2 存储路径
                         let filename: string;          // 数据库中保存的文件名（原始文件名）
@@ -518,13 +478,7 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                 const originalRawEmail = decoder.decode(rawEmailBytes);
                 strippedRawEmail = buildStrippedEmlFile(originalRawEmail, parsedEmail);
 
-                // 🐛 调试：打印精简邮件的前500字符，确保正文存在
-                debugLog('[步骤2.5] 🐛 精简 .eml 预览:', strippedRawEmail.substring(0, 500));
-                debugLog('[步骤2.5] 🐛 parsedEmail.text:', parsedEmail.text ? parsedEmail.text.substring(0, 200) : 'null');
-                debugLog('[步骤2.5] 🐛 parsedEmail.html:', parsedEmail.html ? parsedEmail.html.substring(0, 200) : 'null');
-
                 debugLog('[步骤2.5] 生成精简 .eml 文件:', `原始: ${(rawEmailBytes.length / 1024).toFixed(2)} KB`, `→ 精简: ${(strippedRawEmail.length / 1024).toFixed(2)} KB`, `(节省 ${((1 - strippedRawEmail.length / rawEmailBytes.length) * 100).toFixed(1)}%)`);
-
                 debugLog('[步骤2.5] 附件处理完成 - 总数:', attachmentCount, '个（包含', attachmentRecords.filter(a => a.contentId).length, '个内嵌图片）');
             } catch (error) {
                 errorLog('[步骤2.5] 附件处理失败:', error);
