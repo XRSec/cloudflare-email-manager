@@ -64,7 +64,7 @@
     "vue": "^3.5.18",
     "vue-router": "^4.5.1",
     "vue-tsc": "^3.1.5",
-    "wrangler": "^4.51.0"
+    "wrangler": "^4.59.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250920.0",
