@@ -67,9 +67,10 @@
               <div class="image-attachment-name" :title="attachment.filename">{{ attachment.filename }}</div>
               <div class="image-attachment-meta">
                 <span class="attachment-size">{{ formatFileSize(attachment.size_bytes) }}</span>
+                <span v-if="attachment.deleted_at" class="attachment-type">已删除</span>
               </div>
-              <Button size="sm" variant="primary" @click="downloadAttachment(attachment)" class="download-btn">
-                下载
+              <Button size="sm" variant="primary" :disabled="Boolean(attachment.deleted_at)" @click="downloadAttachment(attachment)" class="download-btn">
+                {{ attachment.deleted_at ? '已删除' : '下载' }}
               </Button>
             </div>
           </div>
@@ -87,8 +88,9 @@
               <div class="attachment-meta">
                 <span class="attachment-size">{{ formatFileSize(attachment.size_bytes) }}</span>
                 <span class="attachment-type">{{ attachment.content_type }}</span>
+                <span v-if="attachment.deleted_at" class="attachment-type">已删除</span>
               </div>
-              <div v-if="attachment.r2_key" class="attachment-path" title="R2存储路径">
+              <div v-if="attachment.r2_key && !attachment.deleted_at" class="attachment-path" title="R2存储路径">
                 <span class="path-label">存储路径:</span>
                 <span class="path-value">{{ attachment.r2_key }}</span>
               </div>
@@ -97,8 +99,8 @@
             <div class="attachment-preview-section">
               <!-- 下载按钮 -->
               <div class="attachment-actions">
-                <Button v-if="attachment.id" size="sm" variant="primary" @click="downloadAttachment(attachment)">
-                  下载
+                <Button v-if="attachment.id" size="sm" variant="primary" :disabled="Boolean(attachment.deleted_at)" @click="downloadAttachment(attachment)">
+                  {{ attachment.deleted_at ? '已删除' : '下载' }}
                 </Button>
                 <span v-else class="attachment-error">附件 ID 缺失</span>
               </div>
@@ -118,7 +120,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onBeforeUnmount } from 'vue'
 import { Modal, Button, StatusBadge } from '@/components/common'
-import { apiService } from '@/composables/api'
+import { emailApiService } from '@/composables/api-email'
 import { cacheService } from '@/composables/cache'
 
 interface Attachment {
@@ -129,6 +131,7 @@ interface Attachment {
   r2_key?: string
   url?: string
   content_id?: string | null
+  deleted_at?: string | null
 }
 
 interface EmailDetail {
@@ -164,27 +167,13 @@ const emailDetail = ref<EmailDetail | null>(null)
 const lastLoadedEmailId = ref<string | null>(null) // 记录上次加载的 emailId，避免重复请求
 const htmlContentRef = ref<HTMLElement | null>(null) // 邮件 HTML 内容容器的引用
 
-// 监听 show 和 emailId 变化，统一处理加载逻辑
-watch([() => props.show, () => props.emailId], ([newShow, newId]) => {
-  if (newShow && newId && newId !== lastLoadedEmailId.value) {
-    // 只有在模态窗口打开、有 emailId 且与上次不同时才加载
-    lastLoadedEmailId.value = newId
-    loadEmailDetail()
-  } else if (!newShow) {
-    // 关闭模态窗口时重置状态
-    emailDetail.value = null
-    error.value = null
-    lastLoadedEmailId.value = null
-  }
-}, { immediate: true })
-
 const loadEmailDetail = async () => {
   if (!props.emailId) return
 
   console.log('🆔 邮件ID:', props.emailId)
 
   // 1. 尝试从 localStorage 缓存读取
-  const cacheKey = `email_detail_${props.emailId}`
+  const cacheKey = `email_detail_v2_${props.emailId}`
   const cached = cacheService.get<EmailDetail>(cacheKey)
 
   if (cached) {
@@ -219,7 +208,7 @@ const loadEmailDetail = async () => {
   error.value = null
 
   try {
-    const response = await apiService.getEmail(props.emailId)
+    const response = await emailApiService.getEmail(props.emailId)
     if (response.success && response.data) {
       emailDetail.value = response.data
 
@@ -290,14 +279,14 @@ const imageAttachments = computed(() => {
   if (!emailDetail.value || emailDetail.value.full_content_type === 'html') {
     return []
   }
-  return displayAttachments.value.filter(att => isImage(att.content_type))
+  return displayAttachments.value.filter(att => !att.deleted_at && isImage(att.content_type))
 })
 
 // 非图片附件（所有邮件都显示）
 // HTML 邮件：不显示图片附件（已在内容中）
 // 纯文本邮件：不显示图片附件（已在图片附件区域显示）
 const nonImageAttachments = computed(() => {
-  return displayAttachments.value.filter(att => !isImage(att.content_type))
+  return displayAttachments.value.filter(att => att.deleted_at || !isImage(att.content_type))
 })
 
 // 缓存图片 blob URLs，使用普通对象以便 Vue 监测变化
@@ -400,6 +389,10 @@ const attachImageErrorHandlers = () => {
 }
 
 const downloadAttachment = (attachment: Attachment) => {
+  if (attachment.deleted_at) {
+    console.warn('附件不存在或已删除', attachment)
+    return
+  }
   if (!attachment.id) {
     console.error('无法下载附件：附件 ID 不存在', attachment)
     return
@@ -431,6 +424,20 @@ const downloadEml = () => {
   link.click()
   document.body.removeChild(link)
 }
+
+// 监听 show 和 emailId 变化，统一处理加载逻辑
+watch([() => props.show, () => props.emailId], ([newShow, newId]) => {
+  if (newShow && newId && newId !== lastLoadedEmailId.value) {
+    // 只有在模态窗口打开、有 emailId 且与上次不同时才加载
+    lastLoadedEmailId.value = newId
+    loadEmailDetail()
+  } else if (!newShow) {
+    // 关闭模态窗口时重置状态
+    emailDetail.value = null
+    error.value = null
+    lastLoadedEmailId.value = null
+  }
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -516,7 +523,7 @@ const downloadEml = () => {
   border: 1px solid #e0e0e0;
   border-radius: 6px;
   padding: 20px;
-  max-height: 500px;
+  /* max-height: 500px; */
   overflow-y: auto;
 }
 

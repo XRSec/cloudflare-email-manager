@@ -1,5 +1,3 @@
-import { ElNotification } from 'element-plus'
-
 // 工具函数
 export const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -29,73 +27,6 @@ export const debug = {
     if (isDebugMode) {
       console.info(...args)
     }
-  }
-}
-
-/**
- * 统一的消息提示工具
- * 使用 ElNotification 提供一致的用户体验
- * z-index 设置为 3000，高于普通模态框但低于加载动画和特殊模态框
- */
-export const toast = {
-  /**
-   * 成功提示
-   */
-  success: (message: string, title: string = '成功') => {
-    debug.log(`[Toast Success] ${title}: ${message}`)
-    ElNotification({
-      title,
-      message,
-      type: 'success',
-      duration: 3000,
-      position: 'top-right',
-      zIndex: 3000
-    })
-  },
-
-  /**
-   * 错误提示
-   */
-  error: (message: string, title: string = '错误') => {
-    debug.error(`[Toast Error] ${title}: ${message}`)
-    ElNotification({
-      title,
-      message,
-      type: 'error',
-      duration: 4000, // 错误提示显示时间稍长
-      position: 'top-right',
-      zIndex: 3000
-    })
-  },
-
-  /**
-   * 警告提示
-   */
-  warning: (message: string, title: string = '警告') => {
-    debug.warn(`[Toast Warning] ${title}: ${message}`)
-    ElNotification({
-      title,
-      message,
-      type: 'warning',
-      duration: 3500,
-      position: 'top-right',
-      zIndex: 3000
-    })
-  },
-
-  /**
-   * 信息提示
-   */
-  info: (message: string, title: string = '提示') => {
-    debug.info(`[Toast Info] ${title}: ${message}`)
-    ElNotification({
-      title,
-      message,
-      type: 'info',
-      duration: 3000,
-      position: 'top-right',
-      zIndex: 3000
-    })
   }
 }
 
@@ -136,7 +67,7 @@ export const debounce = <T extends (...args: any[]) => any>(
   func: T,
   wait: number
 ): ((...args: Parameters<T>) => void) => {
-  let timeout: NodeJS.Timeout
+  let timeout: ReturnType<typeof setTimeout>
   return (...args: Parameters<T>) => {
     clearTimeout(timeout)
     timeout = setTimeout(() => func(...args), wait)

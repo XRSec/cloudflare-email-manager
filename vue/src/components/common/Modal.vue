@@ -68,11 +68,12 @@ const handleOverlayClick = () => {
 }
 
 .modal-content[data-size="medium"] {
-  max-width: 600px;
+  max-width: 700px;
 }
 
 .modal-content[data-size="large"] {
-  max-width: 900px;
+  max-width: 1200px;
+  width: 95%;
 }
 
 .modal-header {
@@ -108,7 +109,7 @@ const handleOverlayClick = () => {
 }
 
 .modal-body {
-  padding: 0 20px;
+  padding: 20px;
 }
 
 .modal-footer {

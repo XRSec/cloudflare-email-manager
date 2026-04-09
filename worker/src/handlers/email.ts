@@ -6,6 +6,8 @@ import { debugLog, errorLog, infoLog } from '../utils/debug';
 import { createEmail, saveRawEmailToR2, extractHeadersFromRawEmail, extractTextFromHtml } from '../services/email';
 import { handleEmailForwarding } from '../services/webhook';
 import { getSystemSetting } from '../services/settings';
+import { bumpChangeSignals } from '../services/changeSignals';
+import { KVCacheService } from '../services/kvCache';
 import { retryR2Operation } from '../utils/retry';
 import type { Env, Email } from '../types';
 import PostalMime from 'postal-mime';
@@ -41,7 +43,13 @@ function buildStrippedEmlFile(rawEmail: string, parsedEmail: any): string {
                 continue;
             }
 
-            // 跳过 Content-Type 的续行（以空格或制表符开头）
+            if (lowerLine.startsWith('content-transfer-encoding:')) {
+                skipContentType = true;
+                // 正文已经由 postal-mime 解码为明文，必须替换为 8bit。
+                continue;
+            }
+
+            // 跳过被替换头部的续行（以空格或制表符开头）
             if (skipContentType && (line.startsWith(' ') || line.startsWith('\t'))) {
                 continue;
             }
@@ -494,6 +502,20 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
         const savedEmail = await createEmail(env.DB, emailRecord, emailId);
         debugLog('步骤5 邮件记录已保存', '主题:', subject);
 
+        // 邮件入库成功后立即发布变更信号，避免后续 R2/转发步骤异常导致前端感知不到新邮件。
+        try {
+            await bumpChangeSignals(env.DB, ['emails', 'dashboard']);
+
+            if (env.KV) {
+                const kvCache = new KVCacheService(env.KV);
+                await kvCache.clearDashboardCache();
+            }
+
+            debugLog('[步骤5] 邮件变更信号已更新');
+        } catch (error) {
+            errorLog('[步骤5] 更新邮件变更信号失败:', error);
+        }
+
         // 步骤5.5: 保存附件记录到数据库
         if (attachmentRecords.length > 0) {
             try {
@@ -572,7 +594,7 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
 
         // 步骤7: 处理邮件转发（单用户模式：不需要用户ID）
         try {
-            await handleEmailForwarding(savedEmail, null, env.DB);
+            await handleEmailForwarding(savedEmail, null, env.DB, env);
             debugLog('[步骤7] 邮件转发处理完成');
         } catch (error) {
             errorLog('[步骤7] 邮件转发失败:', error);

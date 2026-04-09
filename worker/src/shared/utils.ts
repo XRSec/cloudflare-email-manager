@@ -133,7 +133,7 @@ export function deepClone<T>(obj: T): T {
     if (typeof obj === 'object') {
         const clonedObj = {} as T;
         for (const key in obj) {
-            if (obj.hasOwnProperty(key)) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
                 clonedObj[key] = deepClone(obj[key]);
             }
         }
@@ -150,7 +150,7 @@ export function debounce<T extends (...args: any[]) => any>(
     func: T,
     wait: number
 ): (...args: Parameters<T>) => void {
-    let timeout: NodeJS.Timeout | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
     
     return (...args: Parameters<T>) => {
         if (timeout) {
@@ -189,26 +189,54 @@ export function generateUUID(): string {
     });
 }
 
+type BrowserGlobal = typeof globalThis & {
+    navigator?: {
+        userAgent?: string;
+    };
+    location?: {
+        search?: string;
+        href?: string;
+    };
+    history?: {
+        replaceState: (data: unknown, unused: string, url?: string | URL | null) => void;
+    };
+};
+
+function getBrowserGlobal(): BrowserGlobal | null {
+    const candidate = globalThis as BrowserGlobal;
+
+    if (!candidate.location || !candidate.history) {
+        return null;
+    }
+
+    return candidate;
+}
+
 /**
  * 检查是否为移动设备
  */
 export function isMobile(): boolean {
-    if (typeof window === 'undefined') return false;
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const candidate = globalThis as BrowserGlobal;
+    const userAgent = candidate.navigator?.userAgent;
+
+    if (!userAgent) return false;
+
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
 }
 
 /**
  * 获取URL参数
  */
 export function getUrlParams(): { [key: string]: string } {
-    if (typeof window === 'undefined') return {};
-    
+    const browserGlobal = getBrowserGlobal();
+    if (!browserGlobal?.location?.search) return {};
+
     const params: { [key: string]: string } = {};
-    const urlParams = new URLSearchParams(window.location.search);
-    
-    for (const [key, value] of urlParams) {
+    const urlParams = new URLSearchParams(browserGlobal.location.search);
+
+    urlParams.forEach((value, key) => {
         params[key] = value;
-    }
+    });
     
     return params;
 }
@@ -217,20 +245,22 @@ export function getUrlParams(): { [key: string]: string } {
  * 设置URL参数
  */
 export function setUrlParam(key: string, value: string): void {
-    if (typeof window === 'undefined') return;
-    
-    const url = new URL(window.location.href);
+    const browserGlobal = getBrowserGlobal();
+    if (!browserGlobal?.location?.href) return;
+
+    const url = new URL(browserGlobal.location.href);
     url.searchParams.set(key, value);
-    window.history.replaceState({}, '', url.toString());
+    browserGlobal.history?.replaceState({}, '', url.toString());
 }
 
 /**
  * 移除URL参数
  */
 export function removeUrlParam(key: string): void {
-    if (typeof window === 'undefined') return;
-    
-    const url = new URL(window.location.href);
+    const browserGlobal = getBrowserGlobal();
+    if (!browserGlobal?.location?.href) return;
+
+    const url = new URL(browserGlobal.location.href);
     url.searchParams.delete(key);
-    window.history.replaceState({}, '', url.toString());
+    browserGlobal.history?.replaceState({}, '', url.toString());
 }

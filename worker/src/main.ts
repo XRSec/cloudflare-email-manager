@@ -11,7 +11,6 @@ import { HTTPException } from 'hono/http-exception';
 import { initDebugMode } from './utils/debug';
 import { initializeSystemSettings, getSystemConfig } from './services/settings';
 import { jwtAuthMiddleware } from './middleware/auth';
-import { debugModeMiddleware } from './middleware/debug';
 import { rateLimitMiddleware } from './middleware/rate-limit';
 // 动态配置生成已移除，前端独立处理配置
 
@@ -28,6 +27,20 @@ import type { Env, ExecutionContext, ScheduledEvent } from './types';
 
 // 创建 Hono 应用
 const app = new Hono<{ Bindings: Env }>();
+const DISABLE_STATIC_ASSET_CACHE = true;
+
+function applyStaticAssetCacheHeaders(response: Response): Response {
+    const newResponse = new Response(response.body, response);
+
+    if (DISABLE_STATIC_ASSET_CACHE) {
+        newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        newResponse.headers.set('Pragma', 'no-cache');
+        newResponse.headers.set('Expires', '0');
+        return newResponse;
+    }
+
+    return newResponse;
+}
 
 // 全局 CORS 配置
 app.use('*', cors({
@@ -53,24 +66,7 @@ app.use('*', async (c, next) => {
 
         // 为静态资源设置合适的 Cache-Control 头
         if (response && response.status === 200) {
-            const newResponse = new Response(response.body, response);
-
-            // 根据文件类型设置不同的缓存策略
-            if (pathname.endsWith('.html') || pathname === '/' || !pathname.includes('.')) {
-                // HTML 文件：不缓存或短缓存（因为可能包含动态内容）
-                newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-                newResponse.headers.set('Pragma', 'no-cache');
-                newResponse.headers.set('Expires', '0');
-            } else if (pathname.match(/\.(css|js|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|webp)$/i)) {
-                // CSS、JS、字体、图片等静态资源：长期缓存（1年）
-                // 这些文件通常有版本号或 hash，可以安全地长期缓存
-                newResponse.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-            } else {
-                // 其他静态资源：中等缓存（1小时）
-                newResponse.headers.set('Cache-Control', 'public, max-age=3600');
-            }
-
-            return newResponse;
+            return applyStaticAssetCacheHeaders(response);
         }
 
         return response;
@@ -135,23 +131,6 @@ app.notFound((c: any) => {
 
 // 注册统一API路由
 app.route('/api', api);
-
-// 调试接口（仅在调试模式下启用）
-app.get('/api/debug', jwtAuthMiddleware, debugModeMiddleware, async (c: any) => {
-    // 从系统设置获取调试模式状态
-    const config = await getSystemConfig(c.env.DB);
-
-    return c.json({
-        success: true,
-        data: {
-            message: '调试模式已启用',
-            timestamp: new Date().toISOString(),
-            environment: {
-                debug_mode: config.debug_mode,
-            }
-        }
-    });
-});
 
 /**
  * 生成符合 RFC 822 标准的原始邮件格式
@@ -273,92 +252,6 @@ function generateRFC822RawEmail(
     return headers.join('\r\n') + '\r\n\r\n' + preamble + parts.join('') + epilogue;
 }
 
-// 模拟邮件接收接口（仅在调试模式下启用）
-app.post('/api/debug/simulate-email', jwtAuthMiddleware, debugModeMiddleware, async (c: any) => {
-
-    try {
-        // 解析 multipart/form-data
-        const formData = await c.req.formData();
-
-        const to = formData.get('to') as string;
-        const from = formData.get('from') as string;
-        const subject = formData.get('subject') as string;
-        const content = formData.get('content') as string;
-        const content_type = formData.get('content_type') as string;
-
-        if (!to || !from) {
-            return c.json({
-                success: false,
-                error: '收件人和发件人不能为空'
-            }, 400);
-        }
-
-        const emailContent = content || '这是一封测试邮件';
-        const contentType = (content_type || 'text') as 'text' | 'html';
-
-        // 处理附件
-        const attachments: Array<{ filename: string; content: ArrayBuffer; contentType: string }> = [];
-        const attachmentFiles = formData.getAll('attachments');
-
-        for (const file of attachmentFiles) {
-            if (file instanceof File) {
-                const arrayBuffer = await file.arrayBuffer();
-                attachments.push({
-                    filename: file.name,
-                    content: arrayBuffer,
-                    contentType: file.type || 'application/octet-stream'
-                });
-            }
-        }
-
-        // 生成符合 RFC 822 标准的原始邮件（包含附件）
-        const rawEmail = generateRFC822RawEmail(from, to, subject || '测试邮件', emailContent, contentType, attachments);
-
-        // 构造模拟邮件对象
-        const rawEmailBytes = new TextEncoder().encode(rawEmail);
-        const contentTypeHeader = attachments.length > 0
-            ? rawEmail.match(/Content-Type:\s*(.+)/)?.[1] || 'text/plain; charset=UTF-8'
-            : (contentType === 'html' ? 'text/html; charset=UTF-8' : 'text/plain; charset=UTF-8');
-
-        const mockMessage = {
-            to,
-            from,
-            rawSize: rawEmailBytes.length, // 原始邮件大小（字节）
-            headers: new Map([
-                ['Subject', subject || '测试邮件'],
-                ['Message-ID', rawEmail.match(/Message-ID:\s*(.+)/)?.[1] || `test-${Date.now()}@debug.local`],
-                ['Date', rawEmail.match(/Date:\s*(.+)/)?.[1] || new Date().toUTCString()],
-                ['Content-Type', contentTypeHeader]
-            ]),
-            text: () => Promise.resolve(contentType === 'text' ? emailContent : ''),
-            html: () => Promise.resolve(contentType === 'html' ? emailContent : ''),
-            // raw 应该返回 ReadableStream，而不是字符串 Promise
-            raw: new ReadableStream({
-                start(controller) {
-                    controller.enqueue(rawEmailBytes);
-                    controller.close();
-                }
-            })
-        };
-
-        await emailHandler.email(mockMessage, c.env, {});
-
-        return c.json({
-            success: true,
-            message: `模拟邮件发送成功${attachments.length > 0 ? `，包含 ${attachments.length} 个附件` : ''}`,
-            attachments_count: attachments.length
-        });
-
-    } catch (error) {
-        const { errorLog } = await import('./utils/debug');
-        errorLog('邮件测试', '模拟邮件发送失败:', error);
-        return c.json({
-            success: false,
-            error: error instanceof Error ? error.message : '模拟邮件发送失败'
-        }, 500);
-    }
-});
-
 // 静态资源路由 - 通过 ASSETS 绑定处理所有前端资源
 app.get('*', async (c: any) => {
     const path = c.req.path;
@@ -382,24 +275,7 @@ app.get('*', async (c: any) => {
 
         // 为静态资源设置合适的 Cache-Control 头
         if (response && response.status === 200) {
-            const newResponse = new Response(response.body, response);
-
-            // 根据文件类型设置不同的缓存策略
-            if (pathname.endsWith('.html') || pathname === '/' || !pathname.includes('.')) {
-                // HTML 文件：不缓存或短缓存（因为可能包含动态内容）
-                newResponse.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-                newResponse.headers.set('Pragma', 'no-cache');
-                newResponse.headers.set('Expires', '0');
-            } else if (pathname.match(/\.(css|js|woff|woff2|ttf|eot|svg|png|jpg|jpeg|gif|ico|webp)$/i)) {
-                // CSS、JS、字体、图片等静态资源：长期缓存（1年）
-                // 这些文件通常有版本号或 hash，可以安全地长期缓存
-                newResponse.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-            } else {
-                // 其他静态资源：中等缓存（1小时）
-                newResponse.headers.set('Cache-Control', 'public, max-age=3600');
-            }
-
-            return newResponse;
+            return applyStaticAssetCacheHeaders(response);
         }
 
         return response;
@@ -468,9 +344,11 @@ export default {
         debugLog('邮件接收', '环境变量检查:');
         debugLog('邮件接收', '- DB 存在:', !!env.DB);
         debugLog('邮件接收', '- R2 存在:', !!env.R2);
+        debugLog('邮件接收', '- KV 存在:', !!env.KV);
         debugLog('邮件接收', '==================================================');
 
         await initDebugMode(env);
+        await initializeSystemSettings(env.DB);
         await emailHandler.email(message, env, ctx);
     },
 

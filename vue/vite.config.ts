@@ -3,7 +3,44 @@ import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
-import { NaiveUiResolver } from 'unplugin-vue-components/resolvers'
+
+const rolldownCodeSplittingGroups = [
+  {
+    name: 'vendor-vue',
+    test: /node_modules[\\/](?:vue[\\/]|pinia[\\/]|vue-router[\\/]|@vue[\\/])/,
+    priority: 100
+  },
+  {
+    name: 'vendor-element',
+    test: /node_modules[\\/](?:element-plus[\\/]|@element-plus[\\/]|@floating-ui[\\/]|@popperjs[\\/]|@ctrl[\\/]tinycolor[\\/]|lodash-unified[\\/]|normalize-wheel-es[\\/]|memoize-one[\\/])/,
+    priority: 90
+  },
+  {
+    name: 'vendor-utils',
+    test: /node_modules[\\/](?:axios[\\/]|dayjs[\\/]|@vueuse[\\/])/,
+    priority: 80
+  },
+  {
+    name: 'session-core',
+    test: /src[\\/]composables[\\/](?:auth|api-client|api-auth|api-system)\.ts/,
+    priority: 60
+  },
+  {
+    name: 'admin-shared',
+    test: /src[\\/]composables[\\/](?:api(?:-user|-email|-admin|-tools)?|cache|smartCache|useRequestManager|routeApiManager|useUnifiedPageData|globalRefreshManager|system|useApiManager)\.ts/,
+    priority: 50
+  },
+  {
+    name: 'ui-common',
+    test: /src[\\/]components[\\/]common[\\/]/,
+    priority: 40
+  },
+  {
+    name: 'ui-notify',
+    test: /src[\\/]utils[\\/](?:index|toast)\.ts/,
+    priority: 30
+  }
+]
 
 
 export default defineConfig({
@@ -13,14 +50,11 @@ export default defineConfig({
       imports: [
         'vue',
         'vue-router',
-        'pinia',
-        '@vueuse/core'
+        'pinia'
       ],
-      resolvers: [NaiveUiResolver()],
       dts: true
     }),
     Components({
-      resolvers: [NaiveUiResolver()],
       dts: true
     })
   ],
@@ -68,22 +102,13 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    cssCodeSplit: true,
     sourcemap: true,
-    rollupOptions: {
+    modulePreload: false,
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          // 核心框架
-          vue: ['vue', 'pinia', 'vue-router'],
-          // UI 组件库
-          ui: ['naive-ui'],
-          // 工具库
-          utils: ['@vueuse/core', 'dayjs'],
-          // 组件按功能分组
-          'components-loading': ['@/views/shared/components/AppLoadingSpinner.vue'],
-          'views-login': ['@/views/auth/LoginView.vue'],
-          'views-main': ['@/views/shared/layouts/MainLayout.vue'],
-          'auth': ['@/composables/auth'],
-          'api': ['@/composables/api']
+        codeSplitting: {
+          groups: rolldownCodeSplittingGroups
         }
       }
     }

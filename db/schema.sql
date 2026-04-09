@@ -33,15 +33,23 @@ CREATE TABLE IF NOT EXISTS system_settings (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 变更信号表
+-- 用于前端轮询判断哪些数据域需要失效缓存/刷新页面
+CREATE TABLE IF NOT EXISTS change_signals (
+    key TEXT PRIMARY KEY,
+    version INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+
 
 -- 邮件表
 -- 优化后的结构：所有基础数据从 message.raw 直接提取并存入数据库
--- 
+--
 -- ID 字段说明：
 -- - id: 邮件在数据库中的主键，使用 crypto.randomUUID() 生成的 UUID
 --       格式如 "550e8400-e29b-41d4-a716-446655440000"（标准 UUID v4 格式）
 --       R2 文件路径为 email:{id}.eml（剔除附件后的完整原始邮件）
--- 
+--
 -- 注意：
 -- 1. 所有基础数据从 message.raw 直接提取并存入数据库
 -- 2. emailId 使用 crypto.randomUUID() 生成，不再使用 Message-ID 的哈希值
@@ -96,6 +104,7 @@ CREATE TABLE IF NOT EXISTS attachments (
     size_bytes INTEGER DEFAULT 0,           -- 文件大小（字节）
     r2_key TEXT NOT NULL,                   -- R2存储键
     content_id TEXT,                        -- Content-ID（用于内嵌图片，如 cid:xxx）
+    deleted_at DATETIME,                    -- 附件文件清理时间（记录保留，文件不可下载）
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
@@ -113,6 +122,8 @@ CREATE TABLE IF NOT EXISTS forward_logs (
     status INTEGER NOT NULL CHECK(status IN (0,1)), -- 转发状态：0=成功, 1=失败
     response_code INTEGER,                  -- 响应码
     error_message TEXT,                     -- 错误信息
+    delivery_from_address TEXT,             -- 实际转发发件人
+    delivery_to_address TEXT,               -- 实际转发收件人
     sent_at DATETIME DEFAULT CURRENT_TIMESTAMP, -- 发送时间
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -122,6 +133,35 @@ CREATE TABLE IF NOT EXISTS forward_logs (
 CREATE INDEX IF NOT EXISTS idx_forward_logs_email_id ON forward_logs(email_id);
 CREATE INDEX IF NOT EXISTS idx_forward_logs_status ON forward_logs(status);
 CREATE INDEX IF NOT EXISTS idx_forward_logs_sent_at ON forward_logs(sent_at);
+
+-- 消息路由规则表
+CREATE TABLE IF NOT EXISTS routing_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL CHECK(category IN ('channel','notification','incoming')), -- channel=通知通道, notification=Webhook通知, incoming=收件转发
+    name TEXT NOT NULL,
+    enabled INTEGER DEFAULT 0 CHECK(enabled IN (0,1)), -- 默认未启用
+    match_mode TEXT NOT NULL DEFAULT 'all' CHECK(match_mode IN ('all','any')),
+    sender_pattern TEXT DEFAULT '',
+    recipient_pattern TEXT DEFAULT '',
+    subject_pattern TEXT DEFAULT '',
+    content_pattern TEXT DEFAULT '',
+    target_channel_ids TEXT DEFAULT '[]', -- 通知通道ID列表（JSON数组）
+    target_email TEXT DEFAULT '', -- 收件转发目标邮箱
+    target_from_address TEXT DEFAULT '', -- CF/SMTP 转发发件人
+    target_forward_type TEXT DEFAULT 'internal' CHECK(target_forward_type IN ('internal','smtp','cf')), -- 收件转发方式
+    is_default INTEGER DEFAULT 0 CHECK(is_default IN (0,1)), -- 是否默认规则
+    default_mode TEXT CHECK(default_mode IS NULL OR default_mode IN ('always','unmatched')), -- 默认规则模式
+    channel_type TEXT CHECK(channel_type IS NULL OR channel_type IN ('dingtalk','feishu','bark')), -- 通知通道类型
+    channel_url TEXT DEFAULT '', -- 通知通道 URL
+    channel_secret TEXT DEFAULT '', -- 通知通道密钥
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_routing_rules_category ON routing_rules(category);
+CREATE INDEX IF NOT EXISTS idx_routing_rules_enabled ON routing_rules(enabled);
+CREATE INDEX IF NOT EXISTS idx_routing_rules_is_default ON routing_rules(is_default);
+CREATE INDEX IF NOT EXISTS idx_routing_rules_created_at ON routing_rules(created_at);
 
 -- ===================
 -- 触发器（自动更新 updated_at）
@@ -167,6 +207,14 @@ BEGIN
     UPDATE forward_logs SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
+CREATE TRIGGER update_routing_rules_updated_at
+    AFTER UPDATE ON routing_rules
+    FOR EACH ROW
+    WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+    UPDATE routing_rules SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
 -- ===================
 -- 初始化默认数据
 -- ===================
@@ -174,20 +222,48 @@ END;
 -- 插入默认系统配置
 INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
 ('allow_registration', '0', '是否允许用户自由注册 (1=是, 0=否)'),
-('mail_retention_days', '7', '邮件保留天数'),
-('attachment_retention_days', '7', '附件保留天数'),
+('attachment_retention_days', '365', '附件保留天数'),
 ('max_attachment_size', '52428800', '最大附件大小（50MB）'),
 ('cookie_max_age', '172800', 'Cookie过期时间（秒，48小时）'),
-('debug_mode', '1', '调试模式开关 (1=开启, 0=关闭)'),
+('debug_mode', '0', '调试模式开关 (1=开启, 0=关闭)'),
 ('api_rate_limit', '0', 'API访问频率限制开关 (1=启用, 0=禁用)'),
 ('api_rate_limit_max_requests', '100', '每分钟最大请求数（10-10000）'),
-('default_webhook_url', '', '默认Webhook URL（系统级别，所有邮件都会发送到此 webhook）'),
-('default_webhook_secret', '', '默认Webhook 密钥（可选，用于钉钉加签等）'),
-('default_webhook_type', '', '默认Webhook 类型（dingtalk/feishu/bark）');
+('supported_emails', '["example.com", "example.dev"]', '已支持的邮箱域名列表（JSON数组）');
 
 -- 插入默认管理员用户（密码：123456，已哈希）
 INSERT OR IGNORE INTO users (username, password, user_type, status) VALUES
 ('admin', '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', 1, 1);
+
+-- 插入默认消息路由示例规则（默认未启用）
+INSERT OR IGNORE INTO routing_rules (
+    id,
+    category,
+    name,
+    enabled,
+    match_mode,
+    sender_pattern,
+    recipient_pattern,
+    subject_pattern,
+    content_pattern,
+    target_channel_ids,
+    target_email,
+    target_from_address,
+    target_forward_type,
+    is_default,
+    default_mode,
+    channel_type,
+    channel_url,
+    channel_secret
+) VALUES
+(1, 'notification', '账单邮件推送到财务群', 0, 'all', 'billing@', '', '账单', '', '[1001]', '', '', 'internal', 0, NULL, NULL, '', ''),
+(2, 'notification', '登录验证码走 Bark', 0, 'any', '', '', '验证码', 'login code', '[1002]', '', '', 'internal', 0, NULL, NULL, '', ''),
+(3, 'notification', '默认通知规则', 0, 'all', '', '', '', '', '[1001]', '', '', 'internal', 1, 'unmatched', NULL, '', ''),
+(11, 'incoming', 'GitHub 通知归档到开发邮箱', 0, 'all', 'notifications@github.com', 'dev@', '', '', '[]', 'dev-archive@example.com', '', 'internal', 0, NULL, NULL, '', ''),
+(12, 'incoming', '账单类邮件转给财务', 0, 'any', 'billing@', '', 'invoice', 'payment', '[]', 'finance@example.com', '', 'internal', 0, NULL, NULL, '', ''),
+(13, 'incoming', '默认转发规则', 0, 'all', '', '', '', '', '[]', 'archive@example.com', '', 'internal', 1, 'unmatched', NULL, '', ''),
+(1001, 'channel', '财务钉钉群', 1, 'all', '', '', '', '', '[]', '', '', 'internal', 0, NULL, 'dingtalk', 'https://oapi.dingtalk.com/robot/send?access_token=mock-finance', ''),
+(1002, 'channel', '移动 Bark', 1, 'all', '', '', '', '', '[]', '', '', 'internal', 0, NULL, 'bark', 'https://api.day.app/mock-device-key/', ''),
+(1003, 'channel', 'GitHub 飞书', 1, 'all', '', '', '', '', '[]', '', '', 'internal', 0, NULL, 'feishu', 'https://open.feishu.cn/open-apis/bot/v2/hook/mock-github', '');
 
 -- ===================
 -- 注意：sqlite_sequence 会在第一次插入带 AUTOINCREMENT 的表时自动更新

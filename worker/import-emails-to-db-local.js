@@ -157,7 +157,7 @@ function insertLargeEmail(messageId, userId, from, to, subject, content, content
         fs.writeFileSync(sqlFile, sql);
 
         // 执行SQL
-        const command = `wrangler d1 execute cem-db --file="${sqlFile}" --json`;
+        const command = `npx wrangler d1 execute cem-db --file="${sqlFile}" --json`;
         console.log(`执行大邮件SQL文件: ${sqlFile}`);
 
         const result = execSync(command, {
@@ -199,7 +199,7 @@ function executeSQL(sql) {
         fs.writeFileSync(tempFile, sql);
 
         // 直接使用 wrangler 执行本地数据库命令
-        const command = `wrangler d1 execute cem-db --file="${tempFile}" --json`;
+        const command = `npx wrangler d1 execute cem-db --file="${tempFile}" --json`;
         console.log(`执行SQL文件: ${tempFile}`);
 
         const result = execSync(command, {

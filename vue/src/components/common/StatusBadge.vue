@@ -73,10 +73,18 @@ const statusText = computed(() => {
 
 <style scoped>
 .status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: max-content;
+  flex: 0 0 auto;
+  align-self: flex-start;
   padding: 4px 8px;
   border-radius: 4px;
   font-size: 12px;
   font-weight: bold;
+  white-space: nowrap;
 }
 
 /* 邮件状态 */

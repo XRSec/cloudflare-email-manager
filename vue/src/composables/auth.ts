@@ -1,112 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useStorage } from '@vueuse/core'
-import axios, { type AxiosResponse } from 'axios'
 import type {
   UserProfile,
-  LoginResponse,
-  ApiResponse
+  LoginResponse
 } from '@/types'
-
-// ==================== 类型定义 ====================
-
-// API 响应基础接口
-
-// ==================== API 实例 ====================
-
-// 创建 axios 实例
-const api = axios.create({
-  baseURL: '/api',
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  withCredentials: true // 支持 cookie 认证
-})
-
-// 请求拦截器
-api.interceptors.request.use(
-  (config: any) => {
-    // 使用 cookies 认证，不需要手动添加 Authorization header
-    return config
-  },
-  (error: any) => {
-    return Promise.reject(error)
-  }
-)
-
-// 响应拦截器
-api.interceptors.response.use(
-  (response: AxiosResponse<ApiResponse>) => {
-    return response
-  },
-  (error: any) => {
-    if (error.response?.status === 401) {
-      // 未授权，清理所有认证数据并重定向到登录页
-      console.log('🧹 检测到401错误，清理认证数据并重定向...')
-
-      // 清理所有本地数据（用户未登录时应该清理所有数据）
-      localStorage.clear()
-      document.cookie = 'session_cookies=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
-
-      // 重定向到登录页
-      if (window.location.pathname !== '/login') {
-        const redirectUrl = window.location.pathname === '/'
-          ? '/login'
-          : `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`
-        window.location.href = redirectUrl
-      }
-    }
-    return Promise.reject(error)
-  }
-)
-
-// ==================== API 服务 ====================
-
-// 认证相关 API
-export const authApiService = {
-  // 登录
-  async login(username: string, password: string): Promise<LoginResponse> {
-    const response = await api.post('/auth/login', { username, password })
-    return response.data
-  },
-
-  // 注册（已废弃，系统不支持注册）
-  // async register(username: string, email: string, password: string): Promise<any> {
-  //   const response = await api.post('/auth/register', { username, email, password })
-  //   return response.data
-  // },
-
-  // 获取当前用户信息
-  async getCurrentUser(): Promise<ApiResponse<UserProfile>> {
-    const response = await api.get('/users/me')
-    return response.data
-  },
-
-  // 登出
-  async logout(): Promise<void> {
-    try {
-      await api.post('/auth/logout')
-    } catch (error) {
-      console.error('登出请求失败:', error)
-    } finally {
-      // 无论后端登出是否成功，都清理本地状态
-      console.log('🧹 用户登出，清理认证数据并重定向...')
-
-      // 清理所有本地数据
-      localStorage.clear()
-      document.cookie = 'session_cookies=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
-
-      // 重定向到登录页
-      if (window.location.pathname !== '/login') {
-        const redirectUrl = window.location.pathname === '/'
-          ? '/login'
-          : `/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`
-        window.location.href = redirectUrl
-      }
-    }
-  }
-}
+import { authApiService } from './api-auth'
 
 // ==================== 认证状态管理 ====================
 
@@ -208,7 +107,7 @@ export const useAuthStore = defineStore('auth', () => {
   const login = async (username: string, password: string) => {
     loading.value = true
     try {
-      const response = await authApiService.login(username, password)
+      const response = await authApiService.login({ username, password }) as LoginResponse
       if (response.success && response.data) {
         // 登录成功，直接使用返回的用户信息
         console.log('✅ 登录成功，设置用户信息:', response.data.user)

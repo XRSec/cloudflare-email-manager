@@ -12,9 +12,9 @@ export const SYSTEM_DEFAULTS = {
     ALLOW_REGISTRATION: 0,                  // 是否允许用户注册 (1=是, 0=否)
 
     // 邮件相关
-    MAIL_RETENTION_DAYS: 7,                 // 邮件保留天数
-    ATTACHMENT_RETENTION_DAYS: 7,           // 附件保留天数
+    ATTACHMENT_RETENTION_DAYS: 365,         // 附件保留天数
     MAX_ATTACHMENT_SIZE: 52428800,          // 50MB
+    SUPPORTED_EMAILS: ['example.com', 'example.dev'] as string[], // 已支持的邮箱域名列表
 
     // 认证相关
     COOKIE_MAX_AGE: 172800,                 // 48小时（秒）= 48 * 60 * 60
@@ -39,11 +39,6 @@ export const SYSTEM_DEFAULTS = {
  * 配置验证规则
  */
 export const CONFIG_VALIDATION = {
-    MAIL_RETENTION_DAYS: {
-        min: 1,
-        max: 365,
-        error: '邮件保留天数必须在 1-365 之间'
-    },
     ATTACHMENT_RETENTION_DAYS: {
         min: 1,
         max: 365,
@@ -87,7 +82,6 @@ export const CONFIG_VALIDATION = {
  */
 export const REQUIRED_CONFIGS = [
     'allow_registration',
-    'mail_retention_days',
     'max_attachment_size',
     'cookie_max_age',
     'jwt_secret'
@@ -105,12 +99,9 @@ export const OPTIONAL_CONFIGS = [
  */
 export function validateConfigValue(key: string, value: any): { valid: boolean; error?: string } {
     switch (key) {
-        case 'mail_retention_days':
         case 'attachment_retention_days':
             const days = parseInt(value);
-            const validation = key === 'attachment_retention_days'
-                ? CONFIG_VALIDATION.ATTACHMENT_RETENTION_DAYS
-                : CONFIG_VALIDATION.MAIL_RETENTION_DAYS;
+            const validation = CONFIG_VALIDATION.ATTACHMENT_RETENTION_DAYS;
             if (isNaN(days) || days < validation.min || days > validation.max) {
                 return { valid: false, error: validation.error };
             }

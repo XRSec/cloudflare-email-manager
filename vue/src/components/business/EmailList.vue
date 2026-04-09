@@ -32,6 +32,9 @@
           <Button variant="primary" size="sm" @click="handleViewClick(email.id)">
             详情
           </Button>
+          <Button variant="info" size="sm" @click="$emit('forward', email.id)">
+            转发
+          </Button>
           <Button variant="danger" size="sm" @click="$emit('delete', email.id)">
             删除
           </Button>
@@ -71,6 +74,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   delete: [id: string]
   view: [id: string]
+  forward: [id: string]
   selectionChange: [ids: string[]]
 }>()
 
@@ -118,35 +122,43 @@ const truncateText = (text: string, maxLength: number) => {
 }
 
 .email-item {
-  background: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 252, 0.95));
+  border: 1px solid rgba(21, 52, 82, 0.08);
+  border-radius: 18px;
   padding: 20px;
-  transition: box-shadow 0.2s;
+  transition: box-shadow 0.25s ease, transform 0.25s ease, border-color 0.25s ease;
+  box-shadow: 0 18px 30px -30px rgba(15, 23, 42, 0.65);
 }
 
 .email-item:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 24px 34px -28px rgba(15, 23, 42, 0.45);
+  transform: translateY(-2px);
+  border-color: rgba(43, 103, 246, 0.16);
 }
 
 .email-item.email-unread {
-  border-left: 4px solid #ffc107;
-  background: #fffbf0;
+  border-left: 4px solid #f5a043;
+  background: linear-gradient(180deg, rgba(255, 251, 240, 0.98), rgba(255, 247, 228, 0.96));
 }
 
 .email-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   gap: 12px;
+  min-width: 0;
+}
+
+.email-header :deep(.status-badge) {
+  flex-shrink: 0;
 }
 
 .email-checkbox-wrapper {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  padding-top: 2px;
+  padding-top: 4px;
 }
 
 .email-checkbox-wrapper input[type="checkbox"] {
@@ -156,7 +168,7 @@ const truncateText = (text: string, maxLength: number) => {
 }
 
 .email-item.email-selected {
-  background: #f0f7ff;
+  background: linear-gradient(180deg, rgba(240, 247, 255, 0.98), rgba(233, 243, 255, 0.98));
   border-color: #4a90e2;
 }
 
@@ -165,6 +177,7 @@ const truncateText = (text: string, maxLength: number) => {
   align-items: center;
   gap: 8px;
   flex: 1;
+  min-width: 0;
 }
 
 .unread-dot {
@@ -193,6 +206,10 @@ const truncateText = (text: string, maxLength: number) => {
   color: #333;
   font-size: 16px;
   font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .email-item.email-unread .email-subject {
@@ -202,23 +219,85 @@ const truncateText = (text: string, maxLength: number) => {
 
 .email-meta {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin-bottom: 14px;
   font-size: 14px;
   color: #666;
+}
+
+.email-from,
+.email-to,
+.email-time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(247, 250, 252, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 .email-content {
   color: #555;
   line-height: 1.5;
   font-size: 14px;
-  margin-bottom: 15px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  word-break: break-word;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(250, 252, 255, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.06);
 }
 
 .email-actions {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.email-actions :deep(.btn) {
+  width: auto;
+  min-width: 72px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  .email-item {
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .email-header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .email-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .email-from,
+  .email-to,
+  .email-time {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    word-break: break-word;
+    padding: 8px 10px;
+  }
+
+  .email-actions {
+    justify-content: stretch;
+  }
+
+  .email-actions :deep(.btn) {
+    min-width: 68px;
+  }
 }
 </style>

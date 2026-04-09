@@ -7,30 +7,10 @@ import { HTTPException } from 'hono/http-exception';
 import { debugLog, errorLog } from '../utils/debug';
 import { getSystemConfig, updateSystemConfig } from '../services/settings';
 import { jwtAuthMiddleware } from '../middleware/auth';
+import { bumpChangeSignals, getChangeSignals } from '../services/changeSignals';
 import type { Env, ApiResponse, SystemConfig } from '../types';
 
 const systemRoutes = new Hono<{ Bindings: Env }>();
-
-/**
- * 获取注册状态
- * GET /api/system/registration-status
- */
-systemRoutes.get('/registration-status', async (c) => {
-    try {
-        const config = await getSystemConfig(c.env.DB);
-
-        return c.json<ApiResponse>({
-            success: true,
-            data: {
-                allow_registration: config.allow_registration
-            }
-        });
-    } catch (error) {
-        errorLog('[注册状态] 获取失败:', error);
-        throw new HTTPException(500, { message: '获取注册状态失败' });
-    }
-});
-
 
 /**
  * 发送健康检查webhook通知
@@ -49,16 +29,17 @@ async function sendHealthWebhook(env: Env, status: 'healthy' | 'unhealthy', deta
         // 更新状态缓存（5分钟过期）
         await env.KV?.put(lastStatusKey, status, { expirationTtl: 300 });
 
-        // 获取系统级别的 webhook 配置
-        const webhookUrl = await env.DB.prepare(`
-            SELECT value FROM system_settings WHERE key = 'default_webhook_url'
+        const channel = await env.DB.prepare(`
+            SELECT channel_url, channel_secret
+            FROM routing_rules
+            WHERE category = 'channel'
+              AND enabled = 1
+              AND channel_url != ''
+            ORDER BY id ASC
+            LIMIT 1
         `).first();
 
-        const webhookSecret = await env.DB.prepare(`
-            SELECT value FROM system_settings WHERE key = 'default_webhook_secret'
-        `).first();
-
-        const url = (webhookUrl?.value as string)?.trim();
+        const url = (channel?.channel_url as string | undefined)?.trim();
         if (!url) return; // 没有配置 webhook，直接返回
 
         const webhookData = {
@@ -74,7 +55,7 @@ async function sendHealthWebhook(env: Env, status: 'healthy' | 'unhealthy', deta
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Webhook-Secret': (webhookSecret?.value as string) || '',
+                    'X-Webhook-Secret': (channel?.channel_secret as string) || '',
                     'User-Agent': 'CEM-HealthCheck/1.0'
                 },
                 body: JSON.stringify(webhookData)
@@ -110,19 +91,19 @@ systemRoutes.get('/health', async (c) => {
 
     let overallHealthy = true;
 
-    // 1. 检查数据库
+    // 1. 检查D1数据库
     try {
         const dbStart = Date.now();
         await c.env.DB.prepare('SELECT 1').first();
         const dbLatency = Date.now() - dbStart;
 
-        healthInfo.services.database = {
+        healthInfo.services.d1 = {
             status: 1,
             latency_ms: dbLatency
         };
     } catch (error) {
-        errorLog('[健康检查] 数据库异常:', error);
-        healthInfo.services.database = {
+        errorLog('[健康检查] D1数据库异常:', error);
+        healthInfo.services.d1 = {
             status: 0,
             latency_ms: 0
         };
@@ -133,7 +114,7 @@ systemRoutes.get('/health', async (c) => {
     try {
         // 简单的R2连接检查
         await c.env.R2.head('health-check');
-        healthInfo.services.storage = {
+        healthInfo.services.r2 = {
             status: 1,
             provider: 1 // R2
         };
@@ -141,13 +122,13 @@ systemRoutes.get('/health', async (c) => {
         // R2 head可能失败，尝试list检查
         try {
             await c.env.R2.list({ limit: 1 });
-            healthInfo.services.storage = {
+            healthInfo.services.r2 = {
                 status: 1,
                 provider: 1
             };
         } catch (r2Error) {
             errorLog('[健康检查] R2存储异常:', r2Error);
-            healthInfo.services.storage = {
+            healthInfo.services.r2 = {
                 status: 0,
                 provider: 1
             };
@@ -172,7 +153,7 @@ systemRoutes.get('/health', async (c) => {
     }
 
     // 4. 获取系统配置（如果数据库正常）
-    if (healthInfo.services.database.status === 1) {
+    if (healthInfo.services.d1.status === 1) {
         try {
             const config = await getSystemConfig(c.env.DB);
 
@@ -226,6 +207,35 @@ systemRoutes.get('/health', async (c) => {
 });
 
 /**
+ * 获取系统变更信号（需要认证）
+ * GET /api/system/changes
+ */
+systemRoutes.get('/changes', jwtAuthMiddleware, async (c) => {
+    try {
+        const changes = await getChangeSignals(c.env.DB);
+        const serverTime = new Date().toISOString();
+        const requestId = crypto.randomUUID();
+
+        c.header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        c.header('Pragma', 'no-cache');
+        c.header('Expires', '0');
+        c.header('X-CEM-Request-Id', requestId);
+
+        return c.json<ApiResponse>({
+            success: true,
+            data: {
+                changes,
+                server_time: serverTime,
+                request_id: requestId
+            }
+        });
+    } catch (error) {
+        errorLog('[系统变更信号] 获取失败:', error);
+        throw new HTTPException(500, { message: '获取系统变更信号失败' });
+    }
+});
+
+/**
  * 获取系统配置（需要认证）
  * GET /api/system/config
  */
@@ -256,6 +266,7 @@ systemRoutes.put('/config', jwtAuthMiddleware, async (c) => {
         const updates = await c.req.json() as Partial<SystemConfig>;
 
         await updateSystemConfig(c.env.DB, updates);
+        await bumpChangeSignals(c.env.DB, ['system_config']);
 
         return c.json<ApiResponse>({
             success: true,

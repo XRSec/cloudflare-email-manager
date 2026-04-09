@@ -138,10 +138,10 @@ export function useRequestManager() {
       if (useSmartCache) {
         cached = smartCache.get<T>(cacheKey)
       } else {
-        cached = cacheService.get<T>(cacheKey) || null
+        cached = cacheService.get<T>(cacheKey)
       }
 
-      if (cached) {
+      if (cached !== undefined && cached !== null) {
         console.log('📦 使用缓存数据:', cacheKey)
         requestStats.value.cached++
         return cached
@@ -213,16 +213,8 @@ export function useRequestManager() {
    */
   const clearCacheByPrefix = (prefix: string) => {
     // 清除简单缓存
-    const keys = cacheService.keys()
-    keys.forEach(key => {
-      if (key.startsWith(prefix)) {
-        cacheService.delete(key)
-      }
-    })
-
-    // 清除智能缓存（智能缓存使用Map，需要遍历）
-    // 注意：smartCache 没有按前缀清除的方法，这里先跳过
-    // 如果需要，可以在 smartCache 中添加相应方法
+    cacheService.clearByPrefix(prefix)
+    smartCache.deleteByPrefix(prefix)
 
     console.log('🗑️ 清除缓存前缀:', prefix)
   }
@@ -283,4 +275,3 @@ export function getGlobalRequestManager() {
   }
   return globalRequestManager
 }
-

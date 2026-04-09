@@ -11,6 +11,31 @@ import { SYSTEM_DEFAULTS, validateConfigValue } from '../config/constants';
 let systemSettingsCache: Map<string, string> = new Map();
 let cacheInitialized = false;
 
+function parseStringListSetting(value: string | undefined): string[] {
+    if (!value) return [];
+
+    try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed)
+            ? parsed.filter((item): item is string => typeof item === 'string')
+            : [];
+    } catch {
+        return value.split(',').map((item) => item.trim()).filter(Boolean);
+    }
+}
+
+function normalizeDomainList(domains: string[]): string[] {
+    return Array.from(new Set(
+        domains
+            .map((domain) => {
+                const trimmed = domain.trim().toLowerCase().replace(/^@+/, '');
+                return trimmed.includes('@') ? trimmed.split('@').pop() || '' : trimmed;
+            })
+            .map((domain) => domain.replace(/^@+/, ''))
+            .filter(Boolean)
+    ));
+}
+
 /**
  * 初始化系统设置缓存
  */
@@ -32,13 +57,13 @@ export async function initializeSystemSettings(db: D1Database): Promise<void> {
         // 注意：所有配置项统一使用数字格式存储到数据库（开关配置：1=启用/开启，0=禁用/关闭）
         const defaultSettings = {
             'allow_registration': String(SYSTEM_DEFAULTS.ALLOW_REGISTRATION),
-            'mail_retention_days': String(SYSTEM_DEFAULTS.MAIL_RETENTION_DAYS),
             'attachment_retention_days': String(SYSTEM_DEFAULTS.ATTACHMENT_RETENTION_DAYS),
             'max_attachment_size': String(SYSTEM_DEFAULTS.MAX_ATTACHMENT_SIZE),
             'cookie_max_age': String(SYSTEM_DEFAULTS.COOKIE_MAX_AGE),
             'debug_mode': String(SYSTEM_DEFAULTS.DEBUG_MODE),
             'api_rate_limit': String(SYSTEM_DEFAULTS.API_RATE_LIMIT),
             'api_rate_limit_max_requests': String(SYSTEM_DEFAULTS.API_RATE_LIMIT_MAX_REQUESTS),
+            'supported_emails': JSON.stringify(SYSTEM_DEFAULTS.SUPPORTED_EMAILS),
         };
 
         // 特殊处理 JWT Secret
@@ -147,22 +172,18 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
         const apiRateLimit = parseInt(getOptionalSetting('api_rate_limit', String(SYSTEM_DEFAULTS.API_RATE_LIMIT))) === 1;
         const apiRateLimitMaxRequests = parseInt(getOptionalSetting('api_rate_limit_max_requests', String(SYSTEM_DEFAULTS.API_RATE_LIMIT_MAX_REQUESTS)));
 
-        // 邮件和附件保留天数
-        const mailRetentionDays = parseInt(getRequiredSetting('mail_retention_days'));
-        const attachmentRetentionDays = parseInt(getOptionalSetting('attachment_retention_days', String(mailRetentionDays)));
+        // 附件保留天数
+        const attachmentRetentionDays = parseInt(getOptionalSetting('attachment_retention_days', String(SYSTEM_DEFAULTS.ATTACHMENT_RETENTION_DAYS)));
 
         // 获取 JWT 密钥 - 必须存在且有效
         const jwtSecret = await getJWTSecret(db);
         const maskedJWTSecret = maskJWTSecret(jwtSecret);
 
         // 获取默认Webhook配置
-        const defaultWebhookUrl = getOptionalSetting('default_webhook_url', '');
-        const defaultWebhookSecret = getOptionalSetting('default_webhook_secret', '');
-        const defaultWebhookType = getOptionalSetting('default_webhook_type', '') as 'dingtalk' | 'feishu' | 'bark' | undefined;
+        const supportedDomains = normalizeDomainList(parseStringListSetting(getOptionalSetting('supported_emails', '[]')));
 
         return {
             allow_registration: allowRegistration ? 1 : 0,
-            mail_retention_days: mailRetentionDays,
             attachment_retention_days: attachmentRetentionDays,
             attachment_max_size: maxAttachmentSize,
             debug_mode: debugMode ? 1 : 0,
@@ -170,9 +191,7 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
             jwt_secret: maskedJWTSecret, // 显示前后各四位
             api_rate_limit: apiRateLimit ? 1 : 0,
             api_rate_limit_max_requests: apiRateLimitMaxRequests,
-            default_webhook_url: defaultWebhookUrl || undefined,
-            default_webhook_secret: defaultWebhookSecret || undefined,
-            default_webhook_type: defaultWebhookType || undefined
+            supported_emails: supportedDomains
         };
     } catch (error) {
         const { errorLog } = await import('../utils/debug');
@@ -189,10 +208,6 @@ export async function updateSystemConfig(db: D1Database, config: Partial<SystemC
 
     if (config.allow_registration !== undefined) {
         updates.push({ key: 'allow_registration', value: config.allow_registration.toString() });
-    }
-
-    if (config.mail_retention_days !== undefined) {
-        updates.push({ key: 'mail_retention_days', value: config.mail_retention_days.toString() });
     }
 
     if (config.attachment_retention_days !== undefined) {
@@ -235,15 +250,9 @@ export async function updateSystemConfig(db: D1Database, config: Partial<SystemC
         }
     }
 
-    // 默认 Webhook 配置
-    if (config.default_webhook_url !== undefined) {
-        updates.push({ key: 'default_webhook_url', value: config.default_webhook_url || '' });
-    }
-    if (config.default_webhook_secret !== undefined) {
-        updates.push({ key: 'default_webhook_secret', value: config.default_webhook_secret || '' });
-    }
-    if (config.default_webhook_type !== undefined) {
-        updates.push({ key: 'default_webhook_type', value: config.default_webhook_type || '' });
+    if (config.supported_emails !== undefined) {
+        const normalizedDomains = normalizeDomainList(config.supported_emails);
+        updates.push({ key: 'supported_emails', value: JSON.stringify(normalizedDomains) });
     }
 
     // 批量更新

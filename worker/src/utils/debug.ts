@@ -34,8 +34,6 @@ export async function initDebugMode(env: any): Promise<void> {
 
         if (isEnabled) {
             console.log('[DEBUG] [系统] 调试模式已启用');
-        } else {
-            console.log('[DEBUG] [系统] 调试模式已禁用');
         }
     } catch (error) {
         console.warn('[DEBUG] [系统] 调试模式初始化失败，默认禁用:', error);

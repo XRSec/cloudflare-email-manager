@@ -3,7 +3,7 @@
  */
 
 import { debugLog, errorLog, infoLog } from '../utils/debug';
-import { cleanupOldEmails } from '../services/email';
+import { cleanupExpiredAttachments } from '../services/email';
 import type { Env, ScheduledEvent } from '../types';
 
 /**
@@ -11,13 +11,13 @@ import type { Env, ScheduledEvent } from '../types';
  */
 export async function handleScheduledCleanup(env: Env): Promise<void> {
     try {
-        infoLog('[定时清理] 开始执行邮件清理任务');
+        infoLog('[定时清理] 开始执行附件清理任务');
 
-        const result = await cleanupOldEmails(env);
+        const result = await cleanupExpiredAttachments(env);
 
         infoLog('[定时清理] 清理完成', {
-            deletedEmails: result.deletedEmails,
-            deletedAttachments: result.deletedAttachments
+            deletedAttachments: result.deletedAttachments,
+            deletedAttachmentFiles: result.deletedAttachmentFiles
         });
 
     } catch (error) {

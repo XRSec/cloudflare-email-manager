@@ -4,7 +4,9 @@
  */
 
 import { ROUTE_CONFIGS } from './routeApiManager'
-import { emailApiService, adminApiService, userApiService } from './api'
+import { emailApiService } from './api-email'
+import { adminApiService } from './api-admin'
+import { userApiService } from './api-user'
 
 // 测试API服务选择
 export function testApiServiceSelection() {

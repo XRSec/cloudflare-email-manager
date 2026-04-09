@@ -170,15 +170,34 @@ export function useSimplePageData() {
   }
 }
 
+const sanitizeQueryParams = (params: Record<string, any> = {}) => {
+  return Object.fromEntries(
+    Object.entries(params).filter(([_, value]) => value !== undefined && value !== null && value !== '')
+  )
+}
+
 // 分页数据管理 Hook
-export function usePaginatedPageData(initialPage = 1, initialLimit = 20) {
+export function usePaginatedPageData(initialPage = 1, initialLimit = 20, initialQueryParams: Record<string, any> = {}) {
   const currentPage = ref(initialPage)
   const pageSize = ref(initialLimit)
+  const queryParams = ref<Record<string, any>>(sanitizeQueryParams(initialQueryParams))
 
   const { pageData, routeInfo, isSupported, hasAccess, loadData, refreshData } = useUnifiedPageData({
     page: currentPage.value,
-    limit: pageSize.value
+    limit: pageSize.value,
+    ...queryParams.value
   })
+
+  const buildRequestParams = (overrides: Record<string, any> = {}) => {
+    const { page, limit, ...restOverrides } = overrides
+
+    return {
+      ...queryParams.value,
+      ...sanitizeQueryParams(restOverrides),
+      page: page ?? currentPage.value,
+      limit: limit ?? pageSize.value
+    }
+  }
 
   // 分页信息
   const pagination = computed(() => {
@@ -193,17 +212,47 @@ export function usePaginatedPageData(initialPage = 1, initialLimit = 20) {
     }
   })
 
+  const loadPaginatedData = async (forceRefresh = false, overrides: Record<string, any> = {}) => {
+    if (typeof overrides.page === 'number') {
+      currentPage.value = overrides.page
+    }
+
+    if (typeof overrides.limit === 'number') {
+      pageSize.value = overrides.limit
+    }
+
+    await loadData(forceRefresh, buildRequestParams(overrides))
+  }
+
+  const refreshPaginatedData = async (params: Record<string, any> = {}) => {
+    await refreshData(buildRequestParams(params))
+  }
+
   // 切换页面
   const changePage = async (page: number) => {
     currentPage.value = page
-    await loadData(false, { page, limit: pageSize.value })
+    await loadPaginatedData(false, { page })
   }
 
   // 改变页面大小
   const changePageSize = async (limit: number) => {
     pageSize.value = limit
     currentPage.value = 1 // 重置到第一页
-    await loadData(false, { page: 1, limit })
+    await loadPaginatedData(false, { page: 1, limit })
+  }
+
+  const setQueryParams = async (params: Record<string, any> = {}, options: { forceRefresh?: boolean; resetPage?: boolean } = {}) => {
+    const { forceRefresh = false, resetPage = true } = options
+    queryParams.value = sanitizeQueryParams(params)
+
+    if (resetPage) {
+      currentPage.value = 1
+    }
+
+    await loadPaginatedData(forceRefresh, {
+      page: currentPage.value,
+      limit: pageSize.value
+    })
   }
 
   return {
@@ -218,11 +267,13 @@ export function usePaginatedPageData(initialPage = 1, initialLimit = 20) {
     pagination,
     currentPage: computed(() => currentPage.value),
     pageSize: computed(() => pageSize.value),
+    queryParams: computed(() => queryParams.value),
 
     // 方法
-    loadData,
-    refreshData,
+    loadData: loadPaginatedData,
+    refreshData: refreshPaginatedData,
     changePage,
-    changePageSize
+    changePageSize,
+    setQueryParams
   }
 }

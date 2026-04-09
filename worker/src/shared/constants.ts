@@ -37,37 +37,60 @@ export const WEBHOOK_STATUS = {
 
 
 /**
- * API端点
+ * API 端点
  */
 export const API_ENDPOINTS = {
     // 认证
-    LOGIN: '/api/auth/login',
-    LOGOUT: '/api/auth/logout',
-    REGISTER: '/api/auth/register',
+    AUTH_LOGIN: '/api/auth/login',
+    AUTH_LOGOUT: '/api/auth/logout',
 
-    // 用户
-    USER_PROFILE: '/api/user/profile',
-    USER_UPDATE: '/api/user/update',
+    // 当前用户
+    USER_ME: '/api/users/me',            // GET / PUT 同一路径
 
     // 邮件
-    EMAILS: '/api/emails',
+    EMAIL_LIST: '/api/emails',
     EMAIL_DETAIL: '/api/emails/:id',
     EMAIL_DELETE: '/api/emails/:id',
+    EMAIL_BATCH_DELETE: '/api/emails/batch',
+    EMAIL_BATCH_READ_STATUS: '/api/emails/batch/read-status',
+    EMAIL_READ_STATUS: '/api/emails/:id/read-status',
+    EMAIL_RAW: '/api/emails/:id/raw',
     EMAIL_ATTACHMENT: '/api/emails/:id/attachments/:attachmentId',
+    EMAIL_ATTACHMENT_DIRECT: '/api/attachments/:attachmentId',
+    EMAIL_SEND_DEBUG: '/api/emails/send',
 
     // 系统
-    SYSTEM_CONFIG: '/api/system/config',
-    SYSTEM_UPDATE: '/api/system/update',
+    SYSTEM_HEALTH: '/api/system/health',
+    SYSTEM_CONFIG: '/api/system/config', // GET / PUT
 
-    // 管理员
-    ADMIN_USERS: '/api/admin/users',
-    ADMIN_RULES: '/api/admin/rules',
-    ADMIN_EMAILS: '/api/admin/emails',
-    ADMIN_SETTINGS: '/api/admin/settings',
+    // 仪表盘（归类到 Tools，但路径在 /api/dashboard）
+    DASHBOARD_STATS: '/api/dashboard/stats',
+    DASHBOARD_CACHE_CLEAR: '/api/dashboard/cache',
+    TOOLS_FORWARD_LOGS: '/api/dashboard/forward-logs',
+    TOOLS_FORWARD_LOG_DETAIL: '/api/dashboard/forward-logs/:id',
 
-    // 调试
-    DEBUG_SIMULATE: '/api/debug/simulate-email',
-    DEBUG_LOGS: '/api/debug/logs'
+    // D1 工具
+    TOOLS_D1_INFO: '/api/tools/d1/info',
+    TOOLS_D1_TABLES: '/api/tools/d1/tables',
+    TOOLS_D1_STATS: '/api/tools/d1/stats',
+    TOOLS_D1_INIT: '/api/tools/d1/init',
+
+    // R2 工具
+    TOOLS_R2_LIST: '/api/tools/r2',
+    TOOLS_R2_DELETE: '/api/tools/r2',
+
+    // KV 工具
+    TOOLS_KV_STATUS: '/api/tools/kv/status',
+    TOOLS_KV_CLEAR: '/api/tools/kv/clear',
+    TOOLS_KV_WARMUP: '/api/tools/kv/warmup',
+    TOOLS_KV_GET: '/api/tools/kv/get/:key',
+    TOOLS_KV_SET: '/api/tools/kv/set',
+    TOOLS_KV_DELETE: '/api/tools/kv/delete/:key',
+    TOOLS_KV_STATS: '/api/tools/kv/stats',
+    TOOLS_KV_LIST: '/api/tools/kv/list',
+
+    // 工具：模拟邮件
+    TOOLS_SIMULATE_EMAIL: '/api/tools/simulate-email'
 } as const;
 
 /**

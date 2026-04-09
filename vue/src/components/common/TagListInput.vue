@@ -63,47 +63,68 @@ const emit = defineEmits<{
 const tags = ref<string[]>([...props.modelValue])
 const inputValue = ref('')
 
-// 是否可以添加
-const canAdd = computed(() => {
-  const trimmed = inputValue.value.trim()
-  if (!trimmed) return false
+const splitInputValue = (value: string) => (
+  value
+    .split(/[,，;\n\r]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+)
 
-  // 如果有自定义验证函数，使用它
+const validateTag = (value: string) => {
   if (props.validateFn) {
-    const result = props.validateFn(trimmed)
-    if (result !== true) return false
-  }
-
-  // 检查是否已存在（如果不允许重复）
-  if (!props.allowDuplicate && tags.value.includes(trimmed)) {
-    return false
+    return props.validateFn(value) === true
   }
 
   return true
+}
+
+const hasTag = (value: string) => (
+  tags.value.some((tag) => tag.trim().toLowerCase() === value.trim().toLowerCase())
+)
+
+// 是否可以添加
+const canAdd = computed(() => {
+  const pendingTags = splitInputValue(inputValue.value)
+  if (pendingTags.length === 0) return false
+
+  return pendingTags.some((tag) => {
+    if (!validateTag(tag)) return false
+    if (!props.allowDuplicate && hasTag(tag)) return false
+    return true
+  })
 })
 
 // 添加标签
 const addTag = () => {
-  const trimmed = inputValue.value.trim()
-  if (!trimmed) return
+  const pendingTags = splitInputValue(inputValue.value)
+  if (pendingTags.length === 0) return
 
-  // 如果有自定义验证函数，使用它
-  if (props.validateFn) {
-    const result = props.validateFn(trimmed)
-    if (result !== true) {
-      // 如果是错误信息，可以显示给用户（这里简化处理，只返回 false）
-      return
+  const nextTags = [...tags.value]
+  let added = false
+
+  for (const tag of pendingTags) {
+    if (!validateTag(tag)) {
+      continue
     }
+
+    const alreadyExists = nextTags.some((existingTag) => (
+      existingTag.trim().toLowerCase() === tag.trim().toLowerCase()
+    ))
+
+    if (!props.allowDuplicate && alreadyExists) {
+      continue
+    }
+
+    nextTags.push(tag)
+    added = true
   }
 
-  // 检查是否已存在（如果不允许重复）
-  if (!props.allowDuplicate && tags.value.includes(trimmed)) {
+  if (!added) {
     inputValue.value = ''
     return
   }
 
-  // 添加标签
-  tags.value.push(trimmed)
+  tags.value = nextTags
   inputValue.value = ''
   emit('update:modelValue', [...tags.value])
 }

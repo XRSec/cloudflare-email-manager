@@ -2,7 +2,7 @@
  * 认证相关路由
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { verifyPassword, generateJWT } from '../utils/crypto';
 import { errorLog } from '../utils/debug';
@@ -10,6 +10,34 @@ import { getSystemSetting, getJWTSecret } from '../services/settings';
 import type { Env, ApiResponse } from '../types';
 
 const authRoutes = new Hono<{ Bindings: Env }>();
+
+type AuthContext = Context<{ Bindings: Env }>;
+
+function isHttpsRequest(c: AuthContext): boolean {
+    const url = new URL(c.req.url);
+    const forwardedProto = c.req.header('X-Forwarded-Proto');
+    const cfVisitor = c.req.header('CF-Visitor');
+
+    return url.protocol === 'https:' ||
+        forwardedProto === 'https' ||
+        (cfVisitor ? cfVisitor.includes('"scheme":"https"') : false);
+}
+
+function buildSessionCookie(c: AuthContext, token: string, maxAge: number): string {
+    const attributes = [
+        `session_cookies=${encodeURIComponent(token)}`,
+        'HttpOnly',
+        'SameSite=Strict',
+        `Max-Age=${maxAge}`,
+        'Path=/'
+    ];
+
+    if (isHttpsRequest(c)) {
+        attributes.splice(2, 0, 'Secure');
+    }
+
+    return attributes.join('; ');
+}
 
 /**
  * 用户登录
@@ -78,9 +106,7 @@ authRoutes.post('/login', async (c) => {
         });
 
         // 设置HttpOnly Cookie
-        response.headers.set('Set-Cookie',
-            `session_cookies=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Max-Age=${cookieMaxAge}; Path=/`
-        );
+        response.headers.set('Set-Cookie', buildSessionCookie(c, token, cookieMaxAge));
 
         return response;
     } catch (error) {
@@ -103,9 +129,7 @@ authRoutes.post('/logout', async (c) => {
     });
 
     // 清除服务端 Cookie
-    response.headers.set('Set-Cookie',
-        'session_cookies=; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Path=/'
-    );
+    response.headers.set('Set-Cookie', buildSessionCookie(c, '', 0));
 
     return response;
 });

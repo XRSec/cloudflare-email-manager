@@ -167,6 +167,19 @@ class CacheService {
       console.error(`按模式清除缓存失败 ${pattern}:`, error)
     }
   }
+
+  clearByPrefix(prefix: string): number {
+    let clearedCount = 0
+
+    this.keys().forEach(key => {
+      if (key.startsWith(prefix)) {
+        this.delete(key)
+        clearedCount++
+      }
+    })
+
+    return clearedCount
+  }
 }
 
 // 全局缓存实例
@@ -227,7 +240,7 @@ export function withCache<T extends (...args: any[]) => Promise<any>>(
 
     // 尝试从缓存获取
     const cached = cacheService.get(key)
-    if (cached !== null) {
+    if (cached !== undefined) {
       console.log(`Cache hit for key: ${key}`)
       return cached
     }

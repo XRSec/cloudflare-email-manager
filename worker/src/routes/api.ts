@@ -1,5 +1,5 @@
 /**
- * 统一API路由 - 符合 api-doc.yml 规范
+ * 统一 API 路由
  */
 
 import { Hono } from 'hono';
@@ -15,8 +15,8 @@ import { retryR2Operation } from '../utils/retry';
 import { authRoutes } from './auth';
 import { userRoutes } from './user';
 import { systemRoutes } from './system';
-import { databaseRoutes } from './database';
-import { kvCacheRouter } from './kv-cache';
+import { dashboardRoutes } from './dashboard';
+import { toolsRoutes } from './tools';
 
 // 导入服务
 import {
@@ -29,15 +29,92 @@ import {
   getEmailAttachments,
   getAttachmentById,
   sendEmail,
+  createEmail,
+  saveRawEmailToR2,
   getRawEmailFromR2,
+  getRawEmailBytesFromR2,
   replaceCidReferencesInHtml
 } from '../services/email';
 import PostalMime from 'postal-mime';
 import { getSystemConfig } from '../services/settings';
+import { handleEmailForwarding, logForwardResult, sendWebhook } from '../services/webhook';
+import { bumpChangeSignals, getChangeSignals } from '../services/changeSignals';
 
-import type { Env, ApiResponse, EmailQueryParams } from '../types';
+import type { Env, ApiResponse, EmailQueryParams, D1Database } from '../types';
 
 const api = new Hono<{ Bindings: Env }>();
+
+const EMAIL_LIST_CACHE_TTL = 300;
+const EMAIL_DETAIL_CACHE_TTL = 1800;
+
+type RouteParamContext = {
+  req: {
+    param: (name: string) => string | undefined;
+  };
+};
+
+function getRequiredParam(c: RouteParamContext, name: string, label: string): string {
+  const value = c.req.param(name);
+  if (!value) {
+    throw new HTTPException(400, { message: `${label}不能为空` });
+  }
+  return value;
+}
+
+async function createStableHash(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 24);
+}
+
+async function getEmailListCacheKey(params: EmailQueryParams, emailsVersion: number): Promise<string> {
+  const normalized = Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  const query = new URLSearchParams();
+  for (const [key, value] of normalized) {
+    query.set(key, String(value));
+  }
+
+  const hash = await createStableHash(query.toString());
+  return `${KVCacheService.KEYS.EMAIL_LIST}:v${emailsVersion}:${hash}`;
+}
+
+async function getEmailDetailCacheKey(emailId: string, updatedAt?: string): Promise<string> {
+  const version = await createStableHash(`detail-v2:${updatedAt || 'unknown'}`);
+  return `${KVCacheService.KEYS.EMAIL_DETAIL}${emailId}:v${version}`;
+}
+
+function containsCjk(text: string): boolean {
+  return /[\u3400-\u9fff]/.test(text);
+}
+
+function isLikelyCorruptParsedContent(parsed: string, fallback: string): boolean {
+  const parsedText = parsed.trim();
+  const fallbackText = fallback.trim();
+
+  if (!parsedText) {
+    return true;
+  }
+
+  if (parsedText.includes('\uFFFD')) {
+    return true;
+  }
+
+  if (fallbackText.length >= 20 && parsedText.length <= 8) {
+    return true;
+  }
+
+  if (containsCjk(fallbackText) && !containsCjk(parsedText) && parsedText.length < fallbackText.length / 2) {
+    return true;
+  }
+
+  return false;
+}
 
 // ==================== 认证相关 ====================
 api.route('/auth', authRoutes);
@@ -55,15 +132,47 @@ api.route('/users', userRoutes);
  */
 api.get('/emails', jwtAuthMiddleware, async (c) => {
   try {
-    const payload = c.get('jwtPayload');
+    const hasAttachmentsQuery = c.req.query('has_attachments');
+    const hasAttachments = hasAttachmentsQuery === 'true'
+      ? true
+      : hasAttachmentsQuery === 'false'
+        ? false
+        : undefined;
 
     // 解析查询参数
     const queryParams: EmailQueryParams = {
       ...getPaginationParams(c.req.query()),
-      search: c.req.query('search'),
-      status: c.req.query('status')
+      search: c.req.query('search')?.trim() || undefined,
+      status: c.req.query('status')?.trim() || undefined,
+      sender: c.req.query('sender')?.trim() || undefined,
+      subject: c.req.query('subject')?.trim() || undefined,
+      start_date: c.req.query('start_date')?.trim() || undefined,
+      end_date: c.req.query('end_date')?.trim() || undefined,
+      has_attachments: hasAttachments,
+      sort: c.req.query('sort')?.trim() || undefined,
+      order: c.req.query('order')?.trim() as 'asc' | 'desc' | undefined
       // 注意：已移除 scope 参数，单用户模式下不再需要
     };
+
+    let kvCache: KVCacheService | null = null;
+    let cacheKey = '';
+    if (c.env.KV) {
+      try {
+        kvCache = new KVCacheService(c.env.KV);
+        const changes = await getChangeSignals(c.env.DB);
+        cacheKey = await getEmailListCacheKey(queryParams, changes.emails);
+        const cached = await kvCache.get<{ total: number; items: any[] }>(cacheKey);
+        if (cached) {
+          debugLog('[邮件列表] 从 KV 缓存读取:', cacheKey);
+          return c.json<ApiResponse>({
+            success: true,
+            data: cached
+          });
+        }
+      } catch (error) {
+        debugLog('[邮件列表] KV 缓存读取失败，降级到 D1:', error);
+      }
+    }
 
     // 单用户模式：所有邮件都不绑定用户ID，直接查询所有邮件
     const result = await getAllEmails(c.env.DB, queryParams);
@@ -80,12 +189,25 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
       to_address: email.to_address
     }));
 
+    const data = {
+      total: result.total,
+      items
+    };
+
+    if (kvCache && cacheKey) {
+      c.executionCtx?.waitUntil((async () => {
+        try {
+          await kvCache.set(cacheKey, data, EMAIL_LIST_CACHE_TTL);
+          debugLog('[邮件列表] 写入 KV 缓存:', cacheKey);
+        } catch (error) {
+          errorLog('[邮件列表] 写入 KV 缓存失败:', error);
+        }
+      })());
+    }
+
     return c.json<ApiResponse>({
       success: true,
-      data: {
-        total: result.total,
-        items
-      }
+      data
     });
   } catch (error) {
     if (error instanceof HTTPException) {
@@ -103,7 +225,7 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
 api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
   try {
     const payload = c.get('jwtPayload');
-    const emailId = c.req.param('id');
+    const emailId = getRequiredParam(c, 'id', '邮件ID');
 
     const email = await getEmailById(c.env.DB, emailId);
     if (!email) {
@@ -113,13 +235,33 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
     // 自动标记为已读（如果当前是未读状态）
     if (email.is_read === 0) {
       try {
-        await updateEmailReadStatus(c.env.DB, emailId, true);
+        const updatedEmail = await updateEmailReadStatus(c.env.DB, emailId, true);
+        await bumpChangeSignals(c.env.DB, ['emails', 'dashboard']);
         debugLog('[邮件详情] 自动标记为已读');
         // 更新 email 对象
-        email.is_read = 1;
+        Object.assign(email, updatedEmail || { is_read: 1 });
       } catch (error) {
         debugLog('[邮件详情] 自动标记为已读失败:', error);
         // 不影响继续返回邮件详情
+      }
+    }
+
+    let kvCache: KVCacheService | null = null;
+    let cacheKey = '';
+    if (c.env.KV) {
+      try {
+        kvCache = new KVCacheService(c.env.KV);
+        cacheKey = await getEmailDetailCacheKey(emailId, email.updated_at);
+        const cached = await kvCache.get<any>(cacheKey);
+        if (cached) {
+          debugLog('[邮件详情] 从 KV 缓存读取:', cacheKey);
+          return c.json<ApiResponse>({
+            success: true,
+            data: cached
+          });
+        }
+      } catch (error) {
+        debugLog('[邮件详情] KV 缓存读取失败，降级到 D1/R2:', error);
       }
     }
 
@@ -148,46 +290,52 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
     let fullContentType = 'text';
 
     try {
-      // 从 R2 读取精简版 .eml 文件
-      const rawEmail = await getRawEmailFromR2(c.env.R2, emailId);
+      // 从 R2 读取精简版 .eml 文件。解析时保留原始字节，避免非 UTF-8 内容被提前损坏。
+      const rawEmailBytes = await getRawEmailBytesFromR2(c.env.R2, emailId);
 
-      if (rawEmail) {
+      if (rawEmailBytes) {
         // 使用 postal-mime 解析邮件
-        const encoder = new TextEncoder();
-        const rawEmailBytes = encoder.encode(rawEmail);
         const parser = new PostalMime();
         const parsedEmail = await parser.parse(rawEmailBytes);
 
         // 提取内容
         if (parsedEmail.html && parsedEmail.html.trim()) {
-          fullContent = parsedEmail.html;
-          fullContentType = 'html';
-          debugLog('[邮件详情] 解析 HTML 内容，长度:', fullContent.length);
+          if (!isLikelyCorruptParsedContent(parsedEmail.html, email.content || '')) {
+            fullContent = parsedEmail.html;
+            fullContentType = 'html';
+            debugLog('[邮件详情] 解析 HTML 内容，长度:', fullContent.length);
 
-          // 查询该邮件的所有附件（包括内嵌图片）
-          const attachments = await c.env.DB.prepare(`
-            SELECT id, filename, content_id, r2_key, content_type
-            FROM attachments
-            WHERE email_id = ?
-          `).bind(emailId).all();
+            // 查询该邮件的所有附件（包括内嵌图片）
+            const attachments = await c.env.DB.prepare(`
+              SELECT id, filename, content_id, r2_key, content_type
+              FROM attachments
+              WHERE email_id = ?
+            `).bind(emailId).all();
 
-          // 替换 HTML 中的 cid: 引用为 worker API 链接
-          if (attachments.results && attachments.results.length > 0) {
-            for (const att of attachments.results) {
-              if (att.content_id) {
-                // 内嵌图片：替换 cid: 为 API 链接
-                const escapedCid = (att.content_id as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const cidPattern = new RegExp(`cid:${escapedCid}`, 'gi');
-                const imageUrl = `/api/emails/${emailId}/attachments/${att.id}`;
-                fullContent = fullContent.replace(cidPattern, imageUrl);
-                debugLog('[邮件详情] 替换 cid:', att.content_id, '→', imageUrl);
+            // 替换 HTML 中的 cid: 引用为 worker API 链接
+            if (attachments.results && attachments.results.length > 0) {
+              for (const att of attachments.results) {
+                if (att.content_id) {
+                  // 内嵌图片：替换 cid: 为 API 链接
+                  const escapedCid = (att.content_id as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                  const cidPattern = new RegExp(`cid:${escapedCid}`, 'gi');
+                  const imageUrl = `/api/emails/${emailId}/attachments/${att.id}`;
+                  fullContent = fullContent.replace(cidPattern, imageUrl);
+                  debugLog('[邮件详情] 替换 cid:', att.content_id, '→', imageUrl);
+                }
               }
             }
+          } else {
+            debugLog('[邮件详情] HTML 内容疑似编码损坏，使用数据库预览');
           }
         } else if (parsedEmail.text && parsedEmail.text.trim()) {
-          fullContent = parsedEmail.text;
-          fullContentType = 'text';
-          debugLog('[邮件详情] 使用纯文本内容，长度:', fullContent.length);
+          if (!isLikelyCorruptParsedContent(parsedEmail.text, email.content || '')) {
+            fullContent = parsedEmail.text;
+            fullContentType = 'text';
+            debugLog('[邮件详情] 使用纯文本内容，长度:', fullContent.length);
+          } else {
+            debugLog('[邮件详情] 纯文本内容疑似编码损坏，使用数据库预览');
+          }
         }
       } else {
         debugLog('[邮件详情] 未找到 .eml 文件，使用数据库预览');
@@ -239,6 +387,17 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
 
     debugLog(`[邮件详情] 最终返回的附件数量: ${emailData.attachments.length}`);
 
+    if (kvCache && cacheKey) {
+      c.executionCtx?.waitUntil((async () => {
+        try {
+          await kvCache.set(cacheKey, emailData, EMAIL_DETAIL_CACHE_TTL);
+          debugLog('[邮件详情] 写入 KV 缓存:', cacheKey);
+        } catch (error) {
+          errorLog('[邮件详情] 写入 KV 缓存失败:', error);
+        }
+      })());
+    }
+
     return c.json<ApiResponse>({
       success: true,
       data: emailData
@@ -267,7 +426,7 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
 api.get('/emails/:id/raw', jwtAuthMiddleware, async (c) => {
   try {
     const payload = c.get('jwtPayload');
-    const emailId = c.req.param('id');
+    const emailId = getRequiredParam(c, 'id', '邮件ID');
 
     const email = await getEmailById(c.env.DB, emailId);
     if (!email) {
@@ -359,6 +518,9 @@ api.patch('/emails/batch/read-status', jwtAuthMiddleware, async (c) => {
     // 单管理员模式：所有用户都是管理员，可以批量更新所有邮件
 
     const updatedCount = await batchUpdateEmailReadStatus(c.env.DB, emailIds, is_read);
+    if (updatedCount > 0) {
+      await bumpChangeSignals(c.env.DB, ['emails', 'dashboard']);
+    }
 
     return c.json<ApiResponse>({
       success: true,
@@ -380,7 +542,7 @@ api.patch('/emails/batch/read-status', jwtAuthMiddleware, async (c) => {
 api.patch('/emails/:id/read-status', jwtAuthMiddleware, async (c) => {
   try {
     const payload = c.get('jwtPayload');
-    const emailId = c.req.param('id');
+    const emailId = getRequiredParam(c, 'id', '邮件ID');
     const { is_read } = await c.req.json();
 
     if (typeof is_read !== 'boolean') {
@@ -393,6 +555,7 @@ api.patch('/emails/:id/read-status', jwtAuthMiddleware, async (c) => {
     }
 
     await updateEmailReadStatus(c.env.DB, emailId, is_read);
+    await bumpChangeSignals(c.env.DB, ['emails', 'dashboard']);
 
     return c.json<ApiResponse>({
       success: true,
@@ -404,6 +567,205 @@ api.patch('/emails/:id/read-status', jwtAuthMiddleware, async (c) => {
     }
     errorLog('[更新邮件已读状态] 失败:', error);
     throw new HTTPException(500, { message: '更新邮件已读状态失败' });
+  }
+});
+
+/**
+ * 手动转发邮件
+ * POST /api/emails/{id}/forward
+ */
+api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
+  try {
+    const emailId = getRequiredParam(c, 'id', '邮件ID');
+    const body = await c.req.json().catch(() => ({}));
+    const mode = body.mode === 'recipient' ? 'recipient' : 'webhook';
+
+    const email = await getEmailById(c.env.DB, emailId);
+    if (!email) {
+      throw new HTTPException(404, { message: '邮件不存在' });
+    }
+
+    if (mode === 'webhook') {
+      const channelId = Number(body.channelId);
+      if (!Number.isInteger(channelId) || channelId <= 0) {
+        throw new HTTPException(400, { message: '请选择 Webhook 通道' });
+      }
+
+      const channel = await c.env.DB.prepare(`
+        SELECT id, name, enabled, channel_type, channel_url, channel_secret
+        FROM routing_rules
+        WHERE category = 'channel'
+          AND id = ?
+        LIMIT 1
+      `).bind(channelId).first();
+
+      const url = (channel?.channel_url as string | undefined)?.trim();
+      if (!channel || channel.enabled !== 1 || !url) {
+        throw new HTTPException(400, { message: 'Webhook 通道不存在或未启用' });
+      }
+
+      const channelType = channel.channel_type as string | undefined;
+      const type = channelType === 'feishu' || channelType === 'bark'
+        ? channelType
+        : 'dingtalk';
+      const result = await sendWebhook(url, email, (channel.channel_secret as string) || undefined, type);
+      await logForwardResult(c.env.DB, email.id, url, result, c.env.KV);
+
+      return c.json<ApiResponse>({
+        success: result.success,
+        message: result.success ? 'Webhook 转发成功' : `Webhook 转发失败：${result.errorMessage || '未知错误'}`,
+        data: {
+          mode,
+          target: url,
+          responseCode: result.responseCode || null
+        }
+      }, result.success ? 200 : 502);
+    }
+
+    const targetEmail = typeof body.targetEmail === 'string' ? body.targetEmail.trim().toLowerCase() : '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetEmail)) {
+      throw new HTTPException(400, { message: '转发收件邮箱格式无效' });
+    }
+
+    const targetDomain = targetEmail.split('@').pop() || '';
+    const config = await getSystemConfig(c.env.DB);
+    const localDomains = Array.isArray(config.supported_emails) ? config.supported_emails : [];
+    const targetForwardType = ['internal', 'smtp', 'cf'].includes(body.targetForwardType) ? body.targetForwardType : 'internal';
+    const isLocalDomain = localDomains.includes(targetDomain);
+    const fromAddress = email.from_address || `unknown@${targetDomain}`;
+    const targetFromAddress = typeof body.from === 'string' ? body.from.trim() : '';
+    const originalReplyTo = email.reply_to || email.from_address || undefined;
+    const forwardedBy = 'cloudflare-email-manager';
+    const forwardSubject = `Fwd: ${email.subject || '(无主题)'}`;
+    const forwardContent = [
+      `转发邮件（由系统转发）`,
+      ``,
+      `转发系统: ${forwardedBy}`,
+      `原发件人: ${email.from_address || '-'}`,
+      `原收件人: ${email.to_address || '-'}`,
+      `原主题: ${email.subject || '(无主题)'}`,
+      `接收时间: ${email.received_at || '-'}`,
+      ``,
+      email.content || ''
+    ].join('\n');
+
+    try {
+      if (targetForwardType === 'internal') {
+        if (!isLocalDomain) {
+          throw new HTTPException(400, { message: '站内转发目标域名不在系统配置中' });
+        }
+
+        const forwardedEmailId = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const messageId = `<forward-${forwardedEmailId}@${targetDomain}>`;
+        const rawEmail = [
+          `From: ${fromAddress}`,
+          `To: ${targetEmail}`,
+          `Subject: ${forwardSubject}`,
+          `Date: ${new Date().toUTCString()}`,
+          `Message-ID: ${messageId}`,
+          `X-CEM-Forwarded: 1`,
+          `X-CEM-Forwarded-By: ${forwardedBy}`,
+          `X-CEM-Original-From: ${email.from_address || ''}`,
+          `X-CEM-Original-To: ${email.to_address || ''}`,
+          `MIME-Version: 1.0`,
+          `Content-Type: text/plain; charset=UTF-8`,
+          `Content-Transfer-Encoding: 8bit`,
+          ``,
+          forwardContent
+        ].join('\r\n');
+
+        const forwardedEmail = await createEmail(c.env.DB, {
+          subject: forwardSubject,
+          from_address: fromAddress,
+          to_address: targetEmail,
+          content: forwardContent.slice(0, 1000),
+          is_read: 0,
+          attachment_count: 0,
+          message_id: messageId,
+          headers_json: JSON.stringify({
+            from: fromAddress,
+            to: targetEmail,
+            subject: forwardSubject,
+            date: now,
+            'message-id': messageId,
+            'x-cem-forwarded': '1',
+            'x-cem-forwarded-by': forwardedBy,
+            'x-cem-original-from': email.from_address || '',
+            'x-cem-original-to': email.to_address || ''
+          }),
+          size_bytes: new TextEncoder().encode(rawEmail).byteLength,
+          date: now,
+          reply_to: email.reply_to || email.from_address,
+          cc: null,
+          bcc: null,
+          content_type: 'text/plain; charset=UTF-8',
+          received_at: now
+        }, forwardedEmailId);
+
+        if (c.env.R2) {
+          await saveRawEmailToR2(c.env.R2, rawEmail, messageId, forwardedEmail.id, fromAddress, targetEmail);
+        }
+
+        await logForwardResult(c.env.DB, email.id, `mailto:${targetEmail}`, {
+          success: true,
+          responseCode: 200
+        }, c.env.KV, { from: fromAddress, to: targetEmail });
+
+        await handleEmailForwarding(forwardedEmail, null, c.env.DB, c.env);
+        await bumpChangeSignals(c.env.DB, ['emails', 'dashboard']);
+
+        return c.json<ApiResponse>({
+          success: true,
+          message: '收件转发已投递到本地域并触发路由',
+          data: { mode, target: targetEmail, local: true, forwardedEmailId: forwardedEmail.id }
+        });
+      }
+
+      if (targetForwardType === 'cf' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetFromAddress)) {
+        throw new HTTPException(400, { message: 'CF 转发发件人邮箱格式无效' });
+      }
+
+      const sendResult = await sendEmail(c.env, {
+        to: targetEmail,
+        from: targetFromAddress,
+        reply_to: originalReplyTo,
+        subject: forwardSubject,
+        content: forwardContent,
+        content_type: 'text',
+        delivery_method: targetForwardType
+      });
+
+      await logForwardResult(c.env.DB, email.id, `mailto:${targetEmail}`, {
+        success: true,
+        responseCode: 200
+      }, c.env.KV, { from: targetFromAddress, to: targetEmail });
+
+      return c.json<ApiResponse>({
+        success: true,
+        message: '收件转发已提交投递',
+        data: {
+          mode,
+          target: targetEmail,
+          local: false,
+          targetForwardType,
+          messageId: sendResult.messageId || null
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '收件转发失败';
+      await logForwardResult(c.env.DB, email.id, `mailto:${targetEmail}`, {
+        success: false,
+        errorMessage: message
+      }, c.env.KV, { from: targetFromAddress || null, to: targetEmail });
+      throw new HTTPException(502, { message });
+    }
+  } catch (error) {
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+    errorLog('[手动转发邮件] 失败:', error);
+    throw new HTTPException(500, { message: '手动转发邮件失败' });
   }
 });
 
@@ -423,6 +785,9 @@ api.delete('/emails/batch', jwtAuthMiddleware, async (c) => {
     // 单管理员模式：所有用户都是管理员，可以批量删除所有邮件
 
     const result = await batchDeleteEmails(c.env.DB, c.env.R2, emailIds);
+    if (result.deletedEmails > 0) {
+      await bumpChangeSignals(c.env.DB, ['emails', 'dashboard']);
+    }
 
     return c.json<ApiResponse>({
       success: true,
@@ -444,7 +809,7 @@ api.delete('/emails/batch', jwtAuthMiddleware, async (c) => {
 api.delete('/emails/:id', jwtAuthMiddleware, async (c) => {
   try {
     const payload = c.get('jwtPayload');
-    const emailId = c.req.param('id');
+    const emailId = getRequiredParam(c, 'id', '邮件ID');
 
     const email = await getEmailById(c.env.DB, emailId);
     if (!email) {
@@ -452,6 +817,7 @@ api.delete('/emails/:id', jwtAuthMiddleware, async (c) => {
     }
 
     const result = await deleteEmail(c.env.DB, c.env.R2, emailId);
+    await bumpChangeSignals(c.env.DB, ['emails', 'dashboard']);
 
     return c.json<ApiResponse>({
       success: true,
@@ -484,8 +850,8 @@ api.delete('/emails/:id', jwtAuthMiddleware, async (c) => {
 api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
   try {
     const payload = c.get('jwtPayload');
-    const emailId = c.req.param('id');
-    const attachmentId = c.req.param('attachmentId');
+    const emailId = getRequiredParam(c, 'id', '邮件ID');
+    const attachmentId = getRequiredParam(c, 'attachmentId', '附件ID');
 
     const email = await getEmailById(c.env.DB, emailId);
     if (!email) {
@@ -495,6 +861,9 @@ api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) =>
     const attachment = await getAttachmentById(c.env.DB, attachmentId);
     if (!attachment) {
       throw new HTTPException(404, { message: '附件不存在' });
+    }
+    if (attachment.deleted_at) {
+      throw new HTTPException(410, { message: '附件不存在或已删除' });
     }
 
     debugLog(`[下载附件] 附件ID: ${attachmentId}, 文件名: ${attachment.filename}, 大小: ${attachment.size_bytes} bytes`);
@@ -546,7 +915,13 @@ api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) =>
       return await c.env.R2.get(attachment.r2_key);
     });
     if (!r2Object) {
-      throw new HTTPException(404, { message: '附件文件不存在' });
+      await c.env.DB.prepare(`
+        UPDATE attachments
+        SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(attachmentId).run();
+      throw new HTTPException(410, { message: '附件不存在或已删除' });
     }
 
     // 如果有 KV 且文件小于 1MB，写入 KV 缓存（后台异步写入，不阻塞响应）
@@ -602,12 +977,15 @@ api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) =>
 api.get('/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
   try {
     const payload = c.get('jwtPayload');
-    const attachmentId = c.req.param('attachmentId');
+    const attachmentId = getRequiredParam(c, 'attachmentId', '附件ID');
 
     // 从数据库获取附件信息（包括关联的邮件 ID）
     const attachment = await getAttachmentById(c.env.DB, attachmentId);
     if (!attachment) {
       throw new HTTPException(404, { message: '附件不存在' });
+    }
+    if (attachment.deleted_at) {
+      throw new HTTPException(410, { message: '附件不存在或已删除' });
     }
 
     // 通过附件的 email_id 查询邮件
@@ -665,7 +1043,13 @@ api.get('/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
       return await c.env.R2.get(attachment.r2_key);
     });
     if (!r2Object) {
-      throw new HTTPException(404, { message: '附件文件不存在' });
+      await c.env.DB.prepare(`
+        UPDATE attachments
+        SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(attachmentId).run();
+      throw new HTTPException(410, { message: '附件不存在或已删除' });
     }
 
     // 如果有 KV 且文件小于 1MB，写入 KV 缓存（后台异步写入，不阻塞响应）
@@ -726,9 +1110,9 @@ api.post('/emails/send', jwtAuthMiddleware, async (c) => {
     // 单管理员模式：所有用户都是管理员，可以发送邮件
 
     // 发送邮件（使用默认域名）
-    await sendEmail(c.env, {
+    const sendResult = await sendEmail(c.env, {
       to,
-      from: from || 'noreply@example.com',
+      from: from || undefined,
       subject,
       content,
       content_type
@@ -736,7 +1120,11 @@ api.post('/emails/send', jwtAuthMiddleware, async (c) => {
 
     return c.json<ApiResponse>({
       success: true,
-      message: '邮件发送成功'
+      message: '邮件已提交投递',
+      data: {
+        target: to,
+        messageId: sendResult.messageId || null
+      }
     });
   } catch (error) {
     if (error instanceof HTTPException) {
@@ -747,13 +1135,420 @@ api.post('/emails/send', jwtAuthMiddleware, async (c) => {
   }
 });
 
+// ==================== 消息路由相关 ====================
+const parseJsonNumberArray = (value: unknown): number[] => {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.map((item) => Number(item)).filter((item) => Number.isInteger(item))
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const selectRoutingRows = async (db: D1Database) => {
+  const result = await db.prepare(`
+    SELECT
+      id,
+      category,
+      name,
+      enabled,
+      match_mode,
+      sender_pattern,
+      recipient_pattern,
+      subject_pattern,
+      content_pattern,
+      target_channel_ids,
+      target_email,
+      target_from_address,
+      target_forward_type,
+      is_default,
+      default_mode,
+      channel_type,
+      channel_url,
+      channel_secret
+    FROM routing_rules
+    ORDER BY id ASC
+  `).all();
+
+  return result.results || [];
+};
+
+const buildRoutingPayload = (rows: any[]) => {
+  const mapped = rows.map((row) => ({
+    id: Number(row.id),
+    category: row.category,
+    name: row.name || '',
+    enabled: row.enabled === 1,
+    matchMode: row.match_mode === 'any' ? 'any' : 'all',
+    senderPattern: row.sender_pattern || '',
+    recipientPattern: row.recipient_pattern || '',
+    subjectPattern: row.subject_pattern || '',
+    contentPattern: row.content_pattern || '',
+    targetChannelIds: parseJsonNumberArray(row.target_channel_ids),
+    targetEmail: row.target_email || '',
+    targetFromAddress: row.target_from_address || '',
+    targetForwardType: ['smtp', 'cf'].includes(row.target_forward_type) ? row.target_forward_type : 'internal',
+    isDefault: row.is_default === 1,
+    defaultMode: row.default_mode === 'always' ? 'always' : 'unmatched',
+    channelType: row.channel_type || 'dingtalk',
+    channelUrl: row.channel_url || '',
+    channelSecret: row.channel_secret || ''
+  }));
+
+  return {
+    channels: mapped
+      .filter((item) => item.category === 'channel')
+      .map(({ category, matchMode, senderPattern, recipientPattern, subjectPattern, contentPattern, targetChannelIds, targetEmail, targetFromAddress, targetForwardType, isDefault, defaultMode, channelType, channelUrl, channelSecret, ...item }) => ({
+        ...item,
+        type: channelType,
+        url: channelUrl,
+        secret: channelSecret
+      })),
+    notificationRules: mapped
+      .filter((item) => item.category === 'notification' && !item.isDefault)
+      .map(({ category, targetEmail, targetFromAddress, targetForwardType, isDefault, defaultMode, channelType, channelUrl, channelSecret, ...item }) => item),
+    incomingRules: mapped
+      .filter((item) => item.category === 'incoming' && !item.isDefault)
+      .map(({ category, targetChannelIds, isDefault, defaultMode, channelType, channelUrl, channelSecret, ...item }) => item),
+    defaultNotificationRule: mapped
+      .filter((item) => item.category === 'notification' && item.isDefault)
+      .map(({ category, targetEmail, targetFromAddress, targetForwardType, isDefault, channelType, channelUrl, channelSecret, ...item }) => item)[0] || null,
+    defaultIncomingRule: mapped
+      .filter((item) => item.category === 'incoming' && item.isDefault)
+      .map(({ category, targetChannelIds, isDefault, channelType, channelUrl, channelSecret, ...item }) => item)[0] || null
+  };
+};
+
+const normalizeRoutingItem = (item: any) => {
+  const category = item.category;
+  if (!['channel', 'notification', 'incoming'].includes(category)) {
+    throw new HTTPException(400, { message: '配置类型无效' });
+  }
+
+  const name = typeof item.name === 'string' ? item.name.trim() : '';
+  if (!name) {
+    throw new HTTPException(400, { message: '名称不能为空' });
+  }
+
+  const isChannel = category === 'channel';
+  const channelUrl = isChannel && typeof item.url === 'string' ? item.url.trim() : '';
+  if (isChannel && !channelUrl) {
+    throw new HTTPException(400, { message: '通道 URL 不能为空' });
+  }
+
+  const targetChannelIds = category === 'notification'
+    ? (Array.isArray(item.targetChannelIds) ? item.targetChannelIds.map(Number).filter(Number.isInteger) : [])
+    : [];
+  const targetEmail = category === 'incoming' && typeof item.targetEmail === 'string' ? item.targetEmail.trim() : '';
+  const targetFromAddress = category === 'incoming' && typeof item.targetFromAddress === 'string' ? item.targetFromAddress.trim() : '';
+  const targetForwardType = category === 'incoming' && ['internal', 'smtp', 'cf'].includes(item.targetForwardType)
+    ? item.targetForwardType
+    : 'internal';
+
+  if (category === 'notification' && targetChannelIds.length === 0) {
+    throw new HTTPException(400, { message: '至少选择一个通知通道' });
+  }
+  if (category === 'incoming' && !targetEmail) {
+    throw new HTTPException(400, { message: '转发邮箱不能为空' });
+  }
+  if (category === 'incoming' && targetForwardType === 'cf' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetFromAddress)) {
+    throw new HTTPException(400, { message: 'CF 转发发件人邮箱格式无效' });
+  }
+
+  return {
+    clientId: Number(item.id),
+    category,
+    name,
+    enabled: item.enabled ? 1 : 0,
+    matchMode: item.matchMode === 'any' ? 'any' : 'all',
+    senderPattern: typeof item.senderPattern === 'string' ? item.senderPattern.trim() : '',
+    recipientPattern: typeof item.recipientPattern === 'string' ? item.recipientPattern.trim() : '',
+    subjectPattern: typeof item.subjectPattern === 'string' ? item.subjectPattern.trim() : '',
+    contentPattern: typeof item.contentPattern === 'string' ? item.contentPattern.trim() : '',
+    targetChannelIds,
+    targetEmail,
+    targetFromAddress,
+    targetForwardType,
+    isDefault: item.isDefault ? 1 : 0,
+    defaultMode: item.isDefault ? (item.defaultMode === 'always' ? 'always' : 'unmatched') : null,
+    channelType: isChannel && ['dingtalk', 'feishu', 'bark'].includes(item.type) ? item.type : null,
+    channelUrl,
+    channelSecret: isChannel && typeof item.secret === 'string' ? item.secret.trim() : ''
+  };
+};
+
+type NormalizedRoutingItem = ReturnType<typeof normalizeRoutingItem>;
+
+const insertRoutingItem = async (db: D1Database, item: NormalizedRoutingItem, targetChannelIds?: number[]) => {
+  const result = await db.prepare(`
+    INSERT INTO routing_rules (
+      category,
+      name,
+      enabled,
+      match_mode,
+      sender_pattern,
+      recipient_pattern,
+      subject_pattern,
+      content_pattern,
+      target_channel_ids,
+      target_email,
+      target_from_address,
+      target_forward_type,
+      is_default,
+      default_mode,
+      channel_type,
+      channel_url,
+      channel_secret
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    item.category,
+    item.name,
+    item.enabled,
+    item.matchMode,
+    item.senderPattern,
+    item.recipientPattern,
+    item.subjectPattern,
+    item.contentPattern,
+    JSON.stringify(targetChannelIds || item.targetChannelIds),
+    item.targetEmail,
+    item.targetFromAddress,
+    item.targetForwardType,
+    item.isDefault,
+    item.defaultMode,
+    item.channelType,
+    item.channelUrl,
+    item.channelSecret
+  ).run();
+
+  return Number(result.meta?.last_row_id);
+};
+
+api.post('/routing', jwtAuthMiddleware, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const action = body.action || 'list';
+
+    if (action === 'list') {
+      return c.json<ApiResponse>({
+        success: true,
+        data: buildRoutingPayload(await selectRoutingRows(c.env.DB))
+      });
+    }
+
+    if (action === 'delete') {
+      const id = Number(body.id);
+      if (!Number.isInteger(id)) {
+        throw new HTTPException(400, { message: 'ID无效' });
+      }
+
+      await c.env.DB.prepare('DELETE FROM routing_rules WHERE id = ?').bind(id).run();
+      await bumpChangeSignals(c.env.DB, ['routing_config', 'dashboard']);
+      return c.json<ApiResponse>({
+        success: true,
+        message: '消息路由配置已删除',
+        data: buildRoutingPayload(await selectRoutingRows(c.env.DB))
+      });
+    }
+
+    if (action === 'replace') {
+      const config = body.config || {};
+      const channels: NormalizedRoutingItem[] = Array.isArray(config.channels)
+        ? config.channels.map((item: any) => normalizeRoutingItem({ ...item, category: 'channel' }))
+        : [];
+      const notificationRules: NormalizedRoutingItem[] = Array.isArray(config.notificationRules)
+        ? config.notificationRules.map((item: any) => normalizeRoutingItem({ ...item, category: 'notification' }))
+        : [];
+      const incomingRules: NormalizedRoutingItem[] = Array.isArray(config.incomingRules)
+        ? config.incomingRules.map((item: any) => normalizeRoutingItem({ ...item, category: 'incoming' }))
+        : [];
+      const defaultNotificationRule = config.defaultNotificationRule
+        ? normalizeRoutingItem({ ...config.defaultNotificationRule, category: 'notification', isDefault: true })
+        : null;
+      const defaultIncomingRule = config.defaultIncomingRule
+        ? normalizeRoutingItem({ ...config.defaultIncomingRule, category: 'incoming', isDefault: true })
+        : null;
+
+      if (channels.length === 0) {
+        throw new HTTPException(400, { message: '至少保留一个通知通道' });
+      }
+
+      const channelClientIds = new Set(channels.map((item) => item.clientId).filter(Number.isInteger));
+      const assertKnownChannelIds = (ids: number[]) => {
+        if (ids.some((id) => !channelClientIds.has(id))) {
+          throw new HTTPException(400, { message: '规则引用了不存在的通知通道' });
+        }
+      };
+
+      notificationRules.forEach((rule) => assertKnownChannelIds(rule.targetChannelIds));
+      if (defaultNotificationRule) {
+        assertKnownChannelIds(defaultNotificationRule.targetChannelIds);
+      }
+
+      await c.env.DB.prepare('DELETE FROM routing_rules').run();
+
+      const channelIdMap = new Map<number, number>();
+      for (const channel of channels) {
+        const insertedId = await insertRoutingItem(c.env.DB, channel);
+        channelIdMap.set(channel.clientId, insertedId);
+      }
+
+      const remapChannelIds = (ids: number[]) => ids.map((id) => channelIdMap.get(id)).filter((id): id is number => Number.isInteger(id));
+
+      if (defaultNotificationRule) {
+        await insertRoutingItem(c.env.DB, defaultNotificationRule, remapChannelIds(defaultNotificationRule.targetChannelIds));
+      }
+      if (defaultIncomingRule) {
+        await insertRoutingItem(c.env.DB, defaultIncomingRule);
+      }
+      for (const rule of notificationRules) {
+        await insertRoutingItem(c.env.DB, rule, remapChannelIds(rule.targetChannelIds));
+      }
+      for (const rule of incomingRules) {
+        await insertRoutingItem(c.env.DB, rule);
+      }
+
+      await bumpChangeSignals(c.env.DB, ['routing_config', 'dashboard']);
+      return c.json<ApiResponse>({
+        success: true,
+        message: '消息路由配置已保存',
+        data: buildRoutingPayload(await selectRoutingRows(c.env.DB))
+      });
+    }
+
+    if (action === 'save') {
+      const item = body.item || {};
+      const category = item.category;
+      if (!['channel', 'notification', 'incoming'].includes(category)) {
+        throw new HTTPException(400, { message: '配置类型无效' });
+      }
+
+      const id = Number(item.id);
+      const hasId = Number.isInteger(id) && id > 0;
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      if (!name) {
+        throw new HTTPException(400, { message: '名称不能为空' });
+      }
+
+      const isChannel = category === 'channel';
+      const channelUrl = isChannel && typeof item.url === 'string' ? item.url.trim() : '';
+      if (isChannel && !channelUrl) {
+        throw new HTTPException(400, { message: '通道 URL 不能为空' });
+      }
+
+      const targetChannelIds = category === 'notification'
+        ? (Array.isArray(item.targetChannelIds) ? item.targetChannelIds.map(Number).filter(Number.isInteger) : [])
+        : [];
+      const targetEmail = category === 'incoming' && typeof item.targetEmail === 'string' ? item.targetEmail.trim() : '';
+      const targetFromAddress = category === 'incoming' && typeof item.targetFromAddress === 'string' ? item.targetFromAddress.trim() : '';
+      const targetForwardType = category === 'incoming' && ['internal', 'smtp', 'cf'].includes(item.targetForwardType)
+        ? item.targetForwardType
+        : 'internal';
+
+      if (category === 'notification' && targetChannelIds.length === 0) {
+        throw new HTTPException(400, { message: '至少选择一个通知通道' });
+      }
+      if (category === 'incoming' && !targetEmail) {
+        throw new HTTPException(400, { message: '转发邮箱不能为空' });
+      }
+      if (category === 'incoming' && targetForwardType === 'cf' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetFromAddress)) {
+        throw new HTTPException(400, { message: 'CF 转发发件人邮箱格式无效' });
+      }
+
+      const values = [
+        category,
+        name,
+        item.enabled ? 1 : 0,
+        item.matchMode === 'any' ? 'any' : 'all',
+        typeof item.senderPattern === 'string' ? item.senderPattern.trim() : '',
+        typeof item.recipientPattern === 'string' ? item.recipientPattern.trim() : '',
+        typeof item.subjectPattern === 'string' ? item.subjectPattern.trim() : '',
+        typeof item.contentPattern === 'string' ? item.contentPattern.trim() : '',
+        JSON.stringify(targetChannelIds),
+        targetEmail,
+        targetFromAddress,
+        targetForwardType,
+        item.isDefault ? 1 : 0,
+        item.isDefault ? (item.defaultMode === 'always' ? 'always' : 'unmatched') : null,
+        isChannel && ['dingtalk', 'feishu', 'bark'].includes(item.type) ? item.type : null,
+        channelUrl,
+        isChannel && typeof item.secret === 'string' ? item.secret.trim() : ''
+      ];
+
+      if (hasId) {
+        await c.env.DB.prepare(`
+          UPDATE routing_rules
+          SET
+            category = ?,
+            name = ?,
+            enabled = ?,
+            match_mode = ?,
+            sender_pattern = ?,
+            recipient_pattern = ?,
+            subject_pattern = ?,
+            content_pattern = ?,
+            target_channel_ids = ?,
+            target_email = ?,
+            target_from_address = ?,
+            target_forward_type = ?,
+            is_default = ?,
+            default_mode = ?,
+            channel_type = ?,
+            channel_url = ?,
+            channel_secret = ?
+          WHERE id = ?
+        `).bind(...values, id).run();
+      } else {
+        await c.env.DB.prepare(`
+          INSERT INTO routing_rules (
+            category,
+            name,
+            enabled,
+            match_mode,
+            sender_pattern,
+            recipient_pattern,
+            subject_pattern,
+            content_pattern,
+            target_channel_ids,
+            target_email,
+            target_from_address,
+            target_forward_type,
+            is_default,
+            default_mode,
+            channel_type,
+            channel_url,
+            channel_secret
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(...values).run();
+      }
+
+      await bumpChangeSignals(c.env.DB, ['routing_config', 'dashboard']);
+      return c.json<ApiResponse>({
+        success: true,
+        message: '消息路由配置已保存',
+        data: buildRoutingPayload(await selectRoutingRows(c.env.DB))
+      });
+    }
+
+    throw new HTTPException(400, { message: '操作无效' });
+  } catch (error) {
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+    errorLog('[消息路由] 统一接口失败:', error);
+    throw new HTTPException(500, { message: '消息路由操作失败' });
+  }
+});
+
 // ==================== 系统相关 ====================
 api.route('/system', systemRoutes);
 
-// ==================== 数据库管理 ====================
-api.route('/database', databaseRoutes);
+// ==================== 仪表板和转发日志 ====================
+api.route('/dashboard', dashboardRoutes);
 
-// ==================== KV 缓存管理 ====================
-api.route('/kv-cache', kvCacheRouter);
+// ==================== 工具相关（统一管理调试/工具功能） ====================
+api.route('/tools', toolsRoutes);
 
 export { api };

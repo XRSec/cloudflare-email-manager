@@ -617,6 +617,38 @@ export async function getRawEmailFromR2(
 }
 
 /**
+ * 从 R2 读取原始邮件字节。
+ *
+ * 详情解析必须尽量保留原始字节交给 MIME 解析器处理，避免先按 UTF-8
+ * 解码再重新编码导致非 UTF-8 邮件正文损坏。
+ */
+export async function getRawEmailBytesFromR2(
+    r2: R2Bucket | any,
+    emailIdOrR2Key: string
+): Promise<Uint8Array | null> {
+    try {
+        const r2Key = emailIdOrR2Key.startsWith('email:')
+            ? emailIdOrR2Key
+            : emailIdToR2Key(emailIdOrR2Key);
+
+        const object = await retryR2Operation(`读取 R2 对象字节 ${r2Key}`, async () => {
+            return await r2.get(r2Key);
+        });
+
+        if (!object) {
+            return null;
+        }
+
+        const arrayBuffer = await object.arrayBuffer();
+        return new Uint8Array(arrayBuffer);
+    } catch (error) {
+        const { errorLog } = await import('../utils/debug');
+        errorLog('邮件存储', '从R2读取原始邮件字节失败:', error);
+        return null;
+    }
+}
+
+/**
  * 从 R2 读取邮件元数据（meta.json）
  *
  * @param r2 R2存储桶实例
@@ -779,10 +811,22 @@ export async function getAllEmails(
         const { debugLog, errorLog } = await import('../utils/debug');
         debugLog('邮件查询', '开始执行，参数:', params);
 
+        const allowedSortFields = new Set([
+            'received_at',
+            'created_at',
+            'subject',
+            'from_address',
+            'to_address',
+            'attachment_count',
+            'is_read',
+            'size_bytes'
+        ]);
+
         const {
             page = 1,
             limit = 20,
             search,
+            status,
             sender,
             subject,
             start_date,
@@ -795,12 +839,20 @@ export async function getAllEmails(
         const offset = (page - 1) * limit;
         const conditions: string[] = [];
         const values: any[] = [];
+        const normalizedSort = allowedSortFields.has(sort) ? sort : 'received_at';
+        const normalizedOrder = order.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
         // 构建查询条件
         if (search) {
             conditions.push('(subject LIKE ? OR content LIKE ? OR from_address LIKE ? OR to_address LIKE ?)');
             const searchPattern = `%${search}%`;
             values.push(searchPattern, searchPattern, searchPattern, searchPattern);
+        }
+
+        if (status === 'read') {
+            conditions.push('is_read = 1');
+        } else if (status === 'unread') {
+            conditions.push('is_read = 0');
         }
 
         if (sender) {
@@ -833,7 +885,7 @@ export async function getAllEmails(
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-        const orderClause = `ORDER BY ${sort} ${order.toUpperCase()}`;
+        const orderClause = `ORDER BY ${normalizedSort} ${normalizedOrder}`;
 
         // 获取邮件列表（从 message.raw 提取的信息）
         const emailsResult = await db.prepare(`
@@ -1063,7 +1115,7 @@ export async function getEmailAttachments(db: D1Database, emailId: string): Prom
 
     const result = await db.prepare(`
         SELECT id, email_id, filename, content_type, size_bytes, r2_key, content_id,
-               created_at, updated_at
+               deleted_at, created_at, updated_at
         FROM attachments
         WHERE email_id = ?
         ORDER BY created_at
@@ -1079,6 +1131,7 @@ export async function getEmailAttachments(db: D1Database, emailId: string): Prom
         size_bytes: row.size_bytes as number,
         r2_key: row.r2_key as string,
         content_id: row.content_id as string | null | undefined,
+        deleted_at: row.deleted_at as string | null | undefined,
         created_at: row.created_at as string | undefined,
         updated_at: row.updated_at as string | undefined,
     }));
@@ -1196,7 +1249,7 @@ export async function getAttachmentById(db: D1Database, id: string): Promise<Att
     const result = await retryD1Operation(`查询附件 ${id}`, async () => {
         return await db.prepare(`
             SELECT id, email_id, filename, content_type, size_bytes, r2_key, content_id,
-                   created_at, updated_at
+                   deleted_at, created_at, updated_at
             FROM attachments
             WHERE id = ?
         `).bind(id).first();
@@ -1214,6 +1267,7 @@ export async function getAttachmentById(db: D1Database, id: string): Promise<Att
         size_bytes: result.size_bytes as number,
         r2_key: result.r2_key as string,
         content_id: result.content_id as string | null | undefined,
+        deleted_at: result.deleted_at as string | null | undefined,
         created_at: result.created_at as string | undefined,
         updated_at: result.updated_at as string | undefined,
     };
@@ -1346,75 +1400,94 @@ export async function parseEmailAttachments(rawEmail: string, env: Env, emailId:
 }
 
 /**
- * 清理旧邮件
+ * 清理过期附件
  *
  * @param env 环境变量
  * @returns 删除结果
- *
- * @description
- * 注意：不再清理附件，因为不再单独保存附件
  */
-export async function cleanupOldEmails(env: Env): Promise<{
+export async function cleanupExpiredAttachments(env: Env): Promise<{
     deletedEmails: number;
     deletedAttachments: number;
     deletedEmailFiles: number;
     deletedAttachmentFiles: number;
 }> {
-    // 获取邮件保留天数
-    const mailRetentionDaysSetting = await getSystemSetting(env.DB, 'mail_retention_days');
-    if (!mailRetentionDaysSetting) {
+    const attachmentRetentionDaysSetting = await getSystemSetting(env.DB, 'attachment_retention_days');
+    if (!attachmentRetentionDaysSetting) {
         const { errorLog } = await import('../utils/debug');
-        errorLog('邮件清理', '邮件保留天数未配置，跳过邮件清理');
+        errorLog('附件清理', '附件保留天数未配置，跳过附件清理');
         return { deletedEmails: 0, deletedAttachments: 0, deletedEmailFiles: 0, deletedAttachmentFiles: 0 };
     }
-    const mailRetentionDays = parseInt(mailRetentionDaysSetting);
 
-    let deletedEmails = 0;
-    let deletedEmailFiles = 0;
+    const attachmentRetentionDays = parseInt(attachmentRetentionDaysSetting);
+    if (!Number.isFinite(attachmentRetentionDays) || attachmentRetentionDays <= 0) {
+        const { errorLog } = await import('../utils/debug');
+        errorLog('附件清理', `附件保留天数无效: ${attachmentRetentionDaysSetting}`);
+        return { deletedEmails: 0, deletedAttachments: 0, deletedEmailFiles: 0, deletedAttachmentFiles: 0 };
+    }
 
-    // 清理过期邮件
-    if (mailRetentionDays > 0) {
-        const mailCutoffDate = new Date();
-        mailCutoffDate.setDate(mailCutoffDate.getDate() - mailRetentionDays);
-        const mailCutoffDateStr = mailCutoffDate.toISOString();
+    let deletedAttachments = 0;
+    let deletedAttachmentFiles = 0;
+    const affectedEmailIds = new Set<string>();
 
-        // 获取需要清理的邮件
-        const emailsToDelete = await env.DB.prepare(`
-            SELECT id
-            FROM emails
-            WHERE received_at < ?
-        `).bind(mailCutoffDateStr).all();
+    const attachmentsToDelete = await env.DB.prepare(`
+        SELECT id, email_id, r2_key
+        FROM attachments
+        WHERE deleted_at IS NULL
+          AND created_at < datetime('now', ?)
+    `).bind(`-${attachmentRetentionDays} days`).all();
 
-        // 删除每封邮件的 R2 文件和数据库记录
-        for (const row of emailsToDelete.results) {
-            const emailId = row.id as string;
+    for (const row of attachmentsToDelete.results) {
+        const attachmentId = row.id as string;
+        const emailId = row.email_id as string;
+        const r2Key = row.r2_key as string;
 
+        try {
             try {
-                // 删除 R2 中的邮件文件（使用 emailId 作为 R2 key）
-                try {
-                    const emailR2Key = emailIdToR2Key(emailId);
-                    await env.R2.delete(emailR2Key);
-                    deletedEmailFiles++;
-                } catch (error) {
-                    const { errorLog } = await import('../utils/debug');
-                    errorLog('邮件清理', `删除邮件文件失败: email:${emailId}.eml`, error);
-                }
-
-                // 删除数据库记录
-                await env.DB.prepare(`DELETE FROM emails WHERE id = ?`).bind(emailId).run();
-                deletedEmails++;
+                await env.R2.delete(r2Key);
+                deletedAttachmentFiles++;
             } catch (error) {
-                console.error(`删除邮件失败: ${emailId}`, error);
+                const { errorLog } = await import('../utils/debug');
+                errorLog('附件清理', `删除附件文件失败: ${r2Key}`, error);
+                continue;
             }
+
+            const result = await env.DB.prepare(`
+                UPDATE attachments
+                SET deleted_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `).bind(attachmentId).run();
+
+            if (result.success) {
+                deletedAttachments++;
+                affectedEmailIds.add(emailId);
+            }
+        } catch (error) {
+            const { errorLog } = await import('../utils/debug');
+            errorLog('附件清理', `删除附件记录失败: ${attachmentId}`, error);
         }
     }
 
-    const { infoLog } = await import('../utils/debug');
-    infoLog('邮件清理', `清理完成: 删除了 ${deletedEmails} 封邮件、${deletedEmailFiles} 个邮件文件`);
+    for (const emailId of affectedEmailIds) {
+        await env.DB.prepare(`
+            UPDATE emails
+            SET attachment_count = (
+                SELECT COUNT(*)
+                FROM attachments
+                WHERE email_id = ?
+                  AND deleted_at IS NULL
+            )
+            WHERE id = ?
+        `).bind(emailId, emailId).run();
+    }
 
-    // 返回兼容的格式（附件相关字段始终为 0）
-    return { deletedEmails, deletedAttachments: 0, deletedEmailFiles, deletedAttachmentFiles: 0 };
+    const { infoLog } = await import('../utils/debug');
+    infoLog('附件清理', `清理完成: 删除了 ${deletedAttachments} 条附件记录、${deletedAttachmentFiles} 个附件文件`);
+
+    return { deletedEmails: 0, deletedAttachments, deletedEmailFiles: 0, deletedAttachmentFiles };
 }
+
+export const cleanupOldEmails = cleanupExpiredAttachments;
 
 /**
  * 发送邮件
@@ -1423,25 +1496,45 @@ export async function sendEmail(
     env: Env,
     emailData: {
         to: string;
-        from: string;
+        from?: string;
         subject: string;
         content: string;
         content_type: 'text' | 'html' | 'markdown';
+        delivery_method?: 'smtp' | 'cf' | 'internal';
+        reply_to?: string;
     }
-): Promise<void> {
-    // 这里应该实现实际的邮件发送逻辑
-    // 由于 Cloudflare Workers 的限制，可能需要使用第三方邮件服务
-    // 或者通过其他 Worker 的 RPC 调用
-
+): Promise<{ messageId?: string }> {
     const { debugLog } = await import('../utils/debug');
+    const deliveryMethod = emailData.delivery_method || 'cf';
+
     debugLog('邮件发送', '发送邮件:', {
         to: emailData.to,
-        from: emailData.from,
+        from: emailData.from || '(由发送服务决定)',
+        reply_to: emailData.reply_to || '',
         subject: emailData.subject,
-        content_type: emailData.content_type
+        content_type: emailData.content_type,
+        delivery_method: deliveryMethod
     });
 
-    // 模拟邮件发送成功
-    // 在实际实现中，这里应该调用邮件发送服务
-    throw new Error('邮件发送功能尚未实现，需要集成邮件发送服务');
+    if (deliveryMethod !== 'cf') {
+        throw new Error(`${deliveryMethod} 邮件发送功能尚未实现`);
+    }
+
+    if (!env.EMAIL) {
+        throw new Error('Cloudflare Email Service 未配置：缺少 EMAIL send_email 绑定');
+    }
+
+    if (!emailData.from) {
+        throw new Error('使用 Cloudflare Email Service 发信时必须提供发件人地址');
+    }
+
+    return await env.EMAIL.send({
+        to: emailData.to,
+        from: emailData.from,
+        ...(emailData.reply_to ? { replyTo: emailData.reply_to } : {}),
+        subject: emailData.subject,
+        ...(emailData.content_type === 'html'
+            ? { html: emailData.content }
+            : { text: emailData.content })
+    });
 }

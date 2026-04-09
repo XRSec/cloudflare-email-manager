@@ -9,10 +9,10 @@ export { useApp } from './useApp'
 export { useAuthCore } from './auth'
 
 // 导出认证相关 API
-export { authApiService } from './auth'
+export { authApiService } from './api-auth'
 
 // 导出系统相关 API
-export { systemApiService } from './api'
+export { systemApiService } from './api-system'
 
 // 导出所有类型
 export type * from '@/types'

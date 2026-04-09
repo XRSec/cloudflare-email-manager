@@ -135,9 +135,10 @@ dist
 .pnp.*
 
 .wrangler
-wrangler.toml
-wrangler.toml.backup
 .dev.vars
 pnpm-lock.yaml
 
 .yarn
+
+d1.db
+wrangler.toml

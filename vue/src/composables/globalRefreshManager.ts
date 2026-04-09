@@ -46,9 +46,15 @@ export function useUnifiedGlobalRefreshManager() {
       console.log('🌍 开始全局刷新')
 
       let result = null
+      let handledByPageRefresh = false
 
-      // 检查是否支持统一管理
-      if (isSupportedRoute.value && hasPermission.value) {
+      const pageRefresh = window.refreshCurrentPage
+      if (pageRefresh && typeof pageRefresh === 'function' && pageRefresh !== executeGlobalRefresh) {
+        console.log('🔧 使用当前页面注册的刷新方法')
+        handledByPageRefresh = true
+        result = await pageRefresh()
+      } else if (isSupportedRoute.value && hasPermission.value) {
+        // 检查是否支持统一管理
         console.log('📋 使用统一刷新管理器（直接调用API刷新缓存）')
         // 支持统一管理的路由，直接调用刷新，更新缓存
         result = await executeUnifiedRefresh()
@@ -91,15 +97,17 @@ export function useUnifiedGlobalRefreshManager() {
 
       // 🔥 重要：触发刷新完成事件，通知所有页面组件重新加载数据
       // 对于支持统一管理的路由，缓存已更新，页面需要重新加载数据以更新显示
-      window.dispatchEvent(new CustomEvent('global:refresh:complete', {
-        detail: {
-          routeName: route.name,
-          timestamp: endTime,
-          duration: endTime.getTime() - startTime.getTime(),
-          result
-        }
-      }))
-      console.log('🎉 已触发 global:refresh:complete 事件，通知页面组件更新显示')
+      if (!handledByPageRefresh) {
+        window.dispatchEvent(new CustomEvent('global:refresh:complete', {
+          detail: {
+            routeName: route.name,
+            timestamp: endTime,
+            duration: endTime.getTime() - startTime.getTime(),
+            result
+          }
+        }))
+        console.log('🎉 已触发 global:refresh:complete 事件，通知页面组件更新显示')
+      }
 
       return result
 

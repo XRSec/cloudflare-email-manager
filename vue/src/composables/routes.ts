@@ -1,20 +1,14 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import { useSystemStore } from './system'
+import { createRouter, createWebHistory, type RouteLocationRaw } from 'vue-router'
 
 // 动态导入组件
-const LoginView = () => import('@/views/auth/LoginView.vue')
-const MainLayout = () => import('@/views/shared/layouts/MainLayout.vue')
-
-// 共享视图
-const DashboardView = () => import('@/views/shared/dashboard/DashboardView.vue')
-
-// 管理员视图（精简）
-const AdminAllEmailsView = () => import('@/views/admin/emails/AllEmailsView.vue')
-const AdminSystemSettingsView = () => import('@/views/admin/settings/SystemSettingsView.vue')
-const AdminDebugView = () => import('@/views/admin/settings/DebugView.vue')
-
-// 错误页面
-const NotFoundView = () => import('@/views/shared/error/NotFoundView.vue')
+const LoginPage = () => import('@/pages/auth/LoginPage.vue')
+const AppLayout = () => import('@/pages/app/AppLayout.vue')
+const DashboardPage = () => import('@/pages/app/DashboardPage.vue')
+const EmailsPage = () => import('@/pages/app/emails/EmailsPage.vue')
+const RoutingPage = () => import('@/pages/app/routing/RoutingPage.vue')
+const SystemSettingsPage = () => import('@/pages/app/settings/SystemSettingsPage.vue')
+const ToolsPage = () => import('@/pages/app/tools/ToolsPage.vue')
+const NotFoundPage = () => import('@/pages/system/NotFoundPage.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -22,49 +16,73 @@ const router = createRouter({
     {
       path: '/login',
       name: 'Login',
-      component: LoginView,
+      component: LoginPage,
       meta: { requiresAuth: false }
     },
     {
       path: '/',
-      component: MainLayout,
+      component: AppLayout,
       meta: { requiresAuth: true },
       children: [
-        // 仪表板
         {
           path: '',
           name: 'dashboard',
-          component: DashboardView
+          component: DashboardPage
         },
-
-        // 管理员页面
         {
           path: 'all-emails',
           name: 'all-emails',
-          component: AdminAllEmailsView
+          component: EmailsPage
+        },
+        {
+          path: 'routing',
+          name: 'routing',
+          component: RoutingPage
         },
         {
           path: 'system-settings',
           name: 'system-settings',
-          component: AdminSystemSettingsView
+          component: SystemSettingsPage
         },
         {
-          path: 'debug',
-          name: 'debug',
-          component: AdminDebugView,
-          meta: { requiresDebug: true }
+          path: 'tools',
+          name: 'tools',
+          component: ToolsPage
         }
       ]
     },
-    // 404 错误页面
     {
       path: '/:pathMatch(.*)*',
       name: 'NotFound',
-      component: NotFoundView,
+      component: NotFoundPage,
       meta: { requiresAuth: false }
     }
   ]
 })
+
+type LazyRouteComponent = () => Promise<unknown>
+
+const isLazyRouteComponent = (component: unknown): component is LazyRouteComponent => {
+  return typeof component === 'function'
+}
+
+export const preloadLoginPage = async () => {
+  return LoginPage()
+}
+
+export const preloadRouteComponents = async (target: RouteLocationRaw) => {
+  const resolved = router.resolve(target)
+  const componentLoaders = resolved.matched.flatMap((record) => {
+    return Object.values(record.components || {}).filter(isLazyRouteComponent)
+  })
+  const uniqueLoaders = Array.from(new Set(componentLoaders))
+
+  if (uniqueLoaders.length === 0) {
+    return
+  }
+
+  await Promise.all(uniqueLoaders.map((loader) => loader()))
+}
 
 // 路由守卫 - 简化版本，避免在路由守卫中使用 store
 router.beforeEach(async (to, _from, next) => {
@@ -94,21 +112,7 @@ router.beforeEach(async (to, _from, next) => {
     }
   }
 
-  // 检查调试模式权限
-  if (to.meta.requiresDebug) {
-    const systemStore = useSystemStore()
-
-    // 总是获取最新的系统健康状态（包含调试模式配置）
-    // health 接口无需认证，适合在路由守卫中使用
-    if (!systemStore.systemConfig) {
-      await systemStore.fetchSystemHealth()
-    }
-
-    if (systemStore.systemConfig?.debug_mode !== 1) {
-      next('/')
-      return
-    }
-  }
+  // 工具页面不再要求调试模式（已移除 requiresDebug 限制）
 
   next()
 })

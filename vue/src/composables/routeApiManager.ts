@@ -5,9 +5,12 @@
 
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { emailApiService, systemApiService, adminApiService, apiService } from './api'
+import { emailApiService } from './api-email'
+import { systemApiService } from './api-system'
+import { adminApiService } from './api-admin'
+import { apiService } from './api'
 import { useRequestManager } from './useRequestManager'
-import { useAuthStore } from './stores'
+import { useAuthStore } from './auth'
 
 // ==================== 类型定义 ====================
 
@@ -23,6 +26,13 @@ export interface ApiParams {
   limit?: number
   search?: string
   status?: string
+  sender?: string
+  subject?: string
+  start_date?: string
+  end_date?: string
+  has_attachments?: boolean
+  sort?: string
+  order?: 'asc' | 'desc'
   days?: number
   [key: string]: any
 }
@@ -260,6 +270,9 @@ export function useRouteApiManager() {
     const response = await requestManager.request(
       async () => {
         const apiService = getApiService(method)
+        if (method === 'getSystemConfig') {
+          return await (apiService as any)[method]({ forceRefresh })
+        }
         return await (apiService as any)[method](finalParams)
       },
       sortedParams,
@@ -455,4 +468,3 @@ export const systemSettingsRouteConfig = {
   routeName: 'system-settings',
   apis: ROUTE_CONFIGS['system-settings'].apis
 }
-

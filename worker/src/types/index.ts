@@ -10,7 +10,8 @@ export type {
     D1Database,
     R2Bucket,
     KVNamespace,
-    Fetcher
+    Fetcher,
+    SendEmail
 } from '@cloudflare/workers-types';
 
 // 环境变量接口
@@ -18,7 +19,8 @@ export interface Env {
     DB: D1Database;
     R2: R2Bucket;
     KV: KVNamespace; // Workers KV 存储
-    ASSETS: Fetcher; // 静态资源绑定
+    ASSETS?: Fetcher; // 静态资源绑定（本地 Vite 开发时不绑定）
+    EMAIL?: SendEmail; // Cloudflare Email Service 发信绑定
 }
 
 // 用户接口
@@ -72,6 +74,7 @@ export interface Attachment {
     size_bytes: number;
     r2_key: string;
     content_id?: string | null; // Content-ID（用于内嵌图片，如 cid:xxx）
+    deleted_at?: string | null;
     created_at?: string;
     updated_at?: string;
 }
@@ -94,6 +97,8 @@ export interface ForwardLog {
     status: 0 | 1; // 0=成功, 1=失败
     response_code?: number;
     error_message?: string;
+    delivery_from_address?: string | null;
+    delivery_to_address?: string | null;
     sent_at: string;
     created_at?: string;
     updated_at?: string;
@@ -148,7 +153,6 @@ export interface UserSettingsUpdate {
 export interface SystemConfig {
     debug_mode: number; // 1=开启, 0=关闭
     allow_registration: number; // 1=是, 0=否
-    mail_retention_days: number; // 邮件保留天数
     attachment_retention_days: number; // 附件保留天数
     attachment_max_size: number;
     // 其他配置字段
@@ -158,9 +162,8 @@ export interface SystemConfig {
     api_rate_limit?: number; // 1=启用, 0=禁用
     api_rate_limit_max_requests?: number; // 每分钟最大请求数
     // 默认Webhook配置
-    default_webhook_url?: string;
-    default_webhook_secret?: string;
-    default_webhook_type?: 'dingtalk' | 'feishu' | 'bark';
+    // 已支持的邮箱域名列表
+    supported_emails?: string[];
 }
 
 // 扩展 Hono 上下文类型

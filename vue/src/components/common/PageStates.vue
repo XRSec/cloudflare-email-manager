@@ -53,8 +53,11 @@ defineEmits<{
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px;
+  padding: 42px 24px;
   text-align: center;
+  border-radius: 24px;
+  border: 1px dashed rgba(47, 94, 138, 0.18);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(243, 247, 252, 0.96));
 }
 
 .loading-spinner {
@@ -81,5 +84,34 @@ defineEmits<{
 .empty-icon {
   font-size: 48px;
   margin-bottom: 15px;
+}
+
+.error-overlay h3,
+.empty-state h3 {
+  margin: 0 0 10px;
+  color: #17324a;
+  font-size: 22px;
+}
+
+.loading-overlay p,
+.error-overlay p,
+.empty-state p {
+  margin: 0;
+  color: #5a6978;
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .loading-overlay,
+  .error-overlay,
+  .empty-state {
+    padding: 32px 18px;
+    border-radius: 20px;
+  }
+
+  .error-icon,
+  .empty-icon {
+    font-size: 40px;
+  }
 }
 </style>

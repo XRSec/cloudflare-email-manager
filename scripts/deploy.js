@@ -8,11 +8,9 @@
 import {spawn, execSync} from 'child_process';
 import {fileURLToPath} from 'url';
 import {dirname, join} from 'path';
+
 import {readFileSync, writeFileSync, existsSync, copyFileSync} from 'fs';
-import {createHash, randomBytes} from 'crypto';
-import {createInterface} from 'readline';
 import {parse, stringify} from '@iarna/toml';
-import {isEnvironmentAvailable} from './env-detector.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -50,6 +48,11 @@ function run(exec, stdio = ["pipe", "pipe", "pipe"]) {
         }
     }
     return {output, err};
+}
+
+function isIgnorableSchemaInitError(error) {
+    const message = `${error?.stdout?.toString() || ''}\n${error?.stderr?.toString() || ''}\n${error?.message || ''}`
+    return /trigger\s+\S+\s+already exists/i.test(message)
 }
 
 // ================== 📦 资源创建 ==================
@@ -128,7 +131,7 @@ async function buildBackend() {
 }
 
 // ================== 📝 配置文件更新 ==================
-function updateWranglerToml(dbId, kvId, devMode) {
+function updateWranglerToml(dbId, kvId) {
     const wranglerPath = join(projectRoot, 'wrangler.toml');
     const examplePath = join(projectRoot, 'wrangler.example.toml');
 
@@ -145,47 +148,22 @@ function updateWranglerToml(dbId, kvId, devMode) {
         // 读取并解析 TOML 文件
         const tomlContent = readFileSync(wranglerPath, 'utf-8');
         const config = parse(tomlContent);
-
-        if (devMode) {
-            // 开发环境：更新 env.dev 部分的配置
-            if (!config.env || !config.env.dev) {
-                log("error", "❌ 配置文件中缺少 [env.dev] 段");
-                process.exit(1);
-            }
-
-            // 更新开发环境 D1 数据库 ID
-            if (config.env.dev.d1_databases?.[0]) {
-                config.env.dev.d1_databases[0].database_id = dbId;
-            } else {
-                log("warn", "⚠️ 开发环境 D1 数据库配置不存在，跳过更新");
-            }
-
-            // 更新开发环境 KV 命名空间 ID
-            if (config.env.dev.kv_namespaces?.[0]) {
-                config.env.dev.kv_namespaces[0].id = kvId;
-            } else {
-                log("warn", "⚠️ 开发环境 KV 命名空间配置不存在，跳过更新");
-            }
-
-            log("info", `🔧 更新开发环境配置: D1=${dbId}, KV=${kvId}`);
+        // 生产环境：更新主配置部分
+        // 更新生产环境 D1 数据库 ID
+        if (config.d1_databases?.[0]) {
+            config.d1_databases[0].database_id = dbId;
         } else {
-            // 生产环境：更新主配置部分
-            // 更新生产环境 D1 数据库 ID
-            if (config.d1_databases?.[0]) {
-                config.d1_databases[0].database_id = dbId;
-            } else {
-                log("warn", "⚠️ 生产环境 D1 数据库配置不存在，跳过更新");
-            }
-
-            // 更新生产环境 KV 命名空间 ID
-            if (config.kv_namespaces?.[0]) {
-                config.kv_namespaces[0].id = kvId;
-            } else {
-                log("warn", "⚠️ 生产环境 KV 命名空间配置不存在，跳过更新");
-            }
-
-            log("info", `🔧 更新生产环境配置: D1=${dbId}, KV=${kvId}`);
+            log("warn", "⚠️ 生产环境 D1 数据库配置不存在，跳过更新");
         }
+
+        // 更新生产环境 KV 命名空间 ID
+        if (config.kv_namespaces?.[0]) {
+            config.kv_namespaces[0].id = kvId;
+        } else {
+            log("warn", "⚠️ 生产环境 KV 命名空间配置不存在，跳过更新");
+        }
+
+        log("info", `🔧 更新生产环境配置: D1=${dbId}, KV=${kvId}`);
 
         // 将配置写回文件
         const updatedTomlContent = stringify(config);
@@ -193,25 +171,15 @@ function updateWranglerToml(dbId, kvId, devMode) {
 
         // 验证更新是否成功
         const verifyConfig = parse(updatedTomlContent);
-        if (devMode) {
-            const devDbId = verifyConfig.env?.dev?.d1_databases?.[0]?.database_id;
-            const devKvId = verifyConfig.env?.dev?.kv_namespaces?.[0]?.id;
-            if (devDbId === dbId && devKvId === kvId) {
-                log("success", `✅ 已更新 wrangler.toml (开发环境)`);
-            } else {
-                log("error", `❌ 配置更新验证失败`);
-                process.exit(1);
-            }
+        const prodDbId = verifyConfig.d1_databases?.[0]?.database_id;
+        const prodKvId = verifyConfig.kv_namespaces?.[0]?.id;
+        if (prodDbId === dbId && prodKvId === kvId) {
+            log("success", `✅ 已更新 wrangler.toml`);
         } else {
-            const prodDbId = verifyConfig.d1_databases?.[0]?.database_id;
-            const prodKvId = verifyConfig.kv_namespaces?.[0]?.id;
-            if (prodDbId === dbId && prodKvId === kvId) {
-                log("success", `✅ 已更新 wrangler.toml (生产环境)`);
-            } else {
-                log("error", `❌ 配置更新验证失败`);
-                process.exit(1);
-            }
+            log("error", `❌ 配置更新验证失败`);
+            process.exit(1);
         }
+
 
     } catch (error) {
         log("error", `❌ 解析 TOML 文件失败: ${error.message}`);
@@ -220,14 +188,11 @@ function updateWranglerToml(dbId, kvId, devMode) {
 }
 
 // ================== 🚀 部署函数 ==================
-async function deploy(devMode) {
+async function deploy() {
     console.log(`🚀 部署到 Cloudflare...`);
 
     return new Promise((resolve, reject) => {
         const deployArgs = ['wrangler', 'deploy'];
-        if (devMode) {
-            deployArgs.push('--env', 'dev');
-        }
 
         const deployCmd = spawn('npx', deployArgs, {
             cwd: join(projectRoot, 'worker'),
@@ -242,24 +207,6 @@ async function deploy(devMode) {
             } else {
                 reject(new Error(`部署失败，代码: ${code}`));
             }
-        });
-    });
-}
-
-// ================== 🔑 用户交互 ==================
-function createReadlineInterface() {
-    return createInterface({
-        input: process.stdin,
-        output: process.stdout,
-    });
-}
-
-function question(query) {
-    return new Promise(resolve => {
-        const rl = createReadlineInterface();
-        rl.question(query, ans => {
-            rl.close();
-            resolve(ans);
         });
     });
 }
@@ -285,12 +232,6 @@ async function main() {
 
         console.log('👋 欢迎使用 CEM (Cloud Email Manager) 部署脚本');
 
-        // 检查环境
-        if (!isEnvironmentAvailable()) {
-            console.error('❌ 环境不可用，请检查本地 wrangler 安装状态');
-            process.exit(1);
-        }
-
         // 检查 wrangler 登录状态
         log("info", "🔐 检查 Cloudflare 登录状态...");
         const {output, err: err1} = run("wrangler whoami");
@@ -305,14 +246,9 @@ async function main() {
             log("success", "✅ 已登录 Cloudflare");
         }
 
-        // 获取用户输入
-        const dev_input = (await question(`是否开发模式? (y/n) [n]: `)).trim() || 'n';
-        const devMode = /^[Yy]$/.test(dev_input);
-        const DB_NAME = devMode ? 'cem-db-dev' : 'cem-db';
-        const KV_NAME = devMode ? 'cem-kv-dev' : 'cem-kv';
-        const BUCKET_NAME = devMode ? 'cem-r2-dev' : 'cem-r2';
-
-        devMode && log("info", "🚧 开发模式");
+        const DB_NAME = 'cem-db';
+        const KV_NAME = 'cem-kv';
+        const BUCKET_NAME = 'cem-r2';
 
         // 创建资源
         log("info", "📦 创建 / 获取资源...");
@@ -322,49 +258,38 @@ async function main() {
 
         // 更新配置文件
         log("info", "📝 更新 wrangler.toml ...");
-        updateWranglerToml(dbId, kvId, devMode);
+        updateWranglerToml(dbId, kvId);
 
         // 初始化数据库
         log("info", "🗄️ 初始化数据库结构 (schema.sql)...");
-        const {err: err2} = run(`wrangler d1 execute ${DB_NAME} --file=./db/schema.sql --remote`);
-        if (err2) {
-            log("error", `❌ 初始化数据库结构失败: ${err2}`);
-            process.exit(1);
+        const {err: dbErr} = run(`wrangler d1 execute ${DB_NAME} --file=./db/schema.sql --remote`)
+        if (dbErr) {
+            if (!isIgnorableSchemaInitError(dbErr)) {
+                throw dbErr
+            }
+            log('数据库已初始化，跳过重复 trigger')
+        } else {
+            log("success", "✅ 数据库结构已初始化");
+            log("success", "✅ 默认用户 admin/123456");
         }
-        log("success", "✅ 数据库结构已初始化");
-        log("success", "✅ 默认用户 admin/123456");
 
         // 构建和部署
         await buildvue();
         await buildBackend();
-        await deploy(devMode);
+        await deploy();
 
         // 完成信息
-        log("success", "🎉 部署完成");
         log("info", "📋 部署信息:");
-        devMode && log("info", "  🚧 开发模式");
         log("info", `  D1 数据库 ID: ${dbId}`);
         log("info", `  KV 命名空间 ID: ${kvId}`);
         log("info", `  R2 存储桶: ${BUCKET_NAME}\n`);
         log("warn", "重要提醒:");
         log("info", "1. 请在 Cloudflare 控制台配置邮件路由");
         log("info", "2. 记得修改默认密码 admin/123456\n");
-        log("success", "🌐 访问地址:");
-
-        if (devMode) {
-            log("info", "  开发环境: http://localhost:8787");
-            log("info", "  启动开发服务器: npm run dev");
-            log("info", "  使用开发环境资源: wrangler dev --env dev");
-        } else {
-            log("info", `  Worker 地址: https://cem.workers.dev`);
-            log("info", "  使用生产环境资源: wrangler dev");
-        }
-
         log("info", "\n📋 配置说明:");
         log("info", "  [dev] 段: 本地开发服务器配置 (端口 8787)");
         log("info", "  [triggers] 段: 定时任务配置");
         log("info", "  [observability] 段: 可观测性配置 (全局)");
-        log("info", "  [env.dev] 段: 开发环境资源绑定");
 
         log("info", "\n📚 更多信息请查看 README.md");
 

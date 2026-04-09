@@ -75,6 +75,21 @@ class SmartCacheManager {
   }
 
   /**
+   * 按前缀删除缓存
+   */
+  deleteByPrefix(prefix: string): number {
+    let deletedCount = 0
+
+    for (const key of Array.from(this.cache.keys())) {
+      if (key.startsWith(prefix) && this.delete(key)) {
+        deletedCount++
+      }
+    }
+
+    return deletedCount
+  }
+
+  /**
    * 使依赖的缓存失效
    */
   invalidate(dependency: string): void {

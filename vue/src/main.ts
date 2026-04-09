@@ -1,16 +1,32 @@
-import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import router from './composables/routes'
-import App from './App.vue'
+const getCurrentTargetUrl = () => {
+  const { pathname, search, hash } = window.location
+  return `${pathname}${search}${hash}`
+}
 
-const app = createApp(App)
+const ensureLoginUrl = () => {
+  if (window.location.pathname === '/login') {
+    return
+  }
 
-// 注册 Pinia
-app.use(createPinia())
+  const targetUrl = getCurrentTargetUrl()
+  const nextUrl = `/login?redirect=${encodeURIComponent(targetUrl)}`
+  window.history.replaceState(window.history.state, '', nextUrl)
+}
 
-// 注册路由
-app.use(router)
+const hasStoredUser = () => {
+  return !!localStorage.getItem('user_info')
+}
 
-// Naive UI 通过 unplugin-vue-components 自动导入，无需全局注册
+async function bootstrap() {
+  if (hasStoredUser()) {
+    const { mountApp } = await import('./entry/bootstrap-app')
+    await mountApp()
+    return
+  }
 
-app.mount('#app')
+  ensureLoginUrl()
+  const { mountLoginApp } = await import('./entry/bootstrap-login')
+  await mountLoginApp()
+}
+
+void bootstrap()

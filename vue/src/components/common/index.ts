@@ -1,6 +1,5 @@
 // 通用组件导出
 export { default as PageHeader } from './PageHeader.vue'
-export { default as DebugInfo } from './DebugInfo.vue'
 export { default as PageStates } from './PageStates.vue'
 export { default as Pagination } from './Pagination.vue'
 export { default as StatusBadge } from './StatusBadge.vue'

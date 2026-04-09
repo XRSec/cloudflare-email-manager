@@ -1,211 +1,21 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { jwtAuthMiddleware } from '../middleware/auth'
-import { debugModeMiddleware } from '../middleware/debug'
-import { hashPassword } from '../utils/crypto'
-import { getSystemConfig } from '../services/settings'
 import type { Env, D1Database } from '../types'
+import schemaSql from '../../../db/schema.sql'
 
 // =====================================================
-// 数据库 SQL 语句集中管理（与 db/schema.sql 保持一致）
+// 数据库 SQL 从 db/schema.sql 导入，避免工具页初始化与脚本初始化维护两份 schema
 // =====================================================
 
-const DATABASE_SCHEMAS = {
-  // 基础表（无外键依赖）
-  users: `
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL CHECK(LENGTH(username) >= 3 AND LENGTH(username) <= 50),
-      password TEXT NOT NULL CHECK(LENGTH(password) >= 6),
-      user_type INTEGER DEFAULT 0 CHECK(user_type IN (0,1)), -- 0=普通用户, 1=管理员
-      status INTEGER DEFAULT 1 CHECK(status IN (1,2,3)),
-      deleted_at DATETIME,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `,
+// 创建 D1 管理路由实例（挂载在 /api/tools/d1/* 下）
+const d1Routes = new Hono<{ Bindings: Env }>()
 
-  system_settings: `
-    CREATE TABLE IF NOT EXISTS system_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT,
-      description TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `,
+d1Routes.use('*', jwtAuthMiddleware)
 
-  // 邮件表
-  // ID 字段说明：
-  // - id: 邮件在数据库中的主键，使用 crypto.randomUUID() 生成的 UUID
-  //       格式如 "550e8400-e29b-41d4-a716-446655440000"（标准 UUID v4 格式）
-  //       R2 文件路径为 email:{id}.eml
-  // 注意：
-  // 1. 所有基础数据从 message.raw 直接提取并存入数据库
-  // 2. emailId 使用 crypto.randomUUID() 生成，不再使用 Message-ID 的哈希值
-  // 3. 当前使用 TEXT 类型作为主键，UUID 保证 ID 的唯一性
-  emails: `
-    CREATE TABLE IF NOT EXISTS emails (
-      id TEXT PRIMARY KEY, -- 邮件ID（数据库主键），使用 crypto.randomUUID() 生成的 UUID
-      subject TEXT, -- 主题
-      from_address TEXT, -- 发件人
-      to_address TEXT, -- 收件人
-      content TEXT, -- 内容概览/预览（用于快速查看，完整内容在 R2）
-      is_read INTEGER DEFAULT 0 CHECK(is_read IN (0,1)),
-      attachment_count INTEGER DEFAULT 0, -- 附件数量（0表示无附件）
-      message_id TEXT, -- 原始邮件头中的 Message-ID（从 message.raw 提取）
-      headers_json TEXT, -- 完整的邮件头信息（JSON 格式，包含 DKIM、SPF 等，从 message.raw 提取）
-      size_bytes INTEGER, -- 剔除附件后的邮件大小（字节）
-      date TEXT, -- 邮件日期（从 headers 提取）
-      reply_to TEXT, -- 回复地址（从 headers 提取）
-      cc TEXT, -- 抄送地址（从 headers 提取）
-      bcc TEXT, -- 密送地址（从 headers 提取）
-      content_type TEXT, -- 邮件内容类型（从 headers 提取）
-      received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `,
-
-  // 依赖多个表的表
-
-  attachments: `
-    CREATE TABLE IF NOT EXISTS attachments (
-      id TEXT PRIMARY KEY,
-      email_id TEXT NOT NULL,
-      filename TEXT NOT NULL,
-      content_type TEXT,
-      size_bytes INTEGER DEFAULT 0,
-      r2_key TEXT NOT NULL,
-      content_id TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
-    )
-  `,
-
-  forward_logs: `
-    CREATE TABLE IF NOT EXISTS forward_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email_id TEXT NOT NULL,
-      webhook_url TEXT NOT NULL,
-      status INTEGER NOT NULL CHECK(status IN (0,1)), -- 0=成功, 1=失败
-      response_code INTEGER,
-      error_message TEXT,
-      sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
-    )
-  `
-}
-
-// 触发器创建 SQL 语句
-const DATABASE_TRIGGERS = [
-  `CREATE TRIGGER update_users_updated_at
-    AFTER UPDATE ON users
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-    UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END`,
-
-  `CREATE TRIGGER update_emails_updated_at
-    AFTER UPDATE ON emails
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-    UPDATE emails SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END`,
-
-  `CREATE TRIGGER update_attachments_updated_at
-    AFTER UPDATE ON attachments
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-    UPDATE attachments SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END`,
-
-
-  `CREATE TRIGGER update_system_settings_updated_at
-    AFTER UPDATE ON system_settings
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-    UPDATE system_settings SET updated_at = CURRENT_TIMESTAMP WHERE key = NEW.key;
-END`,
-
-  `CREATE TRIGGER update_forward_logs_updated_at
-    AFTER UPDATE ON forward_logs
-    FOR EACH ROW
-    WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-    UPDATE forward_logs SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END`
-]
-
-// 索引创建 SQL 语句
-const DATABASE_INDEXES = [
-  // 用户表索引
-  'CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)',
-  'CREATE INDEX IF NOT EXISTS idx_users_status ON users(status)',
-
-  // 邮件表索引
-  'CREATE INDEX IF NOT EXISTS idx_emails_from_address ON emails(from_address)',
-  'CREATE INDEX IF NOT EXISTS idx_emails_to_address ON emails(to_address)',
-  'CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject)',
-  'CREATE INDEX IF NOT EXISTS idx_emails_is_read ON emails(is_read)',
-  'CREATE INDEX IF NOT EXISTS idx_emails_received_at ON emails(received_at)',
-  'CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at)',
-
-  // 附件表索引
-  'CREATE INDEX IF NOT EXISTS idx_attachments_email_id ON attachments(email_id)',
-  'CREATE INDEX IF NOT EXISTS idx_attachments_r2_key ON attachments(r2_key)',
-  'CREATE INDEX IF NOT EXISTS idx_attachments_content_type ON attachments(content_type)',
-
-  // 转发日志表索引
-  'CREATE INDEX IF NOT EXISTS idx_forward_logs_email_id ON forward_logs(email_id)',
-  'CREATE INDEX IF NOT EXISTS idx_forward_logs_status ON forward_logs(status)',
-  'CREATE INDEX IF NOT EXISTS idx_forward_logs_sent_at ON forward_logs(sent_at)'
-]
-
-// 初始化数据 SQL 语句（与 schema.sql 保持一致）
-const INITIAL_DATA_SQL = {
-  // 系统设置数据
-  systemSettings: `
-    INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
-    ('allow_registration', '0', '是否允许用户自由注册 (1=是, 0=否)'),
-    ('mail_retention_days', '7', '邮件保留天数'),
-    ('attachment_retention_days', '7', '附件保留天数'),
-    ('max_attachment_size', '52428800', '最大附件大小（50MB）'),
-    ('cookie_max_age', '172800', 'Cookie过期时间（秒，48小时）'),
-    ('debug_mode', '1', '调试模式开关 (1=开启, 0=关闭)'),
-    ('api_rate_limit', '0', 'API访问频率限制开关 (1=启用, 0=禁用)'),
-    ('api_rate_limit_max_requests', '100', '每分钟最大请求数（10-10000）')
-  `,
-
-
-  // 管理员用户数据
-  adminUser: `
-    INSERT OR IGNORE INTO users (username, password, user_type, status) 
-    VALUES ('admin', ?, 1, 1)
-  `
-
-}
-
-// 创建数据库路由实例
-const databaseRoutes = new Hono<{ Bindings: Env }>()
-
-// 应用认证、管理员权限和调试模式中间件
-databaseRoutes.use('*', jwtAuthMiddleware)
-// 单管理员模式：所有认证用户都可以访问数据库路由
-databaseRoutes.use('*', debugModeMiddleware)
-
-// 获取数据库信息
-databaseRoutes.get('/info', async (c) => {
+// 获取 D1 数据库信息
+d1Routes.get('/info', async (c) => {
   try {
-    // 调试模式检查已由中间件处理
-
     // 获取SQLite版本（使用兼容的方法）
     let sqliteVersion = { version: 'Cloudflare D1' };
     try {
@@ -256,10 +66,8 @@ databaseRoutes.get('/info', async (c) => {
 })
 
 // 获取所有表的数据
-databaseRoutes.get('/tables', async (c) => {
+d1Routes.get('/tables', async (c) => {
   try {
-    // 调试模式检查已由中间件处理
-
     // 获取数据库中的所有表（排除系统表）
     const tables = await c.env.DB.prepare(`
       SELECT name FROM sqlite_master 
@@ -320,10 +128,8 @@ databaseRoutes.get('/tables', async (c) => {
 })
 
 // 获取数据库统计信息
-databaseRoutes.get('/stats', async (c) => {
+d1Routes.get('/stats', async (c) => {
   try {
-    // 调试模式检查已由中间件处理
-
     // 获取数据库统计信息
     const stats = await getDatabaseStats(c.env.DB)
 
@@ -340,11 +146,9 @@ databaseRoutes.get('/stats', async (c) => {
   }
 })
 
-// 初始化数据库
-databaseRoutes.post('/init', async (c) => {
+// 初始化数据库（危险操作）
+d1Routes.post('/init', async (c) => {
   try {
-    // 调试模式检查已由中间件处理
-
     const { confirmText } = await c.req.json()
 
     // 二次确认
@@ -365,231 +169,6 @@ databaseRoutes.post('/init', async (c) => {
       throw error
     }
     throw new HTTPException(500, { message: '数据库初始化失败: ' + (error as Error).message })
-  }
-})
-
-// 获取 R2 文件列表
-databaseRoutes.get('/r2-files', async (c) => {
-  try {
-    // 调试模式检查已由中间件处理
-
-    // 获取查询参数
-    const prefix = c.req.query('prefix') || ''
-    const limit = parseInt(c.req.query('limit') || '100')
-    const cursor = c.req.query('cursor') || undefined
-
-    // 检查 R2 是否可用
-    if (!c.env.R2) {
-      throw new HTTPException(500, { message: 'R2 存储不可用' })
-    }
-
-    // 列出 R2 文件
-    const listOptions: any = {
-      limit: Math.min(limit, 1000), // 最大限制 1000
-    }
-
-    if (prefix) {
-      listOptions.prefix = prefix
-    }
-
-    if (cursor) {
-      listOptions.cursor = cursor
-    }
-
-    const result = await c.env.R2.list(listOptions)
-
-    // 处理所有文件（包括 meta.json）
-    const files = []
-    for (const obj of result.objects || []) {
-      const fileInfo: any = {
-        key: obj.key,
-        size: obj.size,
-        etag: obj.etag,
-        uploaded: obj.uploaded ? new Date(obj.uploaded).toISOString() : null,
-        httpEtag: obj.httpEtag,
-        httpMetadata: obj.httpMetadata ? {
-          contentType: obj.httpMetadata.contentType,
-          contentLanguage: obj.httpMetadata.contentLanguage,
-          contentEncoding: obj.httpMetadata.contentEncoding,
-          contentDisposition: obj.httpMetadata.contentDisposition,
-          cacheControl: obj.httpMetadata.cacheControl,
-          cacheExpiry: obj.httpMetadata.cacheExpiry,
-        } : null,
-        customMetadata: obj.customMetadata || {},
-      }
-
-      // 注意：不再读取 .meta.json，后续需要时可以从 .eml 文件解析
-
-      files.push(fileInfo)
-    }
-
-    return c.json({
-      success: true,
-      data: {
-        files,
-        truncated: result.truncated || false,
-        cursor: (result as any).cursor || null,
-        delimitedPrefixes: result.delimitedPrefixes || [],
-      }
-    })
-  } catch (error) {
-    console.error('获取 R2 文件列表失败:', error)
-    if (error instanceof HTTPException) {
-      throw error
-    }
-    throw new HTTPException(500, { message: '获取 R2 文件列表失败: ' + (error as Error).message })
-  }
-})
-
-// 批量删除 R2 文件
-databaseRoutes.delete('/r2-files', async (c) => {
-  try {
-    // 调试模式检查已由中间件处理
-
-    const body = await c.req.json()
-    const keys = body.keys || []
-
-    if (!Array.isArray(keys) || keys.length === 0) {
-      throw new HTTPException(400, { message: '请提供要删除的文件列表' })
-    }
-
-    // 检查 R2 是否可用
-    if (!c.env.R2) {
-      throw new HTTPException(500, { message: 'R2 存储不可用' })
-    }
-
-    let deletedCount = 0
-    let deletedDbRecords = 0
-    const errors: string[] = []
-
-    // 批量删除文件
-    for (const key of keys) {
-      try {
-        // 删除主文件
-        await c.env.R2.delete(key)
-        deletedCount++
-
-        // 注意：不再删除 .meta.json（已不再使用）
-
-        // 如果是邮件文件，检查是否有对应的数据库记录，如果有则删除
-        if (key.startsWith('email:') && key.endsWith('.eml')) {
-          try {
-            // 从 key 中提取 emailId: email:{id}.eml -> {id}
-            const emailId = key.replace('email:', '').replace('.eml', '')
-
-            // 检查数据库中是否存在该邮件
-            const email = await c.env.DB.prepare(`
-              SELECT id FROM emails WHERE id = ?
-            `).bind(emailId).first()
-
-            if (email) {
-              // 如果存在，删除数据库记录和附件
-              const attachments = await c.env.DB.prepare(`
-                SELECT r2_key FROM attachments WHERE email_id = ?
-              `).bind(email.id).all()
-
-              // 删除附件文件
-              for (const att of attachments.results) {
-                try {
-                  await c.env.R2.delete(att.r2_key as string)
-                } catch (attError) {
-                  console.warn(`删除附件失败: ${att.r2_key}`, attError)
-                }
-              }
-
-              // 删除数据库记录
-              await c.env.DB.prepare(`DELETE FROM emails WHERE id = ?`).bind(email.id).run()
-              deletedDbRecords++
-            }
-          } catch (dbError) {
-            console.warn(`删除数据库记录失败: ${key}`, dbError)
-            // 不抛出错误，文件已删除
-          }
-        }
-      } catch (error) {
-        const errorMsg = `删除文件失败: ${key} - ${(error as Error).message}`
-        console.error(errorMsg, error)
-        errors.push(errorMsg)
-      }
-    }
-
-    return c.json({
-      success: true,
-      message: `成功删除 ${deletedCount} 个文件${deletedDbRecords > 0 ? `，${deletedDbRecords} 条数据库记录` : ''}${errors.length > 0 ? `，${errors.length} 个失败` : ''}`,
-      data: {
-        deletedCount,
-        deletedDbRecords,
-        errors: errors.length > 0 ? errors : undefined
-      }
-    })
-  } catch (error) {
-    console.error('批量删除 R2 文件失败:', error)
-    if (error instanceof HTTPException) {
-      throw error
-    }
-    throw new HTTPException(500, { message: '批量删除 R2 文件失败: ' + (error as Error).message })
-  }
-})
-
-// 删除单个 R2 文件（保留用于兼容）
-databaseRoutes.delete('/r2-files/:key', async (c) => {
-  try {
-    // 调试模式检查已由中间件处理
-
-    const key = decodeURIComponent(c.req.param('key'))
-
-    // 检查 R2 是否可用
-    if (!c.env.R2) {
-      throw new HTTPException(500, { message: 'R2 存储不可用' })
-    }
-
-    // 删除文件
-    await c.env.R2.delete(key)
-    // 如果是邮件文件，检查是否有对应的数据库记录，如果有则删除
-    if (key.startsWith('email:') && key.endsWith('.eml')) {
-      try {
-        // 从 key 中提取 emailId: email:{id}.eml -> {id}
-        const emailId = key.replace('email:', '').replace('.eml', '')
-
-        // 检查数据库中是否存在该邮件
-        const email = await c.env.DB.prepare(`
-          SELECT id FROM emails WHERE id = ?
-        `).bind(emailId).first()
-
-        if (email) {
-          // 如果存在，删除数据库记录和附件
-          const attachments = await c.env.DB.prepare(`
-            SELECT r2_key FROM attachments WHERE email_id = ?
-          `).bind(email.id).all()
-
-          // 删除附件文件
-          for (const att of attachments.results) {
-            try {
-              await c.env.R2.delete(att.r2_key as string)
-            } catch (attError) {
-              console.warn(`删除附件失败: ${att.r2_key}`, attError)
-            }
-          }
-
-          // 删除数据库记录
-          await c.env.DB.prepare(`DELETE FROM emails WHERE id = ?`).bind(email.id).run()
-        }
-      } catch (dbError) {
-        console.warn(`删除数据库记录失败: ${key}`, dbError)
-        // 不抛出错误，文件已删除
-      }
-    }
-
-    return c.json({
-      success: true,
-      message: '文件删除成功'
-    })
-  } catch (error) {
-    console.error('删除 R2 文件失败:', error)
-    if (error instanceof HTTPException) {
-      throw error
-    }
-    throw new HTTPException(500, { message: '删除 R2 文件失败: ' + (error as Error).message })
   }
 })
 
@@ -798,36 +377,9 @@ async function performDatabaseReset(db: D1Database) {
       steps.push('⚠️ 清空自增序列（跳过）')
     }
 
-    // 5. 创建新表结构
-    for (const [tableName, createSQL] of Object.entries(DATABASE_SCHEMAS)) {
-      await db.prepare(createSQL).run()
-      console.log(`✅ 创建表: ${tableName} 成功`)
-    }
-    logResult('✅ 创建新表结构')
-
-    // 6. 创建索引
-    for (const indexSql of DATABASE_INDEXES) {
-      try {
-        await db.prepare(indexSql).run()
-      } catch (error) {
-        console.warn('创建索引失败:', indexSql, error)
-      }
-    }
-    logResult('✅ 创建索引成功')
-
-    // 7. 创建触发器
-    for (const triggerSql of DATABASE_TRIGGERS) {
-      try {
-        await db.prepare(triggerSql).run()
-      } catch (error) {
-        console.warn('创建触发器失败:', triggerSql, error)
-      }
-    }
-    logResult('✅ 创建触发器成功')
-
-    // 8. 插入初始数据
-    await insertInitialData(db)
-    logResult('✅ 插入初始数据成功')
+    // 5. 使用 db/schema.sql 重建表结构、索引、触发器和初始数据
+    await executeSchemaSql(db)
+    logResult('✅ 已执行 db/schema.sql')
 
     logResult('✅ 数据库初始化完成')
 
@@ -842,16 +394,104 @@ async function performDatabaseReset(db: D1Database) {
 }
 
 
-// 插入初始数据
-async function insertInitialData(db: D1Database) {
-  // 使用工具函数生成哈希密码（123456）
-  const hashedPassword = await hashPassword('123456')
+async function executeSchemaSql(db: D1Database) {
+  const statements = splitSqlStatements(schemaSql)
 
-  // 插入系统设置（使用集中管理的SQL）
-  await db.prepare(INITIAL_DATA_SQL.systemSettings).run()
+  for (const statement of statements) {
+    await db.prepare(statement).run()
+  }
+}
 
-  // 插入管理员用户
-  await db.prepare(INITIAL_DATA_SQL.adminUser).bind(hashedPassword).run()
+function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = []
+  let current = ''
+  let quote: "'" | '"' | '`' | null = null
+  let inLineComment = false
+  let inBlockComment = false
+
+  for (let index = 0; index < sql.length; index++) {
+    const char = sql[index]
+    const next = sql[index + 1]
+
+    current += char
+
+    if (inLineComment) {
+      if (char === '\n') {
+        inLineComment = false
+      }
+      continue
+    }
+
+    if (inBlockComment) {
+      if (char === '*' && next === '/') {
+        current += next
+        index++
+        inBlockComment = false
+      }
+      continue
+    }
+
+    if (quote) {
+      if (char === quote) {
+        if (next === quote) {
+          current += next
+          index++
+        } else {
+          quote = null
+        }
+      }
+      continue
+    }
+
+    if (char === '-' && next === '-') {
+      current += next
+      index++
+      inLineComment = true
+      continue
+    }
+
+    if (char === '/' && next === '*') {
+      current += next
+      index++
+      inBlockComment = true
+      continue
+    }
+
+    if (char === '\'' || char === '"' || char === '`') {
+      quote = char
+      continue
+    }
+
+    if (char === ';' && isStatementBoundary(current)) {
+      const statement = current.trim()
+      if (hasExecutableSql(statement)) {
+        statements.push(statement)
+      }
+      current = ''
+    }
+  }
+
+  const statement = current.trim()
+  if (hasExecutableSql(statement)) {
+    statements.push(statement)
+  }
+
+  return statements
+}
+
+function isStatementBoundary(statement: string) {
+  if (!/\bCREATE\s+TRIGGER\b/i.test(statement)) {
+    return true
+  }
+
+  return /\bEND\s*;\s*$/i.test(statement)
+}
+
+function hasExecutableSql(statement: string) {
+  return statement
+    .replace(/--.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .trim().length > 0
 }
 
 
@@ -991,4 +631,4 @@ async function getOrderColumn(db: any, tableName: string): Promise<string> {
   }
 }
 
-export { databaseRoutes }
+export { d1Routes }

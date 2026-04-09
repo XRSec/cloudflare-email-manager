@@ -45,11 +45,11 @@ export interface SystemHealth {
             status: number
             timestamp: string
             services: {
-                database: {
+                d1: {
                     status: number
                     latency_ms: number
                 }
-                storage: {
+                r2: {
                     status: number
                     provider: number
                 }
@@ -62,18 +62,18 @@ export interface SystemHealth {
                 allow_registration: number
                 debug_mode: number
             }
+            changes?: {
+                emails: number
+                dashboard: number
+                forward_logs: number
+                routing_config: number
+                system_config: number
+                updated_at: string
+            }
             version: number
             uptime: number
             total_latency_ms: number
         }
-    }
-    error?: string
-}
-
-export interface RegistrationStatus {
-    success: boolean
-    data?: {
-        allow_registration: number
     }
     error?: string
 }
@@ -85,13 +85,13 @@ export type AppStage = 'initial-loading' | 'auth-check' | 'login' | 'main-preloa
 export interface SystemConfig {
     debug_mode?: number
     allow_registration?: number
-    mail_retention_days?: number
     attachment_retention_days?: number
     attachment_max_size?: number
     cookie_max_age?: number
     jwt_secret?: string
     api_rate_limit?: number
     api_rate_limit_max_requests?: number
+    supported_emails?: string[]
 }
 
 // 全局窗口类型扩展

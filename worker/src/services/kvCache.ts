@@ -28,14 +28,14 @@ export class KVCacheService {
   // 缓存键常量
   static readonly KEYS = {
     SYSTEM_CONFIG: 'system:config',
-    REGISTRATION_STATUS: 'system:registration',
-    DEBUG_MODE: 'system:debug',
-    USER_INFO: 'user:info',
-    USER_SETTINGS: 'user:settings',
     EMAIL_LIST: 'emails:list',
-    MAILBOX_LIST: 'mailboxes:list',
+    EMAIL_DETAIL: 'emails:detail:',
     ATTACHMENT: 'attachment:',        // 附件缓存前缀
-    EMAIL_RAW: 'email:raw:'          // 原始邮件缓存前缀
+    EMAIL_RAW: 'email:raw:',          // 原始邮件缓存前缀
+    DASHBOARD_STATS: 'dashboard:stats', // 仪表板统计数据
+    EMAIL_COUNT: 'stats:email_count',   // 邮件数量
+    R2_FILE_COUNT: 'stats:r2_file_count', // R2文件数量
+    FORWARD_LOGS: 'forward_logs:',    // 转发日志缓存前缀
   } as const
 
   // TTL常量
@@ -201,62 +201,11 @@ export class KVCacheService {
   }
 
   /**
-   * 获取注册状态
-   */
-  async getRegistrationStatus(): Promise<boolean | null> {
-    return this.get<boolean>(KVCacheService.KEYS.REGISTRATION_STATUS)
-  }
-
-  /**
-   * 设置注册状态
-   */
-  async setRegistrationStatus(allowRegistration: boolean): Promise<boolean> {
-    return this.set(KVCacheService.KEYS.REGISTRATION_STATUS, allowRegistration, KVCacheService.TTL.MEDIUM)
-  }
-
-  /**
-   * 获取用户信息
-   */
-  async getUserInfo(userId: number): Promise<any> {
-    return this.get(`user:${userId}`)
-  }
-
-  /**
-   * 设置用户信息
-   */
-  async setUserInfo(userId: number, userInfo: any): Promise<boolean> {
-    return this.set(`user:${userId}`, userInfo, KVCacheService.TTL.MEDIUM)
-  }
-
-  /**
-   * 清理用户相关缓存
-   */
-  async clearUserCache(userId: number): Promise<boolean> {
-    const keys = [
-      `user:${userId}`,
-      `user:${userId}:settings`,
-      `user:${userId}:emails`,
-      `user:${userId}:mailboxes`
-    ]
-
-    try {
-      await Promise.all(keys.map(key => this.kv.delete(key)))
-      return true
-    } catch (error) {
-      const { errorLog } = await import('../utils/debug');
-      errorLog('KVCache', '清理用户缓存失败:', error);
-      return false
-    }
-  }
-
-  /**
    * 清理系统配置缓存
    */
   async clearSystemCache(): Promise<boolean> {
     const keys = [
-      KVCacheService.KEYS.SYSTEM_CONFIG,
-      KVCacheService.KEYS.REGISTRATION_STATUS,
-      KVCacheService.KEYS.DEBUG_MODE
+      KVCacheService.KEYS.SYSTEM_CONFIG
     ]
 
     try {
@@ -278,12 +227,7 @@ export class KVCacheService {
       // 这里只能删除已知的键
       const knownKeys = [
         KVCacheService.KEYS.SYSTEM_CONFIG,
-        KVCacheService.KEYS.REGISTRATION_STATUS,
-        KVCacheService.KEYS.DEBUG_MODE,
-        KVCacheService.KEYS.USER_INFO,
-        KVCacheService.KEYS.USER_SETTINGS,
-        KVCacheService.KEYS.EMAIL_LIST,
-        KVCacheService.KEYS.MAILBOX_LIST
+        KVCacheService.KEYS.EMAIL_LIST
       ]
 
       await Promise.all(knownKeys.map(key => this.kv.delete(key)))
@@ -390,6 +334,68 @@ export class KVCacheService {
   static getEmailRawKey(emailId: string): string {
     return `${KVCacheService.KEYS.EMAIL_RAW}${emailId}`;
   }
+
+  /**
+   * 获取仪表板统计数据
+   */
+  async getDashboardStats(): Promise<any> {
+    return this.get(KVCacheService.KEYS.DASHBOARD_STATS)
+  }
+
+  /**
+   * 设置仪表板统计数据
+   */
+  async setDashboardStats(stats: any): Promise<boolean> {
+    return this.set(KVCacheService.KEYS.DASHBOARD_STATS, stats, KVCacheService.TTL.SHORT)
+  }
+
+  /**
+   * 获取邮件数量
+   */
+  async getEmailCount(): Promise<number | null> {
+    return this.get<number>(KVCacheService.KEYS.EMAIL_COUNT)
+  }
+
+  /**
+   * 设置邮件数量
+   */
+  async setEmailCount(count: number): Promise<boolean> {
+    return this.set(KVCacheService.KEYS.EMAIL_COUNT, count, KVCacheService.TTL.SHORT)
+  }
+
+  /**
+   * 获取 R2 文件数量
+   */
+  async getR2FileCount(): Promise<number | null> {
+    return this.get<number>(KVCacheService.KEYS.R2_FILE_COUNT)
+  }
+
+  /**
+   * 设置 R2 文件数量
+   */
+  async setR2FileCount(count: number): Promise<boolean> {
+    return this.set(KVCacheService.KEYS.R2_FILE_COUNT, count, KVCacheService.TTL.SHORT)
+  }
+
+  /**
+   * 清理仪表板缓存
+   */
+  async clearDashboardCache(): Promise<boolean> {
+    const keys = [
+      KVCacheService.KEYS.DASHBOARD_STATS,
+      KVCacheService.KEYS.EMAIL_COUNT,
+      KVCacheService.KEYS.R2_FILE_COUNT
+    ]
+
+    try {
+      await Promise.all(keys.map(key => this.kv.delete(key)))
+      return true
+    } catch (error) {
+      const { errorLog } = await import('../utils/debug');
+      errorLog('KVCache', '清理仪表板缓存失败:', error);
+      return false
+    }
+  }
 }
 
 /**
@@ -444,65 +450,8 @@ export class CacheStrategyService {
   }
 
   /**
-   * 获取用户信息（带缓存策略）
-   */
-  async getUserInfo(userId: number): Promise<any> {
-    // 1. 检查 KV 缓存
-    let user = await this.kvCache.getUserInfo(userId)
-    if (user) return user
-
-    // 2. 从数据库获取
-    const result = await this.db.prepare(`
-      SELECT id, username, status, created_at, updated_at
-      FROM users
-      WHERE id = ? AND status = 1
-    `).bind(userId).first()
-
-    if (!result) return null
-
-    user = {
-      id: result.id as number,
-      username: result.username as string,
-      password: '', // 不返回密码
-      status: result.status as 1 | 2 | 3,
-      created_at: result.created_at as string | undefined,
-      updated_at: result.updated_at as string | undefined,
-    }
-
-    // 3. 写入 KV 缓存
-    await this.kvCache.setUserInfo(userId, user)
-
-    return user
-  }
-
-  /**
-   * 更新用户信息（带缓存失效）
-   */
-  async updateUserInfo(userId: number, userInfo: any): Promise<boolean> {
-    try {
-      // 1. 更新数据库
-      // 注意：这里需要实现updateUser方法
-      // const { updateUser } = await import('./user')
-      // await updateUser(this.db, userId, userInfo)
-
-      // 2. 更新 KV 缓存
-      await this.kvCache.setUserInfo(userId, userInfo)
-
-      return true
-    } catch (error) {
-      const { errorLog } = await import('../utils/debug');
-      errorLog('CacheStrategy', '更新用户信息失败:', error);
-      return false
-    }
-  }
-
-  /**
    * 缓存失效策略
    */
-  async invalidateUserCache(userId: number): Promise<void> {
-    await this.kvCache.clearUserCache(userId)
-  }
-
   async invalidateSystemCache(): Promise<void> {
     await this.kvCache.clearSystemCache()
   }
