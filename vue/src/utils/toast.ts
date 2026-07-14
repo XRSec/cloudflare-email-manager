@@ -3,7 +3,8 @@ import { debug } from './index'
 type ToastType = 'success' | 'error' | 'warning' | 'info'
 
 const getNotification = async () => {
-  const { ElNotification } = await import('element-plus')
+  await import('element-plus/es/components/notification/style/css')
+  const { ElNotification } = await import('element-plus/es/components/notification/index.mjs')
   return ElNotification
 }
 

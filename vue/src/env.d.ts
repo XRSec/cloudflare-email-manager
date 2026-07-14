@@ -6,6 +6,11 @@ declare module '*.vue' {
   export default component
 }
 
+declare module 'element-plus/es/components/message-box/style/css'
+declare module 'element-plus/es/components/message-box/index.mjs'
+declare module 'element-plus/es/components/notification/style/css'
+declare module 'element-plus/es/components/notification/index.mjs'
+
 // 全局方法类型声明
 declare global {
   interface Window {
@@ -17,4 +22,3 @@ declare global {
   var showGlobalLoading: (text?: string) => void
   var hideGlobalLoading: () => void
 }
-

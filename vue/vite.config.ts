@@ -86,15 +86,6 @@ export default defineConfig({
             if (proxyRes.headers['vary']) {
               res.setHeader('Vary', proxyRes.headers['vary']);
             }
-            // 打印缓存相关信息（调试用）
-            if (req.url?.includes('/attachments/') || req.url?.includes('/raw')) {
-              console.log('📦 缓存头:', {
-                url: req.url,
-                status: proxyRes.statusCode,
-                etag: proxyRes.headers['etag'],
-                cacheControl: proxyRes.headers['cache-control']
-              });
-            }
           });
         }
       }

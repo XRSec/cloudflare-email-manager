@@ -71,15 +71,10 @@ function buildStrippedEmlFile(rawEmail: string, parsedEmail: any): string {
         body = parsedEmail.text;
         contentType = 'text/plain; charset=utf-8';
     } else {
-        // 如果 postal-mime 解析失败，尝试手动提取正文
-        const bodyMatch = rawEmail.match(/Content-Type:\s*(text\/(plain|html))[^\r\n]*\r?\n(?:Content-Transfer-Encoding:[^\r\n]*\r?\n)?\r?\n([\s\S]*?)(?=\r?\n--)/);
-        if (bodyMatch && bodyMatch[3]) {
-            body = bodyMatch[3].trim();
-            contentType = bodyMatch[1] + '; charset=utf-8';
-        } else {
-            body = '[无法提取邮件正文内容]';
-            errorLog('[精简邮件] 无法提取邮件正文');
-        }
+        // 不从 raw MIME 正文中猜测内容。raw 部分可能仍是 base64/quoted-printable，
+        // 直接保存会造成“明文正文 + base64 头”或“编码正文 + 8bit 头”的错配。
+        body = '[无法提取邮件正文内容]';
+        errorLog('[精简邮件] postal-mime 未解析出正文，使用占位内容');
     }
 
     // 第三步：添加新的 Content-Type 头（单一类型，不再是 multipart）
@@ -89,6 +84,57 @@ function buildStrippedEmlFile(rawEmail: string, parsedEmail: any): string {
     // 第四步：组装完整的 .eml 文件
     // RFC 822 格式：头部 + 空行 + 正文
     return headers.join('\r\n') + '\r\n\r\n' + body;
+}
+
+function parseAddressHeader(value?: string | null): { name: string; address: string } {
+    const source = (value || '').trim();
+    if (!source) return { name: '', address: '' };
+
+    const bracketMatch = source.match(/^(.*?)<([^<>@\s]+@[^<>\s]+)>/);
+    if (bracketMatch) {
+        return {
+            name: decodeMimeHeaderValue(bracketMatch[1].trim().replace(/^"|"$/g, '')),
+            address: bracketMatch[2].trim()
+        };
+    }
+
+    const emailMatch = source.match(/([^\s<>@]+@[^\s<>]+)/);
+    return {
+        name: '',
+        address: emailMatch?.[1]?.trim() || source
+    };
+}
+
+function decodeMimeHeaderValue(value: string): string {
+    return value.replace(/=\?([^?]+)\?([bqBQ])\?([^?]+)\?=/g, (_match, charset, encoding, encoded) => {
+        try {
+            const normalizedCharset = String(charset || 'utf-8').toLowerCase();
+            const bytes = String(encoding).toLowerCase() === 'b'
+                ? Uint8Array.from(atob(String(encoded).replace(/\s/g, '')), char => char.charCodeAt(0))
+                : decodeQuotedPrintableHeader(String(encoded));
+            return new TextDecoder(normalizedCharset).decode(bytes);
+        } catch {
+            return String(encoded);
+        }
+    }).trim();
+}
+
+function decodeQuotedPrintableHeader(value: string): Uint8Array {
+    const normalized = value.replace(/_/g, ' ');
+    const bytes: number[] = [];
+    for (let i = 0; i < normalized.length; i++) {
+        if (normalized[i] === '=' && /^[0-9a-fA-F]{2}$/.test(normalized.slice(i + 1, i + 3))) {
+            bytes.push(parseInt(normalized.slice(i + 1, i + 3), 16));
+            i += 2;
+        } else {
+            bytes.push(normalized.charCodeAt(i));
+        }
+    }
+    return new Uint8Array(bytes);
+}
+
+function getNameFromEmailAddress(address: string): string {
+    return address.includes('@') ? address.split('@')[0] : '';
 }
 
 /**
@@ -142,11 +188,15 @@ async function parseEmailContent(
     subject: string;
     messageId: string;
     content: string;
+    senderName: string;
+    senderAddress: string;
     images: Array<{ contentId?: string | null; filename?: string | null; mimeType?: string; disposition?: string | null; size?: number }>;
 }> {
     let subject = '';
     let messageId = '';
     let content = '[无法提取邮件内容预览]';
+    let senderName = '';
+    let senderAddress = '';
     let images: Array<any> = [];
 
     // 尝试使用 postal-mime 解析
@@ -158,6 +208,16 @@ async function parseEmailContent(
             subject = parsed.subject || '';
             messageId = parsed.messageId || '';
             content = await extractEmailText(parsed);
+            senderName = parsed.from?.name || '';
+            senderAddress = parsed.from?.address || '';
+            const rawFromHeader = Array.isArray(parsed.headers)
+                ? parsed.headers.find((header: any) => String(header?.key || '').toLowerCase() === 'from')?.value
+                : '';
+            if ((!senderName || !senderAddress) && rawFromHeader) {
+                const parsedFromHeader = parseAddressHeader(rawFromHeader);
+                senderName = senderName || parsedFromHeader.name;
+                senderAddress = senderAddress || parsedFromHeader.address;
+            }
 
             // 提取图片信息
             if (parsed.attachments?.length > 0) {
@@ -172,7 +232,7 @@ async function parseEmailContent(
                     }));
             }
 
-            return { subject, messageId, content, images };
+            return { subject, messageId, content, senderName, senderAddress, images };
         } catch (error) {
             errorLog('[邮件解析] postal-mime 失败，使用备用方案:', error);
         }
@@ -189,7 +249,7 @@ async function parseEmailContent(
         errorLog('[邮件解析] 备用方案失败:', error);
     }
 
-    return { subject, messageId, content, images };
+    return { subject, messageId, content, senderName, senderAddress, images };
 }
 
 /**
@@ -224,14 +284,16 @@ async function reconstructRawEmail(
         } else if (message.headers instanceof Map) {
             // Map 对象
             for (const [key, value] of message.headers.entries()) {
-                if (!['From', 'To', 'Subject', 'Message-ID'].includes(key)) {
+                const normalizedKey = key.toLowerCase();
+                if (!['from', 'to', 'subject', 'message-id', 'content-transfer-encoding'].includes(normalizedKey)) {
                     headers.push(`${key}: ${value}`);
                 }
             }
         } else {
             // 普通对象
             for (const [key, value] of Object.entries(message.headers)) {
-                if (!['From', 'To', 'Subject', 'Message-ID'].includes(key)) {
+                const normalizedKey = key.toLowerCase();
+                if (!['from', 'to', 'subject', 'message-id', 'content-transfer-encoding'].includes(normalizedKey)) {
                     headers.push(`${key}: ${value}`);
                 }
             }
@@ -251,9 +313,11 @@ async function reconstructRawEmail(
             if (htmlContent) {
                 body = htmlContent;
                 // 更新 Content-Type
-                const contentTypeIndex = headers.findIndex(h => h.startsWith('Content-Type:'));
+                const contentTypeIndex = headers.findIndex(h => h.toLowerCase().startsWith('content-type:'));
                 if (contentTypeIndex >= 0) {
                     headers[contentTypeIndex] = 'Content-Type: text/html; charset=UTF-8';
+                } else {
+                    headers.push('Content-Type: text/html; charset=UTF-8');
                 }
             }
         }
@@ -261,11 +325,24 @@ async function reconstructRawEmail(
             const textContent = await message.text();
             if (textContent) {
                 body = textContent;
+                const contentTypeIndex = headers.findIndex(h => h.toLowerCase().startsWith('content-type:'));
+                if (contentTypeIndex >= 0) {
+                    headers[contentTypeIndex] = 'Content-Type: text/plain; charset=UTF-8';
+                } else {
+                    headers.push('Content-Type: text/plain; charset=UTF-8');
+                }
             }
         }
     } catch (error) {
         debugLog('[邮件处理] 重新构建邮件正文失败:', error);
     }
+
+    if (!headers.some(h => h.toLowerCase().startsWith('content-type:'))) {
+        headers.push('Content-Type: text/plain; charset=UTF-8');
+    }
+
+    // 正文来自 Cloudflare message API，已经是解码后的明文，不能保留原始 base64/quoted-printable 头。
+    headers.push('Content-Transfer-Encoding: 8bit');
 
     // RFC 822 格式：头部 + 空行 + 正文
     return headers.join('\r\n') + '\r\n\r\n' + body;
@@ -367,8 +444,7 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
         debugLog('步骤2 邮件解析完成','主题:' ,subject, '内容:', content.length, '字符', '图片:', images.length, '张');
 
         // 步骤2.5: 提取并保存所有附件到 R2（统一存储在 attachments/ 目录）
-        // 同时生成去除附件的精简 .eml 文件（节省存储空间）
-        let strippedRawEmail: string | null = null; // 去除附件的精简 .eml
+        // 注意：email:{id}.eml 必须保存原始 message.raw 字节，不能保存精简/重编码内容。
         let attachmentCount = 0; // 附件计数
         const attachmentRecords: Array<{
             id: string;
@@ -459,11 +535,6 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                         debugLog(`步骤2.5 保存${typeLabel}`, r2Filename, `(${(contentSize / 1024).toFixed(2)} KB)`);
                     }
                 }
-
-                // 生成去除附件的精简 .eml 文件（保留完整邮件头和正文，只移除附件）
-                const decoder = new TextDecoder('utf-8');
-                const originalRawEmail = decoder.decode(rawEmailBytes);
-                strippedRawEmail = buildStrippedEmlFile(originalRawEmail, parsedEmail);
                 debugLog('[步骤2.5] 附件处理完成');
             } catch (error) {
                 errorLog('[步骤2.5] 附件处理失败:', error);
@@ -478,11 +549,18 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
         const extractedCc = headersObj['cc'] || null;
         const extractedBcc = headersObj['bcc'] || null;
         const extractedContentType = headersObj['content-type'] || null;
-
+        if (parsed.senderName) {
+            headersObj.parsed_from_name = parsed.senderName;
+        } else if (parsed.senderAddress || senderEmail) {
+            headersObj.parsed_from_name = getNameFromEmailAddress(parsed.senderAddress || senderEmail);
+        }
+        if (parsed.senderAddress) {
+            headersObj.parsed_from_address = parsed.senderAddress;
+        }
         // 步骤4: 创建邮件记录
         const emailRecord: Omit<Email, 'id' | 'created_at' | 'updated_at'> = {
             subject: subject || null,
-            from_address: senderEmail || null,
+            from_address: parsed.senderAddress || senderEmail || null,
             to_address: recipientEmail || null,
             content: content, // 已经截取过的内容（100字符）
             is_read: 0,
@@ -544,33 +622,12 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
             }
         }
 
-        // 步骤6: 保存精简版邮件到 R2（优先使用去除附件的版本，节省存储）
+        // 步骤6: 保存原始邮件到 R2
         if (env.R2) {
             try {
                 const r2Key = `email:${savedEmail.id}.eml`;
 
-                // 优先使用精简版 .eml（已移除附件，节省存储空间）
-                if (strippedRawEmail) {
-                    const strippedBytes = new TextEncoder().encode(strippedRawEmail);
-                    await retryR2Operation('保存精简版邮件', async () => {
-                        return await env.R2.put(r2Key, strippedBytes, {
-                            httpMetadata: {
-                                contentType: 'message/rfc822',
-                                contentDisposition: `attachment; filename="email_${savedEmail.id}.eml"`
-                            },
-                            customMetadata: {
-                                emailId: savedEmail.id,
-                                messageId: messageId || '',
-                                savedAt: new Date().toISOString(),
-                                format: 'RFC822-stripped',
-                                note: 'Attachments removed to save storage'
-                            }
-                        });
-                    });
-                    debugLog('步骤6 精简版邮件已保存', r2Key, `(${(strippedBytes.length / 1024).toFixed(2)} KB)`);
-                }
-                // 如果没有精简版，使用原始邮件
-                else if (rawEmailBytes) {
+                if (rawEmailBytes) {
                     await retryR2Operation('保存原始邮件', async () => {
                         return await env.R2.put(r2Key, rawEmailBytes, {
                             httpMetadata: {

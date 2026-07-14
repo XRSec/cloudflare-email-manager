@@ -63,9 +63,6 @@
           <button class="btn btn-secondary" @click="goToTools('r2')">
             📁 R2 文件管理
           </button>
-          <button v-if="isDebugMode" class="btn btn-secondary" @click="goToTools('simulate')">
-            📧 模拟邮件接收
-          </button>
         </div>
       </div>
 
@@ -124,21 +121,17 @@ const CACHE_TTL = 2 * 60 * 1000 // 2分钟（前端缓存，比后端5分钟短�
 // 方法：加载统计数据（邮箱数、R2数、转发数）
 const loadStats = async (forceRefresh = false) => {
   if (loading.value) {
-    console.log('📊 统计数据正在加载中，跳过重复请求')
     return
   }
 
   loading.value = true
   try {
-    console.log('📊 开始加载统计数据', { forceRefresh })
-
     // 加载统计数据（带前端缓存）
     let statsData = null
     if (!forceRefresh) {
       // 尝试从缓存获取
       const cachedStats = cacheService.get<any>(CACHE_KEYS.DASHBOARD_STATS)
       if (cachedStats !== undefined) {
-        console.log('📦 从缓存读取统计数据')
         statsData = cachedStats
         // 使用缓存数据更新 ref（响应式更新）
         stats.value = cachedStats
@@ -154,14 +147,9 @@ const loadStats = async (forceRefresh = false) => {
         stats.value = statsData
         // 写入缓存
         cacheService.set(CACHE_KEYS.DASHBOARD_STATS, statsData, CACHE_TTL)
-        console.log('📊 统计数据已更新（从后端）:', {
-          cached: statsResponse.data.cached || false,
-          timestamp: statsData.timestamp
-        })
       }
     }
 
-    console.log('📊 统计数据加载完成')
   } catch (error) {
     console.error('加载统计数据失败:', error)
   } finally {
@@ -175,7 +163,6 @@ const loadRecentEmails = async (forceRefresh = false) => {
     // 尝试从缓存获取
     const cachedEmails = forceRefresh ? undefined : cacheService.get<any[]>(CACHE_KEYS.DASHBOARD_EMAILS)
     if (cachedEmails !== undefined) {
-      console.log('📦 从缓存读取最近邮件')
       recentEmails.value = cachedEmails
       return
     }
@@ -188,7 +175,6 @@ const loadRecentEmails = async (forceRefresh = false) => {
       recentEmails.value = emailsData
       // 写入缓存
       cacheService.set(CACHE_KEYS.DASHBOARD_EMAILS, emailsData, CACHE_TTL)
-      console.log('📧 最近邮件已更新（从后端）:', emailsData.length)
     }
   } catch (error) {
     console.error('加载最近邮件失败:', error)
@@ -205,7 +191,6 @@ const loadDashboardData = async (forceRefresh = false) => {
 
 // 刷新功能：刷新当前仪表板所需数据
 const refreshData = async () => {
-  console.log('🔄 刷新仪表板数据')
   // 清除缓存，强制从后端获取最新数据
   cacheService.delete(CACHE_KEYS.DASHBOARD_STATS)
   cacheService.delete(CACHE_KEYS.DASHBOARD_EMAILS)
@@ -229,11 +214,11 @@ const formatTime = (dateString: string) => {
 }
 
 const viewEmail = (emailId: string) => {
-  router.push({ name: 'all-emails', query: { email: emailId } })
+  router.push({ name: 'inbox', query: { email: emailId } })
 }
 
 const goToEmails = () => {
-  router.push('/all-emails')
+  router.push('/inbox')
 }
 
 const goToRouting = () => {

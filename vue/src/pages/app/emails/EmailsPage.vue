@@ -1,137 +1,153 @@
 <template>
-  <div class="all-emails-view">
-    <PageHeader title="🌍 全部邮件" />
+  <div class="emails-view">
+    <PageHeader :title="pageTitle">
+      <template #actions>
+        <Button v-if="currentFolder === 'sent'" variant="primary" size="sm" @click="openSendModal">
+          发送邮件
+        </Button>
+      </template>
+    </PageHeader>
 
     <section class="filters-panel" @keydown.enter="handleFilterKeydown">
-      <div class="filters-header">
-        <div class="filters-heading">
-          <span class="filters-eyebrow">Search</span>
-          <h2 class="filters-title">搜索与过滤</h2>
-          <p class="filters-description">支持关键词、状态、附件、发件人、主题、日期区间和排序组合筛选。</p>
+      <div class="filters-panel-header">
+        <div class="filters-panel-title">
+          <span>搜索与筛选</span>
+          <strong v-if="activeFilterCount > 0">{{ activeFilterCount }}</strong>
         </div>
         <div class="filters-stats">
-          <span class="filters-stat">{{ pagination?.total ?? 0 }} 封匹配邮件</span>
-          <span v-if="activeFilterCount > 0" class="filters-stat filters-stat-active">已启用 {{ activeFilterCount }} 个条件</span>
+          <span>{{ pagination?.total ?? 0 }} 封</span>
         </div>
-      </div>
-
-      <div class="filters-search-row">
-        <div class="filters-search-box">
-          <SearchBox
-            v-model="filters.search"
-            :loading="loading"
-            :show-stats="false"
-            placeholder="搜索主题、发件人、收件人或正文"
-            @search="applyFilters"
-          />
-        </div>
-        <button type="button" class="filter-action filter-action-primary" :disabled="loading" @click="applyFilters">
-          应用筛选
-        </button>
-        <button type="button" class="filter-action" :disabled="!hasActiveFilters" @click="resetFilters">
-          清空
+        <button type="button" class="filter-action" @click="filtersExpanded = !filtersExpanded">
+          {{ filtersExpanded ? '收起' : '展开' }}
         </button>
       </div>
 
-      <div class="filters-chip-row">
-        <div class="chip-group">
-          <span class="chip-group-label">状态</span>
-          <button
-            type="button"
-            class="filter-chip"
-            :class="{ active: filters.status === '' }"
-            @click="setStatusFilter('')"
-          >
-            全部
+      <div v-if="filtersExpanded" class="filters-panel-body">
+        <div class="filters-search-row">
+          <div class="filters-search-box">
+            <SearchBox
+              v-model="filters.search"
+              :loading="loading"
+              :show-stats="false"
+              placeholder="搜索主题、发件人、收件人或正文"
+              @search="applyFilters"
+            />
+          </div>
+          <button type="button" class="filter-action filter-action-primary" :disabled="loading" @click="applyFilters">
+            应用筛选
           </button>
-          <button
-            type="button"
-            class="filter-chip"
-            :class="{ active: filters.status === 'unread' }"
-            @click="setStatusFilter('unread')"
-          >
-            未读
-          </button>
-          <button
-            type="button"
-            class="filter-chip"
-            :class="{ active: filters.status === 'read' }"
-            @click="setStatusFilter('read')"
-          >
-            已读
+          <button type="button" class="filter-action" :disabled="!hasActiveFilters" @click="resetFilters">
+            清空
           </button>
         </div>
 
-        <div class="chip-group">
-          <span class="chip-group-label">附件</span>
-          <button
-            type="button"
-            class="filter-chip"
-            :class="{ active: filters.hasAttachments === '' }"
-            @click="setAttachmentFilter('')"
-          >
-            全部
-          </button>
-          <button
-            type="button"
-            class="filter-chip"
-            :class="{ active: filters.hasAttachments === 'true' }"
-            @click="setAttachmentFilter('true')"
-          >
-            有附件
-          </button>
-          <button
-            type="button"
-            class="filter-chip"
-            :class="{ active: filters.hasAttachments === 'false' }"
-            @click="setAttachmentFilter('false')"
-          >
-            无附件
-          </button>
+        <div class="filters-compact-grid">
+          <div class="filter-field filter-field-wide">
+            <span class="filter-label">状态</span>
+            <div class="segmented-control">
+              <button
+                type="button"
+                class="filter-chip"
+                :class="{ active: filters.status === '' }"
+                @click="setStatusFilter('')"
+              >
+                全部
+              </button>
+              <button
+                type="button"
+                class="filter-chip"
+                :class="{ active: filters.status === 'unread' }"
+                @click="setStatusFilter('unread')"
+              >
+                未读
+              </button>
+              <button
+                type="button"
+                class="filter-chip"
+                :class="{ active: filters.status === 'read' }"
+                @click="setStatusFilter('read')"
+              >
+                已读
+              </button>
+            </div>
+          </div>
+
+          <div class="filter-field filter-field-wide">
+            <span class="filter-label">附件</span>
+            <div class="segmented-control">
+              <button
+                type="button"
+                class="filter-chip"
+                :class="{ active: filters.hasAttachments === '' }"
+                @click="setAttachmentFilter('')"
+              >
+                全部
+              </button>
+              <button
+                type="button"
+                class="filter-chip"
+                :class="{ active: filters.hasAttachments === 'true' }"
+                @click="setAttachmentFilter('true')"
+              >
+                有
+              </button>
+              <button
+                type="button"
+                class="filter-chip"
+                :class="{ active: filters.hasAttachments === 'false' }"
+                @click="setAttachmentFilter('false')"
+              >
+                无
+              </button>
+            </div>
+          </div>
+
+          <label class="filter-field">
+            <span class="filter-label">发件人 / 发件域</span>
+            <input v-model="filters.sender" type="text" class="filter-input" placeholder="cem@example.com 或 example.com" />
+          </label>
+
+          <label class="filter-field">
+            <span class="filter-label">收件人 / 收件域</span>
+            <input v-model="filters.recipient" type="text" class="filter-input" placeholder="inbox@example.com 或 example.com" />
+          </label>
+
+          <label class="filter-field">
+            <span class="filter-label">主题</span>
+            <input v-model="filters.subject" type="text" class="filter-input" placeholder="按主题精确缩小范围" />
+          </label>
+
+          <label class="filter-field">
+            <span class="filter-label">开始日期</span>
+            <input v-model="filters.startDate" type="date" class="filter-input" />
+          </label>
+
+          <label class="filter-field">
+            <span class="filter-label">结束日期</span>
+            <input v-model="filters.endDate" type="date" class="filter-input" />
+          </label>
+
+          <label class="filter-field">
+            <span class="filter-label">排序字段</span>
+            <select v-model="filters.sort" class="filter-input">
+              <option v-for="option in SORT_OPTIONS" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+
+          <label class="filter-field">
+            <span class="filter-label">排序方向</span>
+            <select v-model="filters.order" class="filter-input">
+              <option value="desc">降序</option>
+              <option value="asc">升序</option>
+            </select>
+          </label>
         </div>
-      </div>
 
-      <div class="filters-grid">
-        <label class="filter-field">
-          <span class="filter-label">发件人</span>
-          <input v-model="filters.sender" type="text" class="filter-input" placeholder="sender@example.com" />
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">主题</span>
-          <input v-model="filters.subject" type="text" class="filter-input" placeholder="按主题精确缩小范围" />
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">开始日期</span>
-          <input v-model="filters.startDate" type="date" class="filter-input" />
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">结束日期</span>
-          <input v-model="filters.endDate" type="date" class="filter-input" />
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">排序字段</span>
-          <select v-model="filters.sort" class="filter-input">
-            <option v-for="option in SORT_OPTIONS" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
-
-        <label class="filter-field">
-          <span class="filter-label">排序方向</span>
-          <select v-model="filters.order" class="filter-input">
-            <option value="desc">降序</option>
-            <option value="asc">升序</option>
-          </select>
-        </label>
-      </div>
-
-      <div v-if="activeFilterTags.length > 0" class="active-filters">
-        <span v-for="tag in activeFilterTags" :key="tag" class="active-filter-tag">{{ tag }}</span>
+        <div v-if="activeFilterTags.length > 0" class="active-filters">
+          <span v-for="tag in activeFilterTags" :key="tag" class="active-filter-tag">{{ tag }}</span>
+        </div>
       </div>
     </section>
 
@@ -139,7 +155,7 @@
       :loading="loading"
       :error="error"
       :is-empty="isEmpty"
-      loading-text="正在加载全部邮件数据..."
+      :loading-text="currentFolder === 'sent' ? '正在加载已发送邮件...' : '正在加载收件箱邮件...'"
       :empty-icon="hasActiveFilters ? '🔎' : '📨'"
       :empty-title="hasActiveFilters ? '没有匹配邮件' : '暂无邮件'"
       :empty-description="hasActiveFilters ? '当前过滤条件没有匹配结果，请调整后重试。' : '系统中没有邮件数据'"
@@ -150,8 +166,106 @@
       </template>
     </PageStates>
 
-    <div v-if="data && emails.length" class="data-container">
-      <div class="emails-actions" :class="{ 'has-selection': selectedEmailIds.length > 0 }">
+    <div v-if="data && (emails.length || mailboxGroups.length || recipientDomainGroups.length)" class="mail-layout">
+      <aside class="mailbox-groups">
+        <div class="mailbox-groups-header">
+          <span>{{ mailboxGroupTitle }}</span>
+          <strong>{{ pagination?.total ?? 0 }}</strong>
+        </div>
+        <button type="button" class="mailbox-group-item" :class="{ active: !hasGroupFilter }" @click="clearGroupFilter">
+          <span>全部</span>
+          <strong>{{ pagination?.total ?? 0 }}</strong>
+        </button>
+        <template v-if="currentFolder === 'inbox'">
+          <section class="mailbox-group-panel">
+            <div class="mailbox-group-panel-title">
+              <span>收件域</span>
+              <strong>{{ recipientDomainGroups.length }}</strong>
+            </div>
+            <button
+              v-for="domain in recipientDomainGroups"
+              :key="domain.domain"
+              type="button"
+              class="mailbox-group-item mailbox-group-domain"
+              :class="{ active: filters.recipientDomain === domain.domain && !filters.recipientMailbox && !filters.senderMailbox }"
+              @click="setRecipientDomainFilter(domain.domain)"
+            >
+              <span>{{ domain.domain }}</span>
+              <strong>{{ domain.count }}</strong>
+            </button>
+          </section>
+
+          <section class="mailbox-group-panel">
+            <div class="mailbox-group-panel-title">
+              <span>收件人</span>
+              <strong>{{ visibleRecipientGroups.length }}</strong>
+            </div>
+            <button
+              type="button"
+              class="mailbox-group-item"
+              :class="{ active: filters.recipientDomain && !filters.recipientMailbox && !filters.senderMailbox }"
+              @click="clearRecipientMailboxFilter"
+            >
+              <span>全部收件人</span>
+              <strong>{{ visibleRecipientTotal }}</strong>
+            </button>
+            <button
+              v-for="recipient in visibleRecipientGroups"
+              :key="recipient.recipient"
+              type="button"
+              class="mailbox-group-item mailbox-group-recipient"
+              :class="{ active: filters.recipientMailbox === recipient.recipient && !filters.senderMailbox }"
+              @click="setRecipientMailboxFilter(recipient.domain, recipient.recipient)"
+            >
+              <span>{{ recipient.recipient }}</span>
+              <strong>{{ recipient.count }}</strong>
+            </button>
+          </section>
+
+          <section class="mailbox-group-panel">
+            <div class="mailbox-group-panel-title">
+              <span>发件人</span>
+              <strong>{{ visibleSenderGroups.length }}</strong>
+            </div>
+            <button
+              type="button"
+              class="mailbox-group-item"
+              :class="{ active: (filters.recipientDomain || filters.recipientMailbox) && !filters.senderMailbox }"
+              @click="clearSenderMailboxFilter"
+            >
+              <span>全部发件人</span>
+              <strong>{{ visibleSenderTotal }}</strong>
+            </button>
+            <button
+              v-for="senderGroup in visibleSenderGroups"
+              :key="senderGroup.sender"
+              type="button"
+              class="mailbox-group-item mailbox-group-sender"
+              :class="{ active: filters.senderMailbox === senderGroup.sender }"
+              @click="setSenderMailboxFilter(senderGroup.domain, senderGroup.recipient, senderGroup.sender)"
+            >
+              <span>{{ senderGroup.sender }}</span>
+              <strong>{{ senderGroup.count }}</strong>
+            </button>
+          </section>
+        </template>
+        <template v-else>
+          <button
+            v-for="group in mailboxGroups"
+            :key="group.value"
+            type="button"
+            class="mailbox-group-item"
+            :class="{ active: filters.senderMailbox === group.value }"
+            @click="setSentSenderFilter(group.value)"
+          >
+            <span>{{ group.value }}</span>
+            <strong>{{ group.count }}</strong>
+          </button>
+        </template>
+      </aside>
+
+      <div class="data-container">
+        <div class="emails-actions" :class="{ 'has-selection': selectedEmailIds.length > 0 }">
         <div class="emails-actions-left">
           <label class="select-all-checkbox">
             <input type="checkbox" :checked="isAllSelected" @change="handleSelectAll" />
@@ -201,21 +315,70 @@
         </div>
       </div>
 
-      <EmailList
-        :emails="emails"
-        :show-actions="true"
-        :enable-selection="true"
-        :selected-ids="selectedEmailIds"
-        @delete="deleteEmail"
-        @view="viewEmailDetail"
-        @forward="openForwardModal"
-        @selection-change="handleSelectionChange"
-      />
+        <EmailList
+          :emails="emails"
+          :show-actions="true"
+          :enable-selection="true"
+          :selected-ids="selectedEmailIds"
+          @delete="deleteEmail"
+          @view="viewEmailDetail"
+          @forward="openForwardModal"
+          @selection-change="handleSelectionChange"
+        />
 
-      <Pagination :pagination="pagination || undefined" @change-page="changePage" />
+        <Pagination :pagination="pagination || undefined" @change-page="changePage" />
+      </div>
     </div>
 
     <EmailDetailModal :show="showDetailModal" :email-id="selectedEmailId" @close="closeDetailModal" />
+
+    <Modal :show="sendModalVisible" title="发送邮件" size="medium" @close="closeSendModal">
+      <form class="send-form" @submit.prevent="submitSendEmail">
+        <label class="send-field">
+          <span>发送类型</span>
+          <select v-model="sendForm.deliveryMethod" class="send-input">
+            <option value="internal">站内</option>
+            <option value="cf">CF</option>
+            <option value="resend">Resend</option>
+          </select>
+        </label>
+
+        <label class="send-field">
+          <span>发件人</span>
+          <input v-model.trim="sendForm.from" class="send-input" type="email" placeholder="cem@example.com" />
+        </label>
+
+        <label class="send-field">
+          <span>收件人</span>
+          <input v-model.trim="sendForm.to" class="send-input" type="email" placeholder="name@example.com" />
+        </label>
+
+        <label class="send-field">
+          <span>主题</span>
+          <input v-model.trim="sendForm.subject" class="send-input" type="text" placeholder="邮件主题" />
+        </label>
+
+        <label class="send-field">
+          <span>内容格式</span>
+          <select v-model="sendForm.contentType" class="send-input">
+            <option value="text">纯文本</option>
+            <option value="html">HTML</option>
+          </select>
+        </label>
+
+        <label class="send-field">
+          <span>正文</span>
+          <textarea v-model="sendForm.content" class="send-input send-textarea" rows="10" placeholder="输入邮件正文"></textarea>
+        </label>
+      </form>
+
+      <template #footer>
+        <Button variant="secondary" @click="closeSendModal">取消</Button>
+        <Button variant="primary" :disabled="sendSubmitting" @click="submitSendEmail">
+          {{ sendSubmitting ? '发送中...' : '发送' }}
+        </Button>
+      </template>
+    </Modal>
 
     <Modal :show="forwardModalVisible" title="转发邮件" size="medium" @close="closeForwardModal">
       <form class="forward-form" @submit.prevent="submitForward">
@@ -225,11 +388,11 @@
         </div>
 
         <div class="forward-mode-toggle">
+          <button type="button" class="forward-mode-button" :class="{ active: forwardForm.mode === 'recipient' }" @click="forwardForm.mode = 'recipient'">
+            邮件转发
+          </button>
           <button type="button" class="forward-mode-button" :class="{ active: forwardForm.mode === 'webhook' }" @click="forwardForm.mode = 'webhook'">
             Webhook
-          </button>
-          <button type="button" class="forward-mode-button" :class="{ active: forwardForm.mode === 'recipient' }" @click="forwardForm.mode = 'recipient'">
-            收件转发
           </button>
         </div>
 
@@ -243,23 +406,23 @@
           </select>
         </label>
 
-        <label v-else class="forward-field">
-          <span>收件人</span>
-          <input v-model.trim="forwardForm.targetEmail" class="forward-input" type="email" placeholder="name@example.com" />
-        </label>
-
         <label v-if="forwardForm.mode === 'recipient'" class="forward-field">
           <span>转发方式</span>
           <select v-model="forwardForm.targetForwardType" class="forward-input">
             <option value="internal">站内转发</option>
-            <option value="smtp">SMTP 转发</option>
             <option value="cf">CF 转发</option>
+            <option value="resend">Resend 转发</option>
           </select>
         </label>
 
-        <label v-if="forwardForm.mode === 'recipient' && forwardForm.targetForwardType === 'cf'" class="forward-field">
+        <label v-if="forwardForm.mode === 'recipient'" class="forward-field">
           <span>发件人</span>
-          <input v-model.trim="forwardForm.from" class="forward-input" type="email" placeholder="forward@example.com" />
+          <input v-model.trim="forwardForm.from" class="forward-input" type="email" placeholder="cem@example.com" />
+        </label>
+
+        <label v-if="forwardForm.mode === 'recipient'" class="forward-field">
+          <span>收件人</span>
+          <input v-model.trim="forwardForm.targetEmail" class="forward-input" type="email" placeholder="name@example.com" />
         </label>
 
         <p v-if="forwardOptionsError" class="forward-error">{{ forwardOptionsError }}</p>
@@ -289,11 +452,47 @@ type EmailStatusFilter = '' | 'read' | 'unread'
 type AttachmentFilter = '' | 'true' | 'false'
 type SortField = 'received_at' | 'subject' | 'from_address' | 'to_address' | 'attachment_count' | 'size_bytes'
 type SortOrder = 'asc' | 'desc'
-type ForwardType = 'internal' | 'smtp' | 'cf'
+type ForwardType = 'internal' | 'cf' | 'resend'
+type SendContentType = 'text' | 'html'
+type EmailFolder = 'inbox' | 'sent'
+
+interface SenderGroup {
+  sender: string
+  count: number
+}
+
+interface RecipientGroup {
+  recipient: string
+  count: number
+  senders: SenderGroup[]
+}
+
+interface RecipientDomainGroup {
+  domain: string
+  count: number
+  recipients: RecipientGroup[]
+}
+
+interface VisibleRecipientGroup {
+  domain: string
+  recipient: string
+  count: number
+}
+
+interface VisibleSenderGroup {
+  domain: string
+  recipient: string
+  sender: string
+  count: number
+}
 
 interface EmailFiltersForm {
   search: string
   status: EmailStatusFilter
+  recipientDomain: string
+  recipientMailbox: string
+  senderMailbox: string
+  recipient: string
   sender: string
   subject: string
   startDate: string
@@ -310,11 +509,15 @@ interface WebhookChannelOption {
   enabled: boolean
 }
 
-const FILTER_QUERY_KEYS = ['search', 'status', 'sender', 'subject', 'start_date', 'end_date', 'has_attachments', 'sort', 'order'] as const
+const FILTER_QUERY_KEYS = ['search', 'status', 'recipient_domain', 'recipient_mailbox', 'sender_mailbox', 'recipient', 'sender', 'subject', 'start_date', 'end_date', 'has_attachments', 'sort', 'order'] as const
 
 const DEFAULT_FILTERS: EmailFiltersForm = {
   search: '',
   status: '',
+  recipientDomain: '',
+  recipientMailbox: '',
+  senderMailbox: '',
+  recipient: '',
   sender: '',
   subject: '',
   startDate: '',
@@ -345,6 +548,9 @@ const SORT_LABELS: Record<SortField, string> = {
 const route = useRoute()
 const router = useRouter()
 const EmailDetailModal = defineAsyncComponent(() => import('@/components/business/EmailDetailModal.vue'))
+const currentFolder = computed<EmailFolder>(() => route.name === 'sent' ? 'sent' : 'inbox')
+const pageTitle = computed(() => currentFolder.value === 'sent' ? '📤 已发送' : '📥 收件箱')
+const mailboxGroupTitle = computed(() => currentFolder.value === 'sent' ? '发件邮箱' : '邮件分类')
 
 const getQueryValue = (value: LocationQueryValue | LocationQueryValue[] | undefined) => {
   if (Array.isArray(value)) {
@@ -361,6 +567,10 @@ const createDefaultFilters = (): EmailFiltersForm => ({
 const normalizeFilters = (source: EmailFiltersForm): EmailFiltersForm => ({
   search: source.search.trim(),
   status: source.status,
+  recipientDomain: source.recipientDomain.trim(),
+  recipientMailbox: source.recipientMailbox.trim(),
+  senderMailbox: source.senderMailbox.trim(),
+  recipient: source.recipient.trim(),
   sender: source.sender.trim(),
   subject: source.subject.trim(),
   startDate: source.startDate,
@@ -394,6 +604,10 @@ const parseFiltersFromRoute = (query: LocationQuery): EmailFiltersForm => {
   const order = getQueryValue(query.order)
 
   nextFilters.search = getQueryValue(query.search)
+  nextFilters.recipientDomain = getQueryValue(query.recipient_domain)
+  nextFilters.recipientMailbox = getQueryValue(query.recipient_mailbox)
+  nextFilters.senderMailbox = getQueryValue(query.sender_mailbox)
+  nextFilters.recipient = getQueryValue(query.recipient)
   nextFilters.sender = getQueryValue(query.sender)
   nextFilters.subject = getQueryValue(query.subject)
   nextFilters.startDate = getQueryValue(query.start_date)
@@ -424,12 +638,14 @@ const toLocalDateBoundary = (dateValue: string, boundary: 'start' | 'end') => {
 const buildApiParams = (rawFilters: EmailFiltersForm) => {
   const filters = normalizeFilters(rawFilters)
   const params: Record<string, any> = {
+    folder: currentFolder.value,
     sort: filters.sort,
     order: filters.order
   }
 
   if (filters.search) params.search = filters.search
   if (filters.status) params.status = filters.status
+  if (filters.recipient) params.recipient = filters.recipient
   if (filters.sender) params.sender = filters.sender
   if (filters.subject) params.subject = filters.subject
   if (filters.startDate) params.start_date = toLocalDateBoundary(filters.startDate, 'start')
@@ -449,6 +665,10 @@ const buildRouteQueryFromFilters = (rawFilters: EmailFiltersForm, currentQuery: 
 
   if (filters.search) nextQuery.search = filters.search
   if (filters.status) nextQuery.status = filters.status
+  if (filters.recipientDomain) nextQuery.recipient_domain = filters.recipientDomain
+  if (filters.recipientMailbox) nextQuery.recipient_mailbox = filters.recipientMailbox
+  if (filters.senderMailbox) nextQuery.sender_mailbox = filters.senderMailbox
+  if (filters.recipient) nextQuery.recipient = filters.recipient
   if (filters.sender) nextQuery.sender = filters.sender
   if (filters.subject) nextQuery.subject = filters.subject
   if (filters.startDate) nextQuery.start_date = filters.startDate
@@ -475,6 +695,7 @@ const initialFilters = parseFiltersFromRoute(route.query)
 const filters = reactive<EmailFiltersForm>({ ...initialFilters })
 const appliedFilters = ref<EmailFiltersForm>({ ...initialFilters })
 const appliedFilterSignature = ref(serializeParams(buildApiParams(initialFilters)))
+const filtersExpanded = ref(false)
 
 const {
   data,
@@ -491,8 +712,168 @@ const refreshCurrentEmailPage = async () => {
   await refreshData()
 }
 
-const emails = computed(() => {
+const apiEmails = computed(() => {
   return data.value?.data?.items || []
+})
+
+const getEmailDomain = (address?: string | null) => {
+  const value = String(address || '').trim().toLowerCase()
+  const atIndex = value.lastIndexOf('@')
+  return atIndex >= 0 && atIndex < value.length - 1 ? value.slice(atIndex + 1) : '(空域名)'
+}
+
+const getEmailAddress = (address?: string | null) => {
+  return String(address || '').trim() || '(空地址)'
+}
+
+const emails = computed(() => {
+  return apiEmails.value.filter((email: any) => {
+    const toAddress = getEmailAddress(email.to_address)
+    const fromAddress = getEmailAddress(email.from_address)
+    const toDomain = getEmailDomain(email.to_address)
+
+    if (currentFolder.value === 'sent') {
+      return !filters.senderMailbox || fromAddress === filters.senderMailbox
+    }
+
+    if (filters.recipientDomain && toDomain !== filters.recipientDomain) {
+      return false
+    }
+
+    if (filters.recipientMailbox && toAddress !== filters.recipientMailbox) {
+      return false
+    }
+
+    if (filters.senderMailbox && fromAddress !== filters.senderMailbox) {
+      return false
+    }
+
+    return true
+  })
+})
+
+const mailboxGroups = computed<Array<{ value: string; count: number }>>(() => {
+  const groupMap = new Map<string, number>()
+
+  apiEmails.value.forEach((email: any) => {
+    const value = getEmailAddress(currentFolder.value === 'sent' ? email.from_address : email.to_address)
+    groupMap.set(value, (groupMap.get(value) || 0) + 1)
+  })
+
+  return Array.from(groupMap.entries())
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+})
+
+const recipientDomainGroups = computed<RecipientDomainGroup[]>(() => {
+  const domainMap = new Map<string, RecipientDomainGroup>()
+
+  apiEmails.value.forEach((email: any) => {
+    const domainName = getEmailDomain(email.to_address)
+    const recipientName = getEmailAddress(email.to_address)
+    const senderName = getEmailAddress(email.from_address)
+
+    if (!domainMap.has(domainName)) {
+      domainMap.set(domainName, {
+        domain: domainName,
+        count: 0,
+        recipients: []
+      })
+    }
+
+    const domain = domainMap.get(domainName)!
+    domain.count += 1
+
+    let recipient = domain.recipients.find((item) => item.recipient === recipientName)
+    if (!recipient) {
+      recipient = {
+        recipient: recipientName,
+        count: 0,
+        senders: []
+      }
+      domain.recipients.push(recipient)
+    }
+
+    recipient.count += 1
+
+    const sender = recipient.senders.find((item) => item.sender === senderName)
+    if (sender) {
+      sender.count += 1
+    } else {
+      recipient.senders.push({
+        sender: senderName,
+        count: 1
+      })
+    }
+  })
+
+  return Array.from(domainMap.values()).map((domain) => ({
+    ...domain,
+    recipients: domain.recipients
+      .map((recipient) => ({
+        ...recipient,
+        senders: recipient.senders.sort((a, b) => b.count - a.count || a.sender.localeCompare(b.sender))
+      }))
+      .sort((a, b) => b.count - a.count || a.recipient.localeCompare(b.recipient))
+  })).sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain))
+})
+
+const visibleRecipientGroups = computed<VisibleRecipientGroup[]>(() => {
+  const domains = filters.recipientDomain
+    ? recipientDomainGroups.value.filter((domain) => domain.domain === filters.recipientDomain)
+    : recipientDomainGroups.value
+
+  return domains.flatMap((domain) => domain.recipients.map((recipient) => ({
+    domain: domain.domain,
+    recipient: recipient.recipient,
+    count: recipient.count
+  }))).sort((a, b) => b.count - a.count || a.recipient.localeCompare(b.recipient))
+})
+
+const visibleRecipientTotal = computed(() => {
+  return visibleRecipientGroups.value.reduce((total, recipient) => total + recipient.count, 0)
+})
+
+const visibleSenderGroups = computed<VisibleSenderGroup[]>(() => {
+  const senderMap = new Map<string, VisibleSenderGroup>()
+
+  recipientDomainGroups.value.forEach((domain) => {
+    if (filters.recipientDomain && domain.domain !== filters.recipientDomain) {
+      return
+    }
+
+    domain.recipients.forEach((recipient) => {
+      if (filters.recipientMailbox && recipient.recipient !== filters.recipientMailbox) {
+        return
+      }
+
+      recipient.senders.forEach((sender) => {
+        const key = sender.sender
+        const current = senderMap.get(key)
+        if (current) {
+          current.count += sender.count
+          return
+        }
+
+        senderMap.set(key, {
+          domain: filters.recipientDomain ? domain.domain : '',
+          recipient: filters.recipientMailbox ? recipient.recipient : '',
+          sender: sender.sender,
+          count: sender.count
+        })
+      })
+    })
+  })
+
+  return Array.from(senderMap.values()).sort((a, b) => b.count - a.count || a.sender.localeCompare(b.sender))
+})
+
+const visibleSenderTotal = computed(() => {
+  return visibleSenderGroups.value.reduce((total, sender) => total + sender.count, 0)
+})
+
+const hasGroupFilter = computed(() => {
+  return Boolean(filters.recipientDomain || filters.recipientMailbox || filters.senderMailbox)
 })
 
 const isEmpty = computed(() => {
@@ -506,6 +887,10 @@ const activeFilterTags = computed(() => {
   if (source.search) tags.push(`搜索: ${source.search}`)
   if (source.status === 'unread') tags.push('状态: 未读')
   if (source.status === 'read') tags.push('状态: 已读')
+  if (source.recipientDomain) tags.push(`收件域: ${source.recipientDomain}`)
+  if (source.recipientMailbox) tags.push(`收件人: ${source.recipientMailbox}`)
+  if (source.senderMailbox) tags.push(`发件人: ${source.senderMailbox}`)
+  if (source.recipient) tags.push(`收件人/域: ${source.recipient}`)
   if (source.sender) tags.push(`发件人: ${source.sender}`)
   if (source.subject) tags.push(`主题: ${source.subject}`)
   if (source.hasAttachments === 'true') tags.push('附件: 有附件')
@@ -527,10 +912,6 @@ const showDetailModal = ref(false)
 const selectedEmailId = ref<string | null>(null)
 
 const openEmailDetail = (id: string) => {
-  console.log('📧 [EmailsPage] 查看邮件详情')
-  console.log('📁 文件名: EmailsPage.vue')
-  console.log('📂 文件路径: vue/src/pages/app/emails/EmailsPage.vue')
-  console.log('🆔 邮件ID:', id)
   selectedEmailId.value = id
   showDetailModal.value = true
 }
@@ -551,14 +932,13 @@ const closeDetailModal = () => {
       if (email.status === 'unread') {
         email.status = 'read'
         email.is_read = 1
-        console.log('📧 [EmailsPage] 局部更新邮件状态为已读:', emailId)
       }
     }
   }
 }
 
 watch(
-  () => serializeParams(buildApiParams(parseFiltersFromRoute(route.query))),
+  () => `${String(route.name)}:${serializeParams(buildApiParams(parseFiltersFromRoute(route.query)))}`,
   async (nextSignature) => {
     const nextFilters = parseFiltersFromRoute(route.query)
     Object.assign(filters, nextFilters)
@@ -585,6 +965,16 @@ watch(
 )
 
 const selectedEmailIds = ref<string[]>([])
+const sendModalVisible = ref(false)
+const sendSubmitting = ref(false)
+const sendForm = reactive({
+  deliveryMethod: 'internal' as ForwardType,
+  from: '',
+  to: '',
+  subject: '',
+  contentType: 'text' as SendContentType,
+  content: ''
+})
 const forwardModalVisible = ref(false)
 const forwardEmailIds = ref<string[]>([])
 const forwardOptionsLoading = ref(false)
@@ -598,6 +988,108 @@ const forwardForm = reactive({
   targetForwardType: 'internal' as ForwardType,
   from: ''
 })
+
+const isValidEmailAddress = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+
+const resetSendForm = () => {
+  sendForm.deliveryMethod = 'internal'
+  sendForm.from = ''
+  sendForm.to = ''
+  sendForm.subject = ''
+  sendForm.contentType = 'text'
+  sendForm.content = ''
+}
+
+const openSendModal = () => {
+  sendModalVisible.value = true
+}
+
+const closeSendModal = () => {
+  if (sendSubmitting.value) return
+  sendModalVisible.value = false
+}
+
+const getSendErrorMessage = (error: unknown) => {
+  const responseMessage = (error as any)?.response?.data?.message || (error as any)?.response?.data?.error
+  if (typeof responseMessage === 'string' && responseMessage.trim()) {
+    return responseMessage.trim()
+  }
+
+  const directMessage = (error as Error)?.message
+  if (typeof directMessage === 'string' && directMessage.trim()) {
+    return directMessage.trim()
+  }
+
+  return '发送失败'
+}
+
+const buildSendSuccessMessage = (response: any) => {
+  const data = response?.data || {}
+  const target = data.target || sendForm.to
+
+  if (sendForm.deliveryMethod === 'internal') {
+    return data.localDelivered
+      ? `已保存到已发送，并投递到站内收件箱 ${target}`
+      : `已保存到已发送，收件人 ${target}`
+  }
+
+  if (sendForm.deliveryMethod === 'cf') {
+    return data.messageId ? `已提交 CF 投递到 ${target}，消息 ID：${data.messageId}` : `已提交 CF 投递到 ${target}`
+  }
+
+  return data.messageId ? `已通过 Resend 投递到 ${target}，消息 ID：${data.messageId}` : `已通过 Resend 投递到 ${target}`
+}
+
+const submitSendEmail = async () => {
+  if (sendSubmitting.value) return
+
+  const from = sendForm.from.trim()
+  const to = sendForm.to.trim().toLowerCase()
+  const subject = sendForm.subject.trim()
+  const content = sendForm.content.trim()
+
+  if (!isValidEmailAddress(from)) {
+    toast.warning('请输入有效的发件人邮箱')
+    return
+  }
+
+  if (!isValidEmailAddress(to)) {
+    toast.warning('请输入有效的收件人邮箱')
+    return
+  }
+
+  if (!subject) {
+    toast.warning('请输入邮件主题')
+    return
+  }
+
+  if (!content) {
+    toast.warning('请输入邮件正文')
+    return
+  }
+
+  sendSubmitting.value = true
+  try {
+    const response = await emailApiService.sendEmail({
+      from,
+      to,
+      subject,
+      content,
+      content_type: sendForm.contentType,
+      delivery_method: sendForm.deliveryMethod
+    })
+
+    toast.success(buildSendSuccessMessage(response), '邮件已发送')
+    resetSendForm()
+    sendModalVisible.value = false
+    await refreshData()
+  } catch (error) {
+    console.error('发送邮件失败:', error)
+    toast.error(getSendErrorMessage(error))
+  } finally {
+    sendSubmitting.value = false
+  }
+}
 
 const loadForwardOptions = async () => {
   forwardOptionsLoading.value = true
@@ -664,14 +1156,14 @@ const buildForwardPayload = () => {
   }
 
   const targetEmail = forwardForm.targetEmail.trim().toLowerCase()
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetEmail)) {
+  if (!isValidEmailAddress(targetEmail)) {
     toast.warning('请输入有效的收件邮箱')
     return null
   }
 
   const from = forwardForm.from.trim()
-  if (forwardForm.targetForwardType === 'cf' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(from)) {
-    toast.warning('请输入有效的 CF 发件人邮箱')
+  if (!isValidEmailAddress(from)) {
+    toast.warning('请输入有效的发件人邮箱')
     return null
   }
 
@@ -679,7 +1171,7 @@ const buildForwardPayload = () => {
     mode: 'recipient' as const,
     targetEmail,
     targetForwardType: forwardForm.targetForwardType,
-    from: forwardForm.targetForwardType === 'cf' ? from : undefined
+    from
   }
 }
 
@@ -706,6 +1198,12 @@ const buildForwardSuccessMessage = (successCount: number, payload: ReturnType<ty
       return data.messageId
         ? `已提交 Cloudflare 投递到 ${target}，消息 ID：${data.messageId}`
         : `已提交 Cloudflare 投递到 ${target}`
+    }
+
+    if (data.targetForwardType === 'resend') {
+      return data.messageId
+        ? `已通过 Resend 投递到 ${target}，消息 ID：${data.messageId}`
+        : `已通过 Resend 投递到 ${target}`
     }
 
     if (data.local) {
@@ -819,6 +1317,52 @@ const setStatusFilter = async (status: EmailStatusFilter) => {
 
 const setAttachmentFilter = async (value: AttachmentFilter) => {
   filters.hasAttachments = value
+  await applyFilters()
+}
+
+const clearGroupFilter = async () => {
+  filters.recipientDomain = ''
+  filters.recipientMailbox = ''
+  filters.senderMailbox = ''
+  await applyFilters()
+}
+
+const setSentSenderFilter = async (senderMailbox: string) => {
+  filters.recipientDomain = ''
+  filters.recipientMailbox = ''
+  filters.senderMailbox = senderMailbox
+  await applyFilters()
+}
+
+const setRecipientDomainFilter = async (domain: string) => {
+  filters.recipientDomain = domain
+  filters.recipientMailbox = ''
+  filters.senderMailbox = ''
+  await applyFilters()
+}
+
+const clearRecipientMailboxFilter = async () => {
+  filters.recipientMailbox = ''
+  filters.senderMailbox = ''
+  await applyFilters()
+}
+
+const setRecipientMailboxFilter = async (domain: string, recipient: string) => {
+  filters.recipientDomain = domain
+  filters.recipientMailbox = recipient
+  filters.senderMailbox = ''
+  await applyFilters()
+}
+
+const clearSenderMailboxFilter = async () => {
+  filters.senderMailbox = ''
+  await applyFilters()
+}
+
+const setSenderMailboxFilter = async (domain: string, recipient: string, senderMailbox: string) => {
+  filters.recipientDomain = domain
+  filters.recipientMailbox = recipient
+  filters.senderMailbox = senderMailbox
   await applyFilters()
 }
 
@@ -937,7 +1481,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.all-emails-view {
+.emails-view {
   max-width: 1280px;
   margin: 0 auto;
   display: flex;
@@ -946,7 +1490,8 @@ onUnmounted(() => {
 }
 
 .filters-panel,
-.data-container {
+.data-container,
+.mailbox-groups {
   background: rgba(255, 255, 255, 0.96);
   border-radius: 24px;
   padding: 22px;
@@ -957,79 +1502,84 @@ onUnmounted(() => {
 .filters-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  background:
-    radial-gradient(circle at top left, rgba(48, 120, 196, 0.12), transparent 38%),
-    linear-gradient(180deg, rgba(250, 252, 255, 0.98), rgba(244, 248, 252, 0.98));
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(250, 252, 255, 0.98), rgba(245, 248, 252, 0.98));
 }
 
-.filters-header {
+.filters-panel-header,
+.filters-panel-title,
+.filters-panel-body {
   display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  align-items: flex-start;
+  min-width: 0;
 }
 
-.filters-heading {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.filters-panel-header {
+  align-items: center;
+  gap: 8px;
 }
 
-.filters-eyebrow {
-  display: inline-flex;
-  width: fit-content;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(34, 96, 170, 0.12);
-  color: #24517f;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.filters-title {
-  margin: 0;
+.filters-panel-title {
+  flex: 1;
+  align-items: center;
+  gap: 8px;
   color: #17324a;
-  font-size: 24px;
+  font-size: 14px;
+  font-weight: 800;
 }
 
-.filters-description {
-  margin: 0;
-  color: #5a6978;
-  line-height: 1.6;
+.filters-panel-title strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(43, 103, 246, 0.12);
+  color: #174ea6;
+  font-size: 12px;
+}
+
+.filters-panel-body {
+  flex-direction: column;
+  gap: 10px;
 }
 
 .filters-stats {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.filters-stat {
   display: inline-flex;
   align-items: center;
-  padding: 10px 14px;
-  border-radius: 999px;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid rgba(21, 52, 82, 0.08);
   color: #2d4a65;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
 }
 
-.filters-stat-active {
+.filters-stats strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
   background: rgba(43, 103, 246, 0.12);
-  border-color: rgba(43, 103, 246, 0.2);
   color: #174ea6;
+  font-size: 12px;
 }
 
 .filters-search-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 12px;
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+  gap: 8px;
   align-items: center;
 }
 
@@ -1050,9 +1600,9 @@ onUnmounted(() => {
 
 .filters-search-box :deep(.search-input) {
   width: 100%;
-  min-height: 48px;
-  padding: 12px 88px 12px 16px;
-  border-radius: 16px;
+  min-height: 40px;
+  padding: 9px 78px 9px 12px;
+  border-radius: 10px;
   border: 1px solid rgba(15, 23, 42, 0.08);
   background: rgba(255, 255, 255, 0.94);
   color: #17324a;
@@ -1063,7 +1613,7 @@ onUnmounted(() => {
 .filters-search-box :deep(.search-input:focus) {
   outline: none;
   border-color: rgba(43, 103, 246, 0.48);
-  box-shadow: 0 0 0 4px rgba(43, 103, 246, 0.12);
+  box-shadow: 0 0 0 3px rgba(43, 103, 246, 0.10);
 }
 
 .filters-search-box :deep(.search-btn),
@@ -1081,7 +1631,7 @@ onUnmounted(() => {
 }
 
 .filters-search-box :deep(.search-btn) {
-  right: 40px;
+  right: 36px;
 }
 
 .filters-search-box :deep(.clear-btn) {
@@ -1089,13 +1639,13 @@ onUnmounted(() => {
 }
 
 .filter-action {
-  min-height: 46px;
-  padding: 0 18px;
-  border-radius: 14px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
   border: 1px solid rgba(15, 23, 42, 0.08);
   background: rgba(255, 255, 255, 0.9);
   color: #17324a;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
@@ -1117,90 +1667,86 @@ onUnmounted(() => {
   color: #fff;
 }
 
-.filters-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-
-.chip-group {
+.segmented-control {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.chip-group-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: #34506a;
+  min-width: 0;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(231, 238, 247, 0.82);
+  border: 1px solid rgba(21, 52, 82, 0.08);
 }
 
 .filter-chip {
-  min-height: 36px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(21, 52, 82, 0.1);
-  background: rgba(255, 255, 255, 0.88);
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
   color: #35506a;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 
 .filter-chip.active {
-  background: linear-gradient(135deg, rgba(43, 103, 246, 0.14), rgba(31, 78, 216, 0.12));
-  border-color: rgba(43, 103, 246, 0.28);
+  background: #fff;
+  border-color: rgba(43, 103, 246, 0.18);
   color: #174ea6;
+  box-shadow: 0 8px 18px -16px rgba(15, 23, 42, 0.65);
 }
 
-.filters-grid {
+.filters-compact-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .filter-field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
   min-width: 0;
 }
 
+.filter-field-wide {
+  min-width: 190px;
+}
+
 .filter-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: #35506a;
 }
 
 .filter-input {
-  min-height: 46px;
-  padding: 0 14px;
-  border-radius: 14px;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: 10px;
   border: 1px solid rgba(15, 23, 42, 0.08);
   background: rgba(255, 255, 255, 0.94);
   color: #17324a;
-  font-size: 14px;
+  font-size: 13px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .filter-input:focus {
   outline: none;
   border-color: rgba(43, 103, 246, 0.48);
-  box-shadow: 0 0 0 4px rgba(43, 103, 246, 0.12);
+  box-shadow: 0 0 0 3px rgba(43, 103, 246, 0.10);
 }
 
 .active-filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .active-filter-tag {
   display: inline-flex;
   align-items: center;
-  padding: 7px 12px;
+  padding: 5px 9px;
   border-radius: 999px;
   background: rgba(23, 78, 166, 0.08);
   border: 1px solid rgba(23, 78, 166, 0.12);
@@ -1211,6 +1757,113 @@ onUnmounted(() => {
 
 .data-container {
   padding: 22px;
+  min-width: 0;
+}
+
+.mail-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.mailbox-groups {
+  padding: 14px;
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mailbox-groups-header,
+.mailbox-group-item,
+.mailbox-group-panel-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.mailbox-groups-header {
+  padding: 8px 10px 10px;
+  color: #34506a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mailbox-group-item {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #2d4a65;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+
+.mailbox-group-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(21, 52, 82, 0.08);
+  background: rgba(247, 250, 252, 0.72);
+}
+
+.mailbox-group-panel-title {
+  position: sticky;
+  top: -8px;
+  z-index: 1;
+  padding: 2px 2px 8px;
+  background: rgba(247, 250, 252, 0.96);
+  color: #34506a;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mailbox-group-panel-title strong {
+  color: #174ea6;
+  font-size: 12px;
+}
+
+.mailbox-group-domain {
+  font-weight: 700;
+}
+
+.mailbox-group-recipient {
+  min-height: 38px;
+}
+
+.mailbox-group-sender {
+  min-height: 36px;
+  padding-left: 12px;
+  color: #405b75;
+}
+
+.mailbox-group-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailbox-group-item strong,
+.mailbox-groups-header strong {
+  font-size: 12px;
+  color: #174ea6;
+}
+
+.mailbox-group-item:hover,
+.mailbox-group-item.active {
+  background: rgba(43, 103, 246, 0.10);
+  border-color: rgba(43, 103, 246, 0.18);
 }
 
 .emails-actions {
@@ -1312,6 +1965,7 @@ onUnmounted(() => {
   flex: 0 1 auto;
 }
 
+.send-form,
 .forward-form {
   display: flex;
   flex-direction: column;
@@ -1356,6 +2010,7 @@ onUnmounted(() => {
   color: #fff;
 }
 
+.send-field,
 .forward-field {
   display: flex;
   flex-direction: column;
@@ -1365,6 +2020,7 @@ onUnmounted(() => {
   font-weight: 700;
 }
 
+.send-input,
 .forward-input {
   min-height: 42px;
   padding: 0 12px;
@@ -1373,6 +2029,13 @@ onUnmounted(() => {
   background: #fff;
   color: #17324a;
   font-size: 14px;
+}
+
+.send-textarea {
+  min-height: 190px;
+  padding: 12px;
+  resize: vertical;
+  line-height: 1.5;
 }
 
 .forward-error {
@@ -1395,33 +2058,36 @@ onUnmounted(() => {
 }
 
 @media (max-width: 960px) {
-  .filters-header,
   .filters-search-row {
     grid-template-columns: 1fr;
     display: grid;
-  }
-
-  .filters-header {
-    display: flex;
-    flex-direction: column;
   }
 
   .filters-stats {
     justify-content: flex-start;
   }
 
-  .filters-grid {
+  .filters-compact-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .mailbox-groups {
+    position: static;
   }
 }
 
 @media (max-width: 768px) {
-  .all-emails-view {
+  .emails-view {
     gap: 14px;
   }
 
   .filters-panel,
-  .data-container {
+  .data-container,
+  .mailbox-groups {
     padding: 16px;
     border-radius: 20px;
   }
@@ -1462,7 +2128,7 @@ onUnmounted(() => {
 }
 
 @media (max-width: 640px) {
-  .filters-grid {
+  .filters-compact-grid {
     grid-template-columns: 1fr;
   }
 

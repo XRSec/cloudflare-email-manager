@@ -3,6 +3,11 @@ import { api, type ApiResponse } from './api-client'
 type EmailListParams = {
   page?: number
   limit?: number
+  folder?: 'inbox' | 'sent'
+  recipient_domain?: string
+  recipient_mailbox?: string
+  sender_mailbox?: string
+  recipient?: string
   search?: string
   status?: string
   sender?: string
@@ -48,6 +53,11 @@ export const emailApiService = {
 
     urlParams.append('page', params.page.toString())
     urlParams.append('limit', params.limit.toString())
+    if (params.folder) urlParams.append('folder', params.folder)
+    if (params.recipient_domain) urlParams.append('recipient_domain', params.recipient_domain)
+    if (params.recipient_mailbox) urlParams.append('recipient_mailbox', params.recipient_mailbox)
+    if (params.sender_mailbox) urlParams.append('sender_mailbox', params.sender_mailbox)
+    if (params.recipient) urlParams.append('recipient', params.recipient)
     if (params.search) urlParams.append('search', params.search)
     if (params.status) urlParams.append('status', params.status)
     if (params.sender) urlParams.append('sender', params.sender)
@@ -91,18 +101,26 @@ export const emailApiService = {
     id: string,
     payload:
       | { mode: 'webhook'; channelId: number }
-      | { mode: 'recipient'; targetEmail: string; targetForwardType?: 'internal' | 'smtp' | 'cf'; from?: string }
+      | { mode: 'recipient'; targetEmail: string; targetForwardType?: 'internal' | 'cf' | 'resend'; from?: string }
   ): Promise<ApiResponse<any>> {
     const response = await api.post(`/emails/${id}/forward`, payload)
     return response.data
   },
 
   async sendEmail(
-    toOrData: string | { to: string; from?: string; subject: string; content: string; content_type?: string },
+    toOrData: string | {
+      to: string
+      from?: string
+      subject: string
+      content: string
+      content_type?: 'text' | 'html'
+      delivery_method: 'internal' | 'cf' | 'resend'
+    },
     subject?: string,
     content?: string,
     from?: string,
-    content_type: 'text' | 'html' | 'markdown' = 'markdown'
+    content_type: 'text' | 'html' = 'text',
+    delivery_method?: 'internal' | 'cf' | 'resend'
   ): Promise<ApiResponse<any>> {
     const emailData = typeof toOrData === 'string'
       ? {
@@ -110,7 +128,8 @@ export const emailApiService = {
         subject: subject!,
         content: content!,
         from,
-        content_type
+        content_type,
+        delivery_method
       }
       : toOrData
 

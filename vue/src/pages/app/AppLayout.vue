@@ -90,11 +90,6 @@ import { useUnifiedGlobalRefreshManager } from '@/composables/globalRefreshManag
 import { Button, Modal, FormField } from '@/components/common'
 import { userApiService } from '@/composables/api-user'
 import { toast } from '@/utils/toast'
-// 在开发模式下导入测试
-if (import.meta.env.DEV) {
-  import('@/composables/testRouteApiMapper')
-  import('@/composables/testCacheKeys')
-}
 
 const authStore = useAuthStore()
 const systemStore = useSystemStore()
@@ -125,7 +120,7 @@ const emit = defineEmits<{
 const sidebarOpen = ref(false)
 
 // 使用统一全局刷新管理器
-const { executeGlobalRefresh, isRefreshing, getCurrentPageRefreshInfo } = useUnifiedGlobalRefreshManager()
+const { executeGlobalRefresh, isRefreshing } = useUnifiedGlobalRefreshManager()
 let changeSignalInterval: number | null = null
 const CHANGE_SIGNAL_INTERVAL = 30 * 1000
 
@@ -153,9 +148,16 @@ const navigationSections = computed<NavigationSection[]>(() => [
         exactMatch: true
       },
       {
-        path: '/all-emails',
-        title: '全部邮件',
+        path: '/inbox',
+        title: '收件箱',
         icon: '📨',
+        show: true,
+        exactMatch: false
+      },
+      {
+        path: '/sent',
+        title: '已发送',
+        icon: '📤',
         show: true,
         exactMatch: false
       },
@@ -217,9 +219,6 @@ const checkScreenSize = () => {
 // 全局刷新当前页面
 const refreshCurrentPage = async () => {
   try {
-    const refreshInfo = getCurrentPageRefreshInfo()
-    console.log('🌍 全局刷新触发', refreshInfo)
-
     await executeGlobalRefresh()
   } catch (error) {
     console.error('刷新页面失败:', error)
@@ -232,7 +231,8 @@ const shouldRefreshCurrentRoute = (changedKeys: string[]) => {
 
   const dependencies: Record<string, string[]> = {
     dashboard: ['emails', 'dashboard', 'forward_logs'],
-    'all-emails': ['emails'],
+    inbox: ['emails'],
+    sent: ['emails'],
     routing: ['routing_config', 'forward_logs', 'dashboard', 'system_config'],
     'system-settings': ['system_config'],
     tools: ['emails', 'dashboard', 'forward_logs', 'routing_config', 'system_config']
@@ -250,7 +250,6 @@ const checkChangeSignals = async () => {
   const changedKeys = result.success ? (result as { changedKeys?: string[] }).changedKeys || [] : []
 
   if (changedKeys.length > 0 && shouldRefreshCurrentRoute(changedKeys)) {
-    console.log('🔄 检测到后端数据变更，刷新当前页面:', changedKeys)
     await executeGlobalRefresh()
   }
 }

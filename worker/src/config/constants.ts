@@ -28,6 +28,7 @@ export const SYSTEM_DEFAULTS = {
     DEBUG_MODE: 0,                          // 调试模式 (1=开启, 0=关闭)
     API_RATE_LIMIT: 0,                      // API访问频率限制 (1=启用, 0=禁用)
     API_RATE_LIMIT_MAX_REQUESTS: 100,       // 每分钟最大请求数
+    TIMEZONE: 'Asia/Shanghai',              // 默认显示时区
 
     // 分页
     DEFAULT_PAGE_SIZE: 20,
@@ -91,7 +92,8 @@ export const REQUIRED_CONFIGS = [
  * 可选的配置项列表
  */
 export const OPTIONAL_CONFIGS = [
-    'debug_mode'
+    'debug_mode',
+    'timezone'
 ] as const;
 
 /**
@@ -135,6 +137,17 @@ export function validateConfigValue(key: string, value: any): { valid: boolean; 
             const maxRequests = parseInt(value);
             if (isNaN(maxRequests) || maxRequests < CONFIG_VALIDATION.API_RATE_LIMIT_MAX_REQUESTS.min || maxRequests > CONFIG_VALIDATION.API_RATE_LIMIT_MAX_REQUESTS.max) {
                 return { valid: false, error: CONFIG_VALIDATION.API_RATE_LIMIT_MAX_REQUESTS.error };
+            }
+            break;
+
+        case 'timezone':
+            if (typeof value !== 'string' || !value.trim()) {
+                return { valid: false, error: '时区不能为空' };
+            }
+            try {
+                new Intl.DateTimeFormat('zh-CN', { timeZone: value });
+            } catch {
+                return { valid: false, error: '请输入有效的 IANA 时区，例如 Asia/Shanghai' };
             }
             break;
 

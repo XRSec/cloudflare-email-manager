@@ -176,7 +176,6 @@ d1Routes.post('/init', async (c) => {
 async function performDatabaseReset(db: D1Database) {
   const steps: string[] = []
   const logResult = function (msg: string) {
-    console.log(msg)
     steps.push(msg)
   }
 
@@ -207,7 +206,6 @@ async function performDatabaseReset(db: D1Database) {
 
         try {
           await db.prepare(allDropSQL).run()
-          console.log(`✅ 批量删除 ${triggers.results.length} 个触发器成功`)
           logResult('✅ 删除触发器成功')
         } catch (error) {
           console.warn('批量删除触发器失败，回退到逐个删除:', error)
@@ -215,15 +213,12 @@ async function performDatabaseReset(db: D1Database) {
           for (const trigger of triggers.results) {
             try {
               await db.prepare((trigger as any).sql).run()
-              console.log(`✅ 删除触发器: ${(trigger as any).sql.replace('DROP TRIGGER IF EXISTS "', '').replace('";', '')} 成功`)
             } catch (error) {
               console.warn(`删除触发器失败: ${(trigger as any).sql} - ${error}`)
             }
           }
           logResult('✅ 删除触发器成功')
         }
-      } else {
-        console.log('没有找到触发器')
       }
     } catch (error) {
       console.warn('查询触发器时出现错误，忽略:', error)
@@ -233,7 +228,6 @@ async function performDatabaseReset(db: D1Database) {
     // 3. 删除所有表（先禁用外键约束，忽略错误）
     try {
       await db.prepare('PRAGMA foreign_keys = OFF').run()
-      console.log('✅ 已禁用外键约束')
     } catch (error) {
       console.warn('禁用外键约束时出现错误，忽略:', error)
     }
@@ -241,7 +235,6 @@ async function performDatabaseReset(db: D1Database) {
     // 动态获取表依赖关系并删除表
     if (tables.results && tables.results.length > 0) {
       const tableNames = tables.results.map((table: any) => table.name)
-      console.log(`📋 发现 ${tableNames.length} 个表:`, tableNames.join(', '))
 
       // 一次性获取所有表的外键依赖关系
       const tableDependencies: { [key: string]: string[] } = {}
@@ -336,33 +329,26 @@ async function performDatabaseReset(db: D1Database) {
         }
       }
 
-      console.log(`📋 删除顺序:`, deleteOrder.join(' -> '))
-
       // 一次性生成所有删除表的 SQL 语句
       const dropTablesSQL = deleteOrder.map(tableName => `DROP TABLE IF EXISTS ${tableName}`).join('; ')
 
       try {
         await db.prepare(dropTablesSQL).run()
-        console.log(`✅ 批量删除 ${deleteOrder.length} 个表成功`)
       } catch (error) {
         console.warn('批量删除表失败，回退到逐个删除:', error)
         // 回退到逐个删除
         for (const tableName of deleteOrder) {
           try {
             await db.prepare(`DROP TABLE IF EXISTS ${tableName}`).run()
-            console.log(`✅ 删除表 ${tableName} 成功`)
           } catch (error) {
             console.warn(`删除表 ${tableName} 时出现错误，忽略:`, error)
           }
         }
       }
-    } else {
-      console.log('📋 数据库中没有表')
     }
 
     try {
       await db.prepare('PRAGMA foreign_keys = ON').run()
-      console.log('✅ 已启用外键约束')
     } catch (error) {
       console.warn('启用外键约束时出现错误，忽略:', error)
     }

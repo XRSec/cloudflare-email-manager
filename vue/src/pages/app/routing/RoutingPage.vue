@@ -23,10 +23,10 @@
 
       <section class="summary-grid">
         <article class="summary-card">
-          <div class="summary-eyebrow">默认通知</div>
-          <div class="summary-title">{{ defaultNotificationEnabled ? selectedDefaultChannelNames : '已停用' }}</div>
+          <div class="summary-eyebrow">默认 Webhook</div>
+          <div class="summary-title">{{ defaultWebhookEnabled ? selectedDefaultChannelNames : '已停用' }}</div>
           <p class="summary-copy">{{
-              defaultNotificationEnabled ? defaultNotificationModeLabel : '默认通知规则未启用'
+              defaultWebhookEnabled ? defaultWebhookModeLabel : '默认 Webhook 规则未启用'
             }}</p>
         </article>
 
@@ -41,16 +41,16 @@
         </article>
 
         <article class="summary-card">
-          <div class="summary-eyebrow">默认转发</div>
-          <div class="summary-title">{{ incomingDefault.enabled ? incomingDefault.targetEmail : '已停用' }}</div>
-          <p class="summary-copy">{{ incomingDefault.enabled ? incomingDefaultModeLabel : '默认转发规则未启用' }}</p>
+          <div class="summary-eyebrow">默认邮件转发</div>
+          <div class="summary-title">{{ emailForwardDefault.enabled ? emailForwardDefault.targetEmail : '已停用' }}</div>
+          <p class="summary-copy">{{ emailForwardDefault.enabled ? emailForwardDefaultModeLabel : '默认邮件转发规则未启用' }}</p>
         </article>
       </section>
 
       <section class="routing-section">
         <article class="panel">
           <div class="panel-head">
-            <div class="panel-title">通知通道</div>
+            <div class="panel-title">Webhook 通道</div>
             <div class="panel-actions">
               <button type="button" class="action-button secondary" :disabled="saving" @click="addChannel">新增通道
               </button>
@@ -58,23 +58,18 @@
           </div>
 
           <div class="channel-list">
-            <div v-for="(channel, index) in notificationChannels" :key="channel.id" class="channel-card"
-                 :class="{ disabled: !channel.enabled }">
+            <div v-for="(channel, index) in webhookChannels" :key="channel.id" class="channel-card">
               <div class="channel-head">
                 <div class="channel-title-row">
                   <div class="channel-name">{{ channel.name || `通道 ${index + 1}` }}</div>
                   <span class="channel-type-pill">{{ webhookTypeLabel(channel.type) }}</span>
                 </div>
                 <div class="channel-actions">
-                  <button type="button" class="mini-action state-action" :class="{ active: channel.enabled }"
-                          @click="toggleChannel(channel)">
-                    {{ channel.enabled ? '启用' : '停用' }}
-                  </button>
                   <button type="button" class="mini-action" :disabled="saving" @click="openEditChannel(channel)">
                     编辑
                   </button>
                   <button type="button" class="mini-action"
-                          :disabled="isDefaultChannel(channel) || notificationChannels.length === 1"
+                          :disabled="isDefaultChannel(channel) || webhookChannels.length === 1"
                           @click="removeChannel(channel.id)">
                     删除
                   </button>
@@ -91,20 +86,20 @@
 
         <article class="panel">
           <div class="panel-head">
-            <div class="panel-title">默认通知规则</div>
+            <div class="panel-title">默认 Webhook 规则</div>
           </div>
 
-          <article class="rule-card" :class="{ disabled: !defaultNotificationEnabled }">
+          <article class="rule-card" :class="{ disabled: !defaultWebhookEnabled }">
             <div class="rule-card-top">
               <div class="rule-title-group">
-                <h4>默认通知</h4>
+                <h4>默认 Webhook</h4>
               </div>
               <div class="rule-inline-actions">
-                <button type="button" class="mini-action state-action" :class="{ active: defaultNotificationEnabled }"
-                        @click="toggleDefaultNotificationEnabled">{{ defaultNotificationEnabled ? '启用' : '停用' }}
+                <button type="button" class="mini-action state-action" :class="{ active: defaultWebhookEnabled }"
+                        @click="toggleDefaultWebhookEnabled">{{ defaultWebhookEnabled ? '启用' : '停用' }}
                 </button>
-                <button type="button" class="mini-action" @click="openDefaultNotificationEditor">编辑</button>
-                <button type="button" class="mini-action" @click="resetDefaultNotificationRule">重置</button>
+                <button type="button" class="mini-action" @click="openDefaultWebhookEditor">编辑</button>
+                <button type="button" class="mini-action" @click="resetDefaultWebhookRule">重置</button>
               </div>
             </div>
 
@@ -116,7 +111,7 @@
               <div class="rule-summary-item conditions">
                 <span class="target-label">发送策略</span>
                 <div class="condition-chip-list compact">
-                  <span class="condition-chip">{{ defaultNotificationModeLabel }}</span>
+                  <span class="condition-chip">{{ defaultWebhookModeLabel }}</span>
                 </div>
               </div>
             </div>
@@ -125,20 +120,20 @@
 
         <article class="panel">
           <div class="panel-head">
-            <div class="panel-title">通知规则</div>
+            <div class="panel-title">Webhook 规则</div>
             <div class="panel-actions">
-              <button type="button" class="action-button primary" @click="openCreateRule('notification')">新增规则
+              <button type="button" class="action-button primary" @click="openCreateRule('webhook')">新增规则
               </button>
             </div>
           </div>
 
-          <div v-if="notificationRules.length === 0" class="empty-panel">
+          <div v-if="webhookRules.length === 0" class="empty-panel">
             <div class="empty-icon">📭</div>
-            <h4>暂无通知规则</h4>
+            <h4>暂无 Webhook 规则</h4>
           </div>
 
           <div v-else class="rules-grid">
-            <article v-for="rule in notificationRules" :key="rule.id" class="rule-card"
+            <article v-for="rule in webhookRules" :key="rule.id" class="rule-card"
                      :class="{ disabled: !rule.enabled }">
               <div class="rule-card-top">
                 <div class="rule-title-group">
@@ -146,10 +141,10 @@
                 </div>
                 <div class="rule-inline-actions">
                   <button type="button" class="mini-action state-action" :class="{ active: rule.enabled }"
-                          @click="toggleNotificationRule(rule)">{{ rule.enabled ? '启用' : '停用' }}
+                          @click="toggleWebhookRule(rule)">{{ rule.enabled ? '启用' : '停用' }}
                   </button>
                   <button type="button" class="mini-action" @click="openEditRule(rule)">编辑</button>
-                  <button type="button" class="mini-action danger" @click="deleteNotificationRule(rule.id)">删除
+                  <button type="button" class="mini-action danger" @click="deleteWebhookRule(rule.id)">删除
                   </button>
                 </div>
               </div>
@@ -187,33 +182,68 @@
       <section class="routing-section">
         <article class="panel">
           <div class="panel-head">
-            <div class="panel-title">默认转发规则</div>
+            <div>
+              <div class="panel-title">邮件通道</div>
+              <p class="panel-subtitle">按发件域名配置邮件投递 API Key，用于邮件通道转发。</p>
+            </div>
+            <div class="panel-actions">
+              <button type="button" class="action-button secondary" :disabled="saving" @click="addMailChannelRow">新增通道</button>
+            </div>
           </div>
 
-          <article class="rule-card" :class="{ disabled: !incomingDefault.enabled }">
+          <div v-if="mailChannelRows.length === 0" class="mail-channel-empty">
+            <strong>未配置邮件通道</strong>
+            <span>新增通道后，邮件通道转发会按发件人域名选择对应 API Key。</span>
+          </div>
+
+          <div v-else class="mail-channel-list">
+            <div v-for="channel in mailChannelRows" :key="channel.id" class="mail-channel-card">
+              <div class="channel-head">
+                <div class="channel-title-row">
+                  <div class="channel-name">{{ channel.name || `邮件通道 ${channel.id}` }}</div>
+                  <span class="channel-type-pill">{{ mailChannelTypeLabel(channel.type) }}</span>
+                </div>
+                <div class="channel-actions">
+                  <button type="button" class="mini-action" :disabled="saving" @click="openEditMailChannel(channel)">编辑</button>
+                  <button type="button" class="mini-action danger" :disabled="saving" @click="removeMailChannelRow(channel.id)">删除</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="action-button secondary" :disabled="saving" @click="resetMailChannels">重置</button>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div class="panel-title">默认邮件转发规则</div>
+          </div>
+
+          <article class="rule-card" :class="{ disabled: !emailForwardDefault.enabled }">
             <div class="rule-card-top">
               <div class="rule-title-group">
-                <h4>默认转发</h4>
+                <h4>默认邮件转发</h4>
               </div>
               <div class="rule-inline-actions">
-                <button type="button" class="mini-action state-action" :class="{ active: incomingDefault.enabled }"
-                        @click="toggleIncomingDefaultEnabled">{{ incomingDefault.enabled ? '启用' : '停用' }}
+                <button type="button" class="mini-action state-action" :class="{ active: emailForwardDefault.enabled }"
+                        @click="toggleEmailForwardDefaultEnabled">{{ emailForwardDefault.enabled ? '启用' : '停用' }}
                 </button>
-                <button type="button" class="mini-action" @click="openIncomingDefaultEditor">编辑</button>
-                <button type="button" class="mini-action" @click="resetIncomingDefaultRule">重置</button>
+                <button type="button" class="mini-action" @click="openEmailForwardDefaultEditor">编辑</button>
+                <button type="button" class="mini-action" @click="resetEmailForwardDefaultRule">重置</button>
               </div>
             </div>
 
             <div class="rule-summary-grid">
               <div class="rule-summary-item">
                 <span class="target-label">转发到</span>
-                <strong>{{ incomingDefault.targetEmail || '未配置' }}</strong>
-                <span class="condition-chip">{{ forwardTypeLabel(incomingDefault.targetForwardType) }}</span>
+                <strong>{{ emailForwardDefault.targetEmail || '未配置' }}</strong>
               </div>
               <div class="rule-summary-item conditions">
                 <span class="target-label">转发策略</span>
                 <div class="condition-chip-list compact">
-                  <span class="condition-chip">{{ incomingDefaultModeLabel }}</span>
+                  <span class="condition-chip">{{ emailForwardDefaultModeLabel }}</span>
                 </div>
               </div>
             </div>
@@ -222,19 +252,19 @@
 
         <article class="panel">
           <div class="panel-head">
-            <div class="panel-title">收件转发规则</div>
+            <div class="panel-title">邮件转发规则</div>
             <div class="panel-actions">
-              <button type="button" class="action-button primary" @click="openCreateRule('incoming')">新增规则</button>
+              <button type="button" class="action-button primary" @click="openCreateRule('email_forward')">新增规则</button>
             </div>
           </div>
 
-          <div v-if="incomingRules.length === 0" class="empty-panel">
+          <div v-if="emailForwardRules.length === 0" class="empty-panel">
             <div class="empty-icon">📭</div>
-            <h4>暂无收件转发规则</h4>
+            <h4>暂无邮件转发规则</h4>
           </div>
 
           <div v-else class="rules-grid">
-            <article v-for="rule in incomingRules" :key="rule.id" class="rule-card"
+            <article v-for="rule in emailForwardRules" :key="rule.id" class="rule-card"
                      :class="{ disabled: !rule.enabled }">
               <div class="rule-card-top">
                 <div class="rule-title-group">
@@ -242,10 +272,10 @@
                 </div>
                 <div class="rule-inline-actions">
                   <button type="button" class="mini-action state-action" :class="{ active: rule.enabled }"
-                          @click="toggleIncomingRule(rule)">{{ rule.enabled ? '启用' : '停用' }}
+                          @click="toggleEmailForwardRule(rule)">{{ rule.enabled ? '启用' : '停用' }}
                   </button>
                   <button type="button" class="mini-action" @click="openEditRule(rule)">编辑</button>
-                  <button type="button" class="mini-action danger" @click="deleteIncomingRule(rule.id)">删除</button>
+                  <button type="button" class="mini-action danger" @click="deleteEmailForwardRule(rule.id)">删除</button>
                 </div>
               </div>
 
@@ -318,7 +348,7 @@
               </div>
 
               <div class="log-time-cell">
-                <span class="target-label">发送时间</span>
+                <span class="target-label">发送时间 ({{ configuredTimeZoneLabel }})</span>
                 <strong>{{ formatDateTime(log.sent_at) }}</strong>
               </div>
 
@@ -355,15 +385,15 @@
           <FormField v-model="ruleEditor.subjectPattern" label="主题包含" type="text" placeholder="Alert"/>
           <FormField v-model="ruleEditor.contentPattern" label="正文包含" type="text" placeholder="error"/>
 
-          <div v-if="ruleEditor.category === 'notification'" class="editor-wide form-group">
+          <div v-if="ruleEditor.category === 'webhook'" class="editor-wide form-group">
             <label>引用通道</label>
             <div class="channel-reference-list">
               <button
-                  v-for="channel in notificationChannels"
+                  v-for="channel in webhookChannels"
                   :key="channel.id"
                   type="button"
                   class="channel-reference-chip"
-                  :class="{ active: ruleEditor.targetChannelIds.includes(channel.id), disabled: !channel.enabled }"
+                  :class="{ active: ruleEditor.targetChannelIds.includes(channel.id) }"
                   @click="toggleRuleEditorChannel(channel.id)"
               >
                 {{ channel.name }}
@@ -372,26 +402,25 @@
           </div>
 
           <template v-else>
-            <FormField
-                v-model="ruleEditor.targetEmail"
-                label="转发邮箱"
-                type="email"
-                placeholder="archive@example.com"
-            />
             <div class="form-group">
               <label for="editor-forward-type">转发方式</label>
               <select id="editor-forward-type" v-model="ruleEditor.targetForwardType" class="form-control">
                 <option value="internal">站内转发</option>
-                <option value="smtp">SMTP 转发</option>
                 <option value="cf">CF 转发</option>
+                <option value="resend">Resend 转发</option>
               </select>
             </div>
             <FormField
-                v-if="ruleEditor.targetForwardType === 'cf'"
                 v-model="ruleEditor.targetFromAddress"
                 label="发件人"
                 type="email"
-                placeholder="forward@example.com"
+                placeholder="cem@example.com"
+            />
+            <FormField
+                v-model="ruleEditor.targetEmail"
+                label="收件人"
+                type="email"
+                placeholder="archive@example.com"
             />
           </template>
         </div>
@@ -405,42 +434,40 @@
       </template>
     </Modal>
 
-    <Modal :show="incomingDefaultEditorVisible" title="编辑默认转发规则" size="large"
-           @close="closeIncomingDefaultEditor">
-      <form class="incoming-default-editor-form" @submit.prevent="saveIncomingDefaultEditor">
+    <Modal :show="emailForwardDefaultEditorVisible" title="编辑默认邮件转发规则" size="large"
+           @close="closeEmailForwardDefaultEditor">
+      <form class="incoming-default-editor-form" @submit.prevent="saveEmailForwardDefaultEditor">
         <div class="editor-grid">
-          <FormField
-              v-model="incomingDefaultEditor.targetEmail"
-              label="默认转发邮箱"
-              type="email"
-              placeholder="archive@example.com"
-          />
           <div class="form-group">
             <label for="incoming-default-forward-type">转发方式</label>
-            <select id="incoming-default-forward-type" v-model="incomingDefaultEditor.targetForwardType"
+            <select id="incoming-default-forward-type" v-model="emailForwardDefaultEditor.targetForwardType"
                     class="form-control">
               <option value="internal">站内转发</option>
-              <option value="smtp">SMTP 转发</option>
               <option value="cf">CF 转发</option>
+              <option value="resend">Resend 转发</option>
             </select>
           </div>
           <FormField
-              v-if="incomingDefaultEditor.targetForwardType === 'cf'"
-              v-model="incomingDefaultEditor.targetFromAddress"
+              v-model="emailForwardDefaultEditor.targetFromAddress"
               label="发件人"
               type="email"
-              placeholder="forward@example.com"
+              placeholder="cem@example.com"
           />
-
+          <FormField
+              v-model="emailForwardDefaultEditor.targetEmail"
+              label="收件人"
+              type="email"
+              placeholder="archive@example.com"
+          />
           <div class="editor-wide form-group">
             <label>转发策略</label>
             <div class="mode-selector">
-              <button type="button" class="mode-button" :class="{ active: incomingDefaultEditor.mode === 'always' }"
-                      @click="incomingDefaultEditor.mode = 'always'">
+              <button type="button" class="mode-button" :class="{ active: emailForwardDefaultEditor.mode === 'always' }"
+                      @click="emailForwardDefaultEditor.mode = 'always'">
                 始终转发所有邮件
               </button>
-              <button type="button" class="mode-button" :class="{ active: incomingDefaultEditor.mode === 'unmatched' }"
-                      @click="incomingDefaultEditor.mode = 'unmatched'">
+              <button type="button" class="mode-button" :class="{ active: emailForwardDefaultEditor.mode === 'unmatched' }"
+                      @click="emailForwardDefaultEditor.mode = 'unmatched'">
                 仅未命中时转发
               </button>
             </div>
@@ -449,25 +476,25 @@
       </form>
 
       <template #footer>
-        <Button variant="secondary" @click="closeIncomingDefaultEditor">取消</Button>
-        <Button variant="primary" @click="saveIncomingDefaultEditor">应用</Button>
+        <Button variant="secondary" @click="closeEmailForwardDefaultEditor">取消</Button>
+        <Button variant="primary" @click="saveEmailForwardDefaultEditor">应用</Button>
       </template>
     </Modal>
 
-    <Modal :show="defaultNotificationEditorVisible" title="编辑默认通知规则" size="large"
-           @close="closeDefaultNotificationEditor">
-      <form class="default-notification-editor-form" @submit.prevent="saveDefaultNotificationEditor">
+    <Modal :show="defaultWebhookEditorVisible" title="编辑默认 Webhook 规则" size="large"
+           @close="closeDefaultWebhookEditor">
+      <form class="default-notification-editor-form" @submit.prevent="saveDefaultWebhookEditor">
         <div class="editor-grid">
           <div class="editor-wide form-group">
             <label>引用通道</label>
             <div class="channel-reference-list">
               <button
-                  v-for="channel in notificationChannels"
+                  v-for="channel in webhookChannels"
                   :key="channel.id"
                   type="button"
                   class="channel-reference-chip"
-                  :class="{ active: defaultNotificationEditor.channelIds.includes(channel.id), disabled: !channel.enabled }"
-                  @click="toggleDefaultNotificationEditorChannel(channel.id)"
+                  :class="{ active: defaultWebhookEditor.channelIds.includes(channel.id) }"
+                  @click="toggleDefaultWebhookEditorChannel(channel.id)"
               >
                 {{ channel.name }}
               </button>
@@ -477,13 +504,13 @@
           <div class="editor-wide form-group">
             <label>发送策略</label>
             <div class="mode-selector">
-              <button type="button" class="mode-button" :class="{ active: defaultNotificationEditor.mode === 'always' }"
-                      @click="defaultNotificationEditor.mode = 'always'">
+              <button type="button" class="mode-button" :class="{ active: defaultWebhookEditor.mode === 'always' }"
+                      @click="defaultWebhookEditor.mode = 'always'">
                 始终发送所有邮件
               </button>
               <button type="button" class="mode-button"
-                      :class="{ active: defaultNotificationEditor.mode === 'unmatched' }"
-                      @click="defaultNotificationEditor.mode = 'unmatched'">
+                      :class="{ active: defaultWebhookEditor.mode === 'unmatched' }"
+                      @click="defaultWebhookEditor.mode = 'unmatched'">
                 仅未命中时发送
               </button>
             </div>
@@ -492,8 +519,8 @@
       </form>
 
       <template #footer>
-        <Button variant="secondary" @click="closeDefaultNotificationEditor">取消</Button>
-        <Button variant="primary" @click="saveDefaultNotificationEditor">应用</Button>
+        <Button variant="secondary" @click="closeDefaultWebhookEditor">取消</Button>
+        <Button variant="primary" @click="saveDefaultWebhookEditor">应用</Button>
       </template>
     </Modal>
 
@@ -537,6 +564,55 @@
       </template>
     </Modal>
 
+    <Modal :show="mailChannelEditorVisible" :title="mailChannelEditorTitle" size="large" @close="closeMailChannelEditor">
+      <form class="channel-editor-form" @submit.prevent="saveMailChannelEditor">
+        <div class="editor-grid">
+          <FormField
+              v-model="mailChannelEditor.name"
+              label="通道名称"
+              type="text"
+              placeholder="例如：主域名 Resend"
+          />
+
+          <div class="form-group">
+            <label for="mail-channel-editor-type">类型</label>
+            <select id="mail-channel-editor-type" v-model="mailChannelEditor.type" class="form-control">
+              <option value="resend">Resend</option>
+            </select>
+          </div>
+
+          <FormField
+              v-model="mailChannelEditor.domain"
+              label="发件域名"
+              type="text"
+              placeholder="example.com"
+          />
+
+          <div class="form-group">
+            <label for="mail-channel-editor-token">API Key</label>
+            <div class="token-input-wrap">
+              <input
+                  id="mail-channel-editor-token"
+                  v-model="mailChannelEditor.token"
+                  class="form-control"
+                  :type="mailChannelEditor.tokenVisible ? 'text' : 'password'"
+                  placeholder="re_xxxxxxxxxxxxxxxxx"
+                  autocomplete="off"
+              />
+              <button type="button" class="token-visibility-button" @click="mailChannelEditor.tokenVisible = !mailChannelEditor.tokenVisible">
+                {{ mailChannelEditor.tokenVisible ? '隐藏' : '显示' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <template #footer>
+        <Button variant="secondary" @click="closeMailChannelEditor">取消</Button>
+        <Button variant="primary" @click="saveMailChannelEditor">应用</Button>
+      </template>
+    </Modal>
+
     <Modal :show="logDetailVisible" title="转发日志详情" size="large" @close="closeLogDetail">
       <div v-if="detailLoading" class="empty-panel">
         <div class="empty-icon">📭</div>
@@ -555,31 +631,6 @@
           <span class="status-pill" :class="Number(selectedLog.status) === 0 ? 'status-live' : 'status-failed'">
               {{ Number(selectedLog.status) === 0 ? '成功' : '失败' }}
             </span>
-        </div>
-
-        <div class="detail-block">
-          <h4>转发目标</h4>
-          <div class="detail-target-grid">
-            <div>
-              <span class="detail-label">Webhook 通道</span>
-              <div v-if="resolvedLogWebhookTargets.length" class="detail-chip-list">
-                <span v-for="channel in resolvedLogWebhookTargets" :key="channel.id" class="detail-chip">
-                  {{ channel.name }}
-                </span>
-              </div>
-              <p v-else class="detail-empty">未匹配到已配置通道</p>
-            </div>
-
-            <div>
-              <span class="detail-label">转发邮箱</span>
-              <div v-if="resolvedLogForwardTargets.length" class="detail-chip-list">
-                <span v-for="target in resolvedLogForwardTargets" :key="target" class="detail-chip">
-                  {{ target }}
-                </span>
-              </div>
-              <p v-else class="detail-empty">当前没有匹配到转发邮箱</p>
-            </div>
-          </div>
         </div>
 
         <div class="detail-block">
@@ -602,7 +653,7 @@
               <strong>{{ selectedLog.response_code ?? '未记录' }}</strong>
             </div>
             <div class="message-row">
-              <span>邮件时间</span>
+              <span>邮件时间 ({{ configuredTimeZoneLabel }})</span>
               <strong>{{ formatDateTime(selectedLog.received_at || selectedLog.sent_at) }}</strong>
             </div>
             <div class="message-row">
@@ -674,14 +725,16 @@ import {
 } from '@/composables/api-cache'
 import type {SystemConfig} from '@/types'
 import {toast} from '@/utils/toast'
+import {formatDateTime, getConfiguredTimeZoneLabel} from '@/utils/time'
 
 type WebhookType = 'dingtalk' | 'feishu' | 'bark'
 type MatchMode = 'all' | 'any'
 type DefaultMode = 'always' | 'unmatched'
-type RuleCategory = 'notification' | 'incoming'
-type ForwardType = 'internal' | 'smtp' | 'cf'
+type RuleCategory = 'webhook' | 'email_forward'
+type ForwardType = 'internal' | 'cf' | 'resend'
+type MailChannelType = 'resend'
 
-interface NotificationChannel {
+interface WebhookChannel {
   id: number
   name: string
   type: WebhookType
@@ -698,7 +751,24 @@ interface ChannelEditorState {
   secret: string
 }
 
-interface NotificationRule {
+interface MailChannelRow {
+  id: number
+  name: string
+  type: MailChannelType
+  domain: string
+  token: string
+}
+
+interface MailChannelEditorState {
+  id: number | null
+  name: string
+  type: MailChannelType
+  domain: string
+  token: string
+  tokenVisible: boolean
+}
+
+interface WebhookRule {
   id: number
   name: string
   enabled: boolean
@@ -710,7 +780,7 @@ interface NotificationRule {
   targetChannelIds: number[]
 }
 
-interface IncomingRule {
+interface EmailForwardRule {
   id: number
   name: string
   enabled: boolean
@@ -725,11 +795,12 @@ interface IncomingRule {
 }
 
 interface RoutingRulesResponse {
-  channels?: NotificationChannel[]
-  notificationRules?: NotificationRule[]
-  incomingRules?: IncomingRule[]
-  defaultNotificationRule?: DefaultNotificationRule | null
-  defaultIncomingRule?: DefaultIncomingRule | null
+  channels?: WebhookChannel[]
+  mailChannels?: MailChannelRow[]
+  webhookRules?: WebhookRule[]
+  emailForwardRules?: EmailForwardRule[]
+  defaultWebhookRule?: DefaultWebhookRule | null
+  defaultEmailForwardRule?: DefaultEmailForwardRule | null
 }
 
 interface SavedRoutingRule {
@@ -750,7 +821,7 @@ interface SavedRoutingRule {
   defaultMode?: DefaultMode
 }
 
-interface DefaultNotificationRule {
+interface DefaultWebhookRule {
   id: number
   name: string
   enabled: boolean
@@ -758,7 +829,7 @@ interface DefaultNotificationRule {
   targetChannelIds: number[]
 }
 
-interface DefaultIncomingRule {
+interface DefaultEmailForwardRule {
   id: number
   name: string
   enabled: boolean
@@ -794,8 +865,9 @@ const logsLoading = ref(false)
 const detailLoading = ref(false)
 const ruleEditorVisible = ref(false)
 const channelEditorVisible = ref(false)
-const defaultNotificationEditorVisible = ref(false)
-const incomingDefaultEditorVisible = ref(false)
+const mailChannelEditorVisible = ref(false)
+const defaultWebhookEditorVisible = ref(false)
+const emailForwardDefaultEditorVisible = ref(false)
 const logDetailVisible = ref(false)
 const selectedLog = ref<any>(null)
 const replayResult = ref<{
@@ -808,47 +880,52 @@ const replayResult = ref<{
 } | null>(null)
 const forwardingNoticeDomains = ref<[string, string]>(['example.com', 'example.dev'])
 
-const notificationChannels = ref<NotificationChannel[]>([])
-const originalNotificationChannels = ref<NotificationChannel[]>([])
+const webhookChannels = ref<WebhookChannel[]>([])
+const originalWebhookChannels = ref<WebhookChannel[]>([])
 const channelEditor = ref<ChannelEditorState>(createEmptyChannelEditor())
 let temporaryRoutingId = -1
+let mailChannelRowId = 1
 
-const defaultNotificationRuleId = ref<number | null>(null)
-const defaultIncomingRuleId = ref<number | null>(null)
-const defaultNotificationEnabled = ref(false)
-const defaultNotificationMode = ref<DefaultMode>('unmatched')
-const defaultNotificationChannelIds = ref<number[]>([])
-const defaultNotificationEditor = ref({
+const mailChannelRows = ref<MailChannelRow[]>([])
+const originalMailChannelRows = ref<MailChannelRow[]>([])
+const mailChannelEditor = ref<MailChannelEditorState>(createEmptyMailChannelEditor())
+
+const defaultWebhookRuleId = ref<number | null>(null)
+const defaultEmailForwardRuleId = ref<number | null>(null)
+const defaultWebhookEnabled = ref(false)
+const defaultWebhookMode = ref<DefaultMode>('unmatched')
+const defaultWebhookChannelIds = ref<number[]>([])
+const defaultWebhookEditor = ref({
   mode: 'unmatched' as DefaultMode,
   channelIds: [] as number[]
 })
-const originalDefaultNotificationState = ref({
+const originalDefaultWebhookState = ref({
   enabled: false,
   mode: 'unmatched' as DefaultMode,
   channelIds: [] as number[]
 })
 
-const incomingDefault = ref({
+const emailForwardDefault = ref({
   enabled: false,
   mode: 'unmatched' as DefaultMode,
   targetEmail: 'archive@example.com',
   targetFromAddress: '',
   targetForwardType: 'internal' as ForwardType
 })
-const incomingDefaultEditor = ref({
+const emailForwardDefaultEditor = ref({
   mode: 'unmatched' as DefaultMode,
   targetEmail: '',
   targetFromAddress: '',
   targetForwardType: 'internal' as ForwardType
 })
-const originalIncomingDefault = ref({...incomingDefault.value})
+const originalEmailForwardDefault = ref({...emailForwardDefault.value})
 
-const notificationRules = ref<NotificationRule[]>([])
-const incomingRules = ref<IncomingRule[]>([])
-const originalNotificationRules = ref<NotificationRule[]>([])
-const originalIncomingRules = ref<IncomingRule[]>([])
+const webhookRules = ref<WebhookRule[]>([])
+const emailForwardRules = ref<EmailForwardRule[]>([])
+const originalWebhookRules = ref<WebhookRule[]>([])
+const originalEmailForwardRules = ref<EmailForwardRule[]>([])
 
-const ruleEditor = ref<RuleEditorState>(createEmptyRuleEditor('notification'))
+const ruleEditor = ref<RuleEditorState>(createEmptyRuleEditor('webhook'))
 
 const forwardStats = ref({
   total: 0,
@@ -864,26 +941,12 @@ const logPagination = ref({
 })
 
 const selectedDefaultChannels = computed(() => (
-    defaultNotificationChannelIds.value
-        .map((id) => notificationChannels.value.find((channel) => channel.id === id))
-        .filter((channel): channel is NotificationChannel => Boolean(channel))
+    defaultWebhookChannelIds.value
+        .map((id) => webhookChannels.value.find((channel) => channel.id === id))
+        .filter((channel): channel is WebhookChannel => Boolean(channel))
 ))
 
-const resolvedLogWebhookTargets = computed(() => {
-  if (!selectedLog.value) {
-    return []
-  }
-
-  return resolveWebhookTargetsForLog(selectedLog.value)
-})
-
-const resolvedLogForwardTargets = computed(() => {
-  if (!selectedLog.value) {
-    return []
-  }
-
-  return resolveForwardTargetsForLog(selectedLog.value)
-})
+const configuredTimeZoneLabel = computed(() => getConfiguredTimeZoneLabel())
 
 const selectedDefaultChannelNames = computed(() => {
   if (selectedDefaultChannels.value.length === 0) {
@@ -892,20 +955,24 @@ const selectedDefaultChannelNames = computed(() => {
   return selectedDefaultChannels.value.map((channel) => channel.name).join(' / ')
 })
 
-const defaultNotificationModeLabel = computed(() => (
-    defaultNotificationMode.value === 'always' ? '始终发送所有邮件' : '仅未命中时发送'
+const defaultWebhookModeLabel = computed(() => (
+    defaultWebhookMode.value === 'always' ? '始终发送所有邮件' : '仅未命中时发送'
 ))
 
-const incomingDefaultModeLabel = computed(() => (
-    incomingDefault.value.mode === 'always' ? '始终转发所有邮件' : '仅未命中时转发'
+const emailForwardDefaultModeLabel = computed(() => (
+    emailForwardDefault.value.mode === 'always' ? '始终转发所有邮件' : '仅未命中时转发'
 ))
 
 const ruleEditorTitle = computed(() => (
-    `${ruleEditor.value.id ? '编辑' : '新增'}${ruleEditor.value.category === 'notification' ? '通知规则' : '收件转发规则'}`
+    `${ruleEditor.value.id ? '编辑' : '新增'} ${ruleEditor.value.category === 'webhook' ? 'Webhook 规则' : '邮件转发规则'}`
 ))
 
 const channelEditorTitle = computed(() => (
-    `${channelEditor.value.id ? '编辑' : '新增'}通知通道`
+    `${channelEditor.value.id ? '编辑' : '新增'} Webhook 通道`
+))
+
+const mailChannelEditorTitle = computed(() => (
+    `${mailChannelEditor.value.id ? '编辑' : '新增'} 邮件通道`
 ))
 
 function createEmptyChannelEditor(): ChannelEditorState {
@@ -915,6 +982,17 @@ function createEmptyChannelEditor(): ChannelEditorState {
     type: 'dingtalk',
     url: '',
     secret: ''
+  }
+}
+
+function createEmptyMailChannelEditor(): MailChannelEditorState {
+  return {
+    id: null,
+    name: '',
+    type: 'resend',
+    domain: '',
+    token: '',
+    tokenVisible: false
   }
 }
 
@@ -936,26 +1014,26 @@ function createEmptyRuleEditor(category: RuleCategory): RuleEditorState {
   }
 }
 
-const cloneChannels = (channels: NotificationChannel[]) => channels.map((channel) => ({...channel}))
-const cloneNotificationRules = (rules: NotificationRule[]) => rules.map((rule) => ({
+const cloneChannels = (channels: WebhookChannel[]) => channels.map((channel) => ({...channel}))
+const cloneWebhookRules = (rules: WebhookRule[]) => rules.map((rule) => ({
   ...rule,
   targetChannelIds: [...rule.targetChannelIds]
 }))
-const cloneIncomingRules = (rules: IncomingRule[]) => rules.map((rule) => ({...rule}))
+const cloneEmailForwardRules = (rules: EmailForwardRule[]) => rules.map((rule) => ({...rule}))
 
-const normalizeNotificationChannels = (channels: unknown): NotificationChannel[] => {
+const normalizeWebhookChannels = (channels: unknown): WebhookChannel[] => {
   if (!Array.isArray(channels)) return []
 
   const seen = new Set<number>()
   return channels
-      .filter((channel): channel is Partial<NotificationChannel> => Boolean(channel) && typeof channel === 'object')
+      .filter((channel): channel is Partial<WebhookChannel> => Boolean(channel) && typeof channel === 'object')
       .map((channel) => ({
         id: Number(channel.id),
         name: typeof channel.name === 'string' ? channel.name.trim() : '',
         type: (channel.type === 'feishu' || channel.type === 'bark' ? channel.type : 'dingtalk') as WebhookType,
         url: typeof channel.url === 'string' ? channel.url.trim() : '',
         secret: typeof channel.secret === 'string' ? channel.secret.trim() : '',
-        enabled: channel.enabled !== false
+        enabled: true
       }))
       .filter((channel) => {
         if (!Number.isInteger(channel.id) || channel.id <= 0 || !channel.name || !channel.url || seen.has(channel.id)) {
@@ -970,6 +1048,127 @@ const normalizeDomainValue = (value: string) => {
   const trimmed = value.trim().toLowerCase().replace(/^@+/, '')
   const domain = trimmed.includes('@') ? trimmed.split('@').pop() || '' : trimmed
   return domain.replace(/^@+/, '')
+}
+
+const validateDomainName = (value: string) => {
+  const domain = normalizeDomainValue(value)
+  const domainRegex = /^(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/
+  return domainRegex.test(domain) || '请输入有效域名，例如 example.com'
+}
+
+const parseMailChannels = (value: unknown): MailChannelRow[] => {
+  if (!value) return []
+  if (Array.isArray(value)) {
+    return value
+        .filter((channel): channel is Partial<MailChannelRow> => Boolean(channel) && typeof channel === 'object')
+        .map((channel) => ({
+          id: Number(channel.id),
+          name: typeof channel.name === 'string' ? channel.name.trim() : '',
+          type: 'resend' as MailChannelType,
+          domain: normalizeDomainValue(typeof channel.domain === 'string' ? channel.domain : ''),
+          token: typeof channel.token === 'string' ? channel.token.trim() : ''
+        }))
+        .filter((channel) => Number.isInteger(channel.id) && channel.id > 0 && channel.name && channel.domain && channel.token)
+  }
+  if (typeof value !== 'string' || !value.trim()) return []
+  try {
+    return parseMailChannels(JSON.parse(value))
+  } catch {
+    return []
+  }
+}
+
+const cloneMailChannelRows = (rows: MailChannelRow[]) => rows.map((row) => ({...row}))
+
+const getNextMailChannelId = () => Math.max(0, ...mailChannelRows.value.map((row) => row.id), mailChannelRowId - 1) + 1
+
+const addMailChannelRow = () => {
+  const nextId = getNextMailChannelId()
+  mailChannelRowId = nextId + 1
+  mailChannelEditor.value = {
+    ...createEmptyMailChannelEditor(),
+    id: nextId,
+    name: `新邮件通道 ${mailChannelRows.value.length + 1}`
+  }
+  mailChannelEditorVisible.value = true
+}
+
+const removeMailChannelRow = (id: number) => {
+  mailChannelRows.value = mailChannelRows.value.filter((row) => row.id !== id)
+}
+
+const resetMailChannels = () => {
+  mailChannelRows.value = cloneMailChannelRows(originalMailChannelRows.value)
+}
+
+const openEditMailChannel = (channel: MailChannelRow) => {
+  mailChannelEditor.value = {
+    id: channel.id,
+    name: channel.name,
+    type: channel.type,
+    domain: channel.domain,
+    token: channel.token,
+    tokenVisible: false
+  }
+  mailChannelEditorVisible.value = true
+}
+
+const closeMailChannelEditor = () => {
+  mailChannelEditorVisible.value = false
+}
+
+const saveMailChannelEditor = () => {
+  const name = mailChannelEditor.value.name.trim()
+  const domain = normalizeDomainValue(mailChannelEditor.value.domain)
+  const token = mailChannelEditor.value.token.trim()
+
+  if (!name) {
+    toast.error('通道名称不能为空')
+    return
+  }
+  if (validateDomainName(domain) !== true) {
+    toast.error('请输入有效域名，例如 example.com')
+    return
+  }
+  if (!token) {
+    toast.error('API Key 不能为空')
+    return
+  }
+
+  const channel: MailChannelRow = {
+    id: mailChannelEditor.value.id || getNextMailChannelId(),
+    name,
+    type: mailChannelEditor.value.type,
+    domain,
+    token
+  }
+  const index = mailChannelRows.value.findIndex((item) => item.id === channel.id)
+  if (index >= 0) {
+    mailChannelRows.value.splice(index, 1, channel)
+  } else {
+    mailChannelRows.value.unshift(channel)
+  }
+  closeMailChannelEditor()
+}
+
+const mailChannelTypeLabel = (type: MailChannelType) => {
+  const labels: Record<MailChannelType, string> = {
+    resend: 'Resend'
+  }
+  return labels[type] || type
+}
+
+const validateMailChannelConfig = () => {
+  const invalidRow = mailChannelRows.value.find((row) => {
+    const name = row.name.trim()
+    const domain = normalizeDomainValue(row.domain)
+    const token = row.token.trim()
+    return !name || !domain || !token || validateDomainName(domain) !== true
+  })
+
+  if (invalidRow) {
+    throw new Error('请补全邮件通道名称、发件域名和 API Key，并确认域名格式正确')
+  }
 }
 
 const parseForwardingNoticeDomains = (value: unknown): [string, string] => {
@@ -1002,10 +1201,10 @@ const parseForwardingNoticeDomains = (value: unknown): [string, string] => {
 
 const applySystemConfig = (config: Partial<SystemConfig> = {}) => {
   forwardingNoticeDomains.value = parseForwardingNoticeDomains(config.supported_emails)
-  originalDefaultNotificationState.value = {
-    enabled: defaultNotificationEnabled.value,
-    mode: defaultNotificationMode.value,
-    channelIds: [...defaultNotificationChannelIds.value]
+  originalDefaultWebhookState.value = {
+    enabled: defaultWebhookEnabled.value,
+    mode: defaultWebhookMode.value,
+    channelIds: [...defaultWebhookChannelIds.value]
   }
 }
 
@@ -1041,7 +1240,7 @@ const loadPageData = async (forceRefresh = false) => {
   }
 }
 
-const normalizeNotificationRule = (rule: NotificationRule): NotificationRule => ({
+const normalizeWebhookRule = (rule: WebhookRule): WebhookRule => ({
   id: Number(rule.id),
   name: rule.name || '',
   enabled: Boolean(rule.enabled),
@@ -1053,7 +1252,7 @@ const normalizeNotificationRule = (rule: NotificationRule): NotificationRule => 
   targetChannelIds: Array.isArray(rule.targetChannelIds) ? rule.targetChannelIds.map(Number).filter(Number.isInteger) : []
 })
 
-const normalizeIncomingRule = (rule: IncomingRule): IncomingRule => ({
+const normalizeEmailForwardRule = (rule: EmailForwardRule): EmailForwardRule => ({
   id: Number(rule.id),
   name: rule.name || '',
   enabled: Boolean(rule.enabled),
@@ -1064,37 +1263,37 @@ const normalizeIncomingRule = (rule: IncomingRule): IncomingRule => ({
   contentPattern: rule.contentPattern || '',
   targetEmail: rule.targetEmail || '',
   targetFromAddress: rule.targetFromAddress || '',
-  targetForwardType: rule.targetForwardType === 'smtp' || rule.targetForwardType === 'cf' ? rule.targetForwardType : 'internal'
+  targetForwardType: rule.targetForwardType === 'cf' || rule.targetForwardType === 'resend' ? rule.targetForwardType : 'internal'
 })
 
-const applyDefaultNotificationRule = (rule: DefaultNotificationRule | SavedRoutingRule | null | undefined) => {
+const applyDefaultWebhookRule = (rule: DefaultWebhookRule | SavedRoutingRule | null | undefined) => {
   if (!rule) return
 
-  defaultNotificationRuleId.value = Number(rule.id)
-  defaultNotificationEnabled.value = Boolean(rule.enabled)
-  defaultNotificationMode.value = rule.defaultMode === 'always' ? 'always' : 'unmatched'
-  defaultNotificationChannelIds.value = Array.isArray(rule.targetChannelIds)
+  defaultWebhookRuleId.value = Number(rule.id)
+  defaultWebhookEnabled.value = Boolean(rule.enabled)
+  defaultWebhookMode.value = rule.defaultMode === 'always' ? 'always' : 'unmatched'
+  defaultWebhookChannelIds.value = Array.isArray(rule.targetChannelIds)
       ? rule.targetChannelIds.map(Number).filter(Number.isInteger)
       : []
-  originalDefaultNotificationState.value = {
-    enabled: defaultNotificationEnabled.value,
-    mode: defaultNotificationMode.value,
-    channelIds: [...defaultNotificationChannelIds.value]
+  originalDefaultWebhookState.value = {
+    enabled: defaultWebhookEnabled.value,
+    mode: defaultWebhookMode.value,
+    channelIds: [...defaultWebhookChannelIds.value]
   }
 }
 
-const applyDefaultIncomingRule = (rule: DefaultIncomingRule | SavedRoutingRule | null | undefined) => {
+const applyDefaultEmailForwardRule = (rule: DefaultEmailForwardRule | SavedRoutingRule | null | undefined) => {
   if (!rule) return
 
-  defaultIncomingRuleId.value = Number(rule.id)
-  incomingDefault.value = {
+  defaultEmailForwardRuleId.value = Number(rule.id)
+  emailForwardDefault.value = {
     enabled: Boolean(rule.enabled),
     mode: rule.defaultMode === 'always' ? 'always' : 'unmatched',
     targetEmail: rule.targetEmail || '',
     targetFromAddress: rule.targetFromAddress || '',
-    targetForwardType: rule.targetForwardType === 'smtp' || rule.targetForwardType === 'cf' ? rule.targetForwardType : 'internal'
+    targetForwardType: rule.targetForwardType === 'cf' || rule.targetForwardType === 'resend' ? rule.targetForwardType : 'internal'
   }
-  originalIncomingDefault.value = {...incomingDefault.value}
+  originalEmailForwardDefault.value = {...emailForwardDefault.value}
 }
 
 const loadRoutingRules = async (forceRefresh = false) => {
@@ -1116,18 +1315,21 @@ const loadRoutingRules = async (forceRefresh = false) => {
 }
 
 const applyRoutingData = (data: RoutingRulesResponse) => {
-  notificationChannels.value = normalizeNotificationChannels(data.channels)
-  originalNotificationChannels.value = cloneChannels(notificationChannels.value)
-  notificationRules.value = Array.isArray(data.notificationRules)
-      ? data.notificationRules.map(normalizeNotificationRule)
+  webhookChannels.value = normalizeWebhookChannels(data.channels)
+  originalWebhookChannels.value = cloneChannels(webhookChannels.value)
+  mailChannelRows.value = parseMailChannels(data.mailChannels || [])
+  mailChannelRowId = getNextMailChannelId()
+  originalMailChannelRows.value = cloneMailChannelRows(mailChannelRows.value)
+  webhookRules.value = Array.isArray(data.webhookRules)
+      ? data.webhookRules.map(normalizeWebhookRule)
       : []
-  originalNotificationRules.value = cloneNotificationRules(notificationRules.value)
-  incomingRules.value = Array.isArray(data.incomingRules)
-      ? data.incomingRules.map(normalizeIncomingRule)
+  originalWebhookRules.value = cloneWebhookRules(webhookRules.value)
+  emailForwardRules.value = Array.isArray(data.emailForwardRules)
+      ? data.emailForwardRules.map(normalizeEmailForwardRule)
       : []
-  originalIncomingRules.value = cloneIncomingRules(incomingRules.value)
-  applyDefaultNotificationRule(data.defaultNotificationRule)
-  applyDefaultIncomingRule(data.defaultIncomingRule)
+  originalEmailForwardRules.value = cloneEmailForwardRules(emailForwardRules.value)
+  applyDefaultWebhookRule(data.defaultWebhookRule)
+  applyDefaultEmailForwardRule(data.defaultEmailForwardRule)
 }
 
 const loadStats = async (forceRefresh = false) => {
@@ -1176,42 +1378,42 @@ const loadForwardLogs = async (page = 1, options: { forceRefresh?: boolean } = {
   }
 }
 
-const buildDefaultNotificationPayload = () => ({
-  id: defaultNotificationRuleId.value || undefined,
-  name: '默认通知规则',
-  enabled: defaultNotificationEnabled.value,
+const buildDefaultWebhookPayload = () => ({
+  id: defaultWebhookRuleId.value || undefined,
+  name: '默认 Webhook 规则',
+  enabled: defaultWebhookEnabled.value,
   isDefault: true,
-  defaultMode: defaultNotificationMode.value,
+  defaultMode: defaultWebhookMode.value,
   matchMode: 'all' as MatchMode,
   senderPattern: '',
   recipientPattern: '',
   subjectPattern: '',
   contentPattern: '',
-  targetChannelIds: [...defaultNotificationChannelIds.value],
+  targetChannelIds: [...defaultWebhookChannelIds.value],
   targetEmail: ''
 })
 
-const buildDefaultIncomingPayload = () => ({
-  id: defaultIncomingRuleId.value || undefined,
-  name: '默认转发规则',
-  enabled: incomingDefault.value.enabled,
+const buildDefaultEmailForwardPayload = () => ({
+  id: defaultEmailForwardRuleId.value || undefined,
+  name: '默认邮件转发规则',
+  enabled: emailForwardDefault.value.enabled,
   isDefault: true,
-  defaultMode: incomingDefault.value.mode,
+  defaultMode: emailForwardDefault.value.mode,
   matchMode: 'all' as MatchMode,
   senderPattern: '',
   recipientPattern: '',
   subjectPattern: '',
   contentPattern: '',
   targetChannelIds: [],
-  targetEmail: incomingDefault.value.targetEmail.trim(),
-  targetFromAddress: incomingDefault.value.targetFromAddress.trim(),
-  targetForwardType: incomingDefault.value.targetForwardType
+  targetEmail: emailForwardDefault.value.targetEmail.trim(),
+  targetFromAddress: emailForwardDefault.value.targetFromAddress.trim(),
+  targetForwardType: emailForwardDefault.value.targetForwardType
 })
 
 const validateRoutingConfig = () => {
-  const channels = normalizeNotificationChannels(notificationChannels.value)
+  const channels = normalizeWebhookChannels(webhookChannels.value)
   if (channels.length === 0) {
-    throw new Error('至少保留一个通知通道')
+    throw new Error('至少保留一个 Webhook 通道')
   }
 
   const channelIds = new Set(channels.map((channel) => channel.id))
@@ -1220,35 +1422,33 @@ const validateRoutingConfig = () => {
       throw new Error('至少选择一个通道')
     }
     if (ids.some((id) => !channelIds.has(id))) {
-      throw new Error('规则引用了不存在的通知通道')
+      throw new Error('规则引用了不存在的 Webhook 通道')
     }
   }
 
-  ensureKnownChannels(defaultNotificationChannelIds.value)
-  notificationRules.value.forEach((rule) => ensureKnownChannels(rule.targetChannelIds))
+  ensureKnownChannels(defaultWebhookChannelIds.value)
+  webhookRules.value.forEach((rule) => ensureKnownChannels(rule.targetChannelIds))
 
-  if (!incomingDefault.value.targetEmail.trim()) {
-    throw new Error('默认转发邮箱不能为空')
+  if (!emailForwardDefault.value.targetEmail.trim()) {
+    throw new Error('默认收件人不能为空')
   }
   if (
-      incomingDefault.value.targetForwardType === 'cf' &&
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(incomingDefault.value.targetFromAddress.trim())
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailForwardDefault.value.targetFromAddress.trim())
   ) {
-    throw new Error('请输入有效的 CF 发件人邮箱')
+    throw new Error('请输入有效的转发发件人邮箱')
   }
 
-  incomingRules.value.forEach((rule) => {
+  emailForwardRules.value.forEach((rule) => {
     if (!rule.name.trim()) {
       throw new Error('规则名称不能为空')
     }
     if (!rule.targetEmail.trim()) {
-      throw new Error('转发邮箱不能为空')
+      throw new Error('收件人不能为空')
     }
     if (
-        rule.targetForwardType === 'cf' &&
         !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rule.targetFromAddress.trim())
     ) {
-      throw new Error('请输入有效的 CF 发件人邮箱')
+      throw new Error('请输入有效的转发发件人邮箱')
     }
   })
 
@@ -1259,14 +1459,22 @@ const saveRoutingConfig = async () => {
   saving.value = true
   try {
     const channels = validateRoutingConfig()
+    validateMailChannelConfig()
     const response = await api.post('/routing', {
       action: 'replace',
       config: {
         channels,
-        notificationRules: notificationRules.value.map((rule) => ({...rule})),
-        incomingRules: incomingRules.value.map((rule) => ({...rule})),
-        defaultNotificationRule: buildDefaultNotificationPayload(),
-        defaultIncomingRule: buildDefaultIncomingPayload()
+        mailChannels: mailChannelRows.value.map((channel) => ({
+          id: channel.id,
+          name: channel.name.trim(),
+          type: channel.type,
+          domain: normalizeDomainValue(channel.domain),
+          token: channel.token.trim()
+        })),
+        webhookRules: webhookRules.value.map((rule) => ({...rule})),
+        emailForwardRules: emailForwardRules.value.map((rule) => ({...rule})),
+        defaultWebhookRule: buildDefaultWebhookPayload(),
+        defaultEmailForwardRule: buildDefaultEmailForwardPayload()
       }
     })
 
@@ -1286,72 +1494,68 @@ const saveRoutingConfig = async () => {
 }
 
 const resetChannels = () => {
-  notificationChannels.value = cloneChannels(originalNotificationChannels.value)
+  webhookChannels.value = cloneChannels(originalWebhookChannels.value)
 }
 
 const addChannel = () => {
   channelEditor.value = {
     ...createEmptyChannelEditor(),
-    name: `新通道 ${notificationChannels.value.length + 1}`
+    name: `新通道 ${webhookChannels.value.length + 1}`
   }
   channelEditorVisible.value = true
 }
 
-const isDefaultChannel = (_channel: NotificationChannel) => false
+const isDefaultChannel = (_channel: WebhookChannel) => false
 
 const removeChannel = (channelId: number) => {
-  const channel = notificationChannels.value.find((item) => item.id === channelId)
-  if (!channel || isDefaultChannel(channel) || notificationChannels.value.length === 1) {
+  const channel = webhookChannels.value.find((item) => item.id === channelId)
+  if (!channel || isDefaultChannel(channel) || webhookChannels.value.length === 1) {
     return
   }
-  notificationChannels.value = notificationChannels.value.filter((channel) => channel.id !== channelId)
-  defaultNotificationChannelIds.value = defaultNotificationChannelIds.value.filter((id) => id !== channelId)
-  notificationRules.value = notificationRules.value.map((rule) => ({
+  webhookChannels.value = webhookChannels.value.filter((channel) => channel.id !== channelId)
+  defaultWebhookChannelIds.value = defaultWebhookChannelIds.value.filter((id) => id !== channelId)
+  webhookRules.value = webhookRules.value.map((rule) => ({
     ...rule,
     targetChannelIds: rule.targetChannelIds.filter((id) => id !== channelId)
   }))
   toast.success('已从页面移除，保存后生效')
 }
 
-const toggleChannel = (channel: NotificationChannel) => {
-  channel.enabled = !channel.enabled
-}
-
-const openDefaultNotificationEditor = () => {
-  defaultNotificationEditor.value = {
-    mode: defaultNotificationMode.value,
-    channelIds: [...defaultNotificationChannelIds.value]
+const openDefaultWebhookEditor = () => {
+  defaultWebhookEditor.value = {
+    mode: defaultWebhookMode.value,
+    channelIds: [...defaultWebhookChannelIds.value]
   }
-  defaultNotificationEditorVisible.value = true
+  defaultWebhookEditorVisible.value = true
 }
 
-const closeDefaultNotificationEditor = () => {
-  defaultNotificationEditorVisible.value = false
+const closeDefaultWebhookEditor = () => {
+  defaultWebhookEditorVisible.value = false
 }
 
-const toggleDefaultNotificationEditorChannel = (channelId: number) => {
-  const channel = notificationChannels.value.find((item) => item.id === channelId)
-  if (!channel || !channel.enabled) return
+const toggleDefaultWebhookEditorChannel = (channelId: number) => {
+  const channel = webhookChannels.value.find((item) => item.id === channelId)
+  if (!channel) return
 
-  if (defaultNotificationEditor.value.channelIds.includes(channelId)) {
-    defaultNotificationEditor.value.channelIds = defaultNotificationEditor.value.channelIds.filter((id) => id !== channelId)
+  if (defaultWebhookEditor.value.channelIds.includes(channelId)) {
+    defaultWebhookEditor.value.channelIds = defaultWebhookEditor.value.channelIds.filter((id) => id !== channelId)
   } else {
-    defaultNotificationEditor.value.channelIds = [...defaultNotificationEditor.value.channelIds, channelId]
+    defaultWebhookEditor.value.channelIds = [...defaultWebhookEditor.value.channelIds, channelId]
   }
 }
 
-const saveDefaultNotificationEditor = () => {
-  if (defaultNotificationEditor.value.channelIds.length === 0) {
+const saveDefaultWebhookEditor = () => {
+  if (defaultWebhookEditor.value.channelIds.length === 0) {
     toast.error('至少选择一个通道')
     return
   }
 
-  defaultNotificationMode.value = defaultNotificationEditor.value.mode
-  defaultNotificationChannelIds.value = [...defaultNotificationEditor.value.channelIds]
-  closeDefaultNotificationEditor()
+  defaultWebhookMode.value = defaultWebhookEditor.value.mode
+  defaultWebhookChannelIds.value = [...defaultWebhookEditor.value.channelIds]
+  closeDefaultWebhookEditor()
 }
 
-const openEditChannel = (channel: NotificationChannel) => {
+const openEditChannel = (channel: WebhookChannel) => {
   channelEditor.value = {
     id: channel.id,
     name: channel.name,
@@ -1377,7 +1581,7 @@ const saveChannelEditor = () => {
     return
   }
 
-  const channel: NotificationChannel = {
+  const channel: WebhookChannel = {
     id: channelEditor.value.id || temporaryRoutingId--,
     name: channelEditor.value.name.trim(),
     type: channelEditor.value.type,
@@ -1386,70 +1590,68 @@ const saveChannelEditor = () => {
     enabled: true
   }
 
-  const index = notificationChannels.value.findIndex((item) => item.id === channel.id)
+  const index = webhookChannels.value.findIndex((item) => item.id === channel.id)
   if (index >= 0) {
-    channel.enabled = notificationChannels.value[index].enabled
-    notificationChannels.value.splice(index, 1, channel)
+    webhookChannels.value.splice(index, 1, channel)
   } else {
-    notificationChannels.value.unshift(channel)
+    webhookChannels.value.unshift(channel)
   }
 
   closeChannelEditor()
 }
 
-const toggleDefaultNotificationEnabled = () => {
-  defaultNotificationEnabled.value = !defaultNotificationEnabled.value
+const toggleDefaultWebhookEnabled = () => {
+  defaultWebhookEnabled.value = !defaultWebhookEnabled.value
 }
 
-const resetDefaultNotificationRule = () => {
-  defaultNotificationEnabled.value = originalDefaultNotificationState.value.enabled
-  defaultNotificationMode.value = originalDefaultNotificationState.value.mode
-  defaultNotificationChannelIds.value = [...originalDefaultNotificationState.value.channelIds]
+const resetDefaultWebhookRule = () => {
+  defaultWebhookEnabled.value = originalDefaultWebhookState.value.enabled
+  defaultWebhookMode.value = originalDefaultWebhookState.value.mode
+  defaultWebhookChannelIds.value = [...originalDefaultWebhookState.value.channelIds]
 }
 
-const openIncomingDefaultEditor = () => {
-  incomingDefaultEditor.value = {
-    mode: incomingDefault.value.mode,
-    targetEmail: incomingDefault.value.targetEmail,
-    targetFromAddress: incomingDefault.value.targetFromAddress,
-    targetForwardType: incomingDefault.value.targetForwardType
+const openEmailForwardDefaultEditor = () => {
+  emailForwardDefaultEditor.value = {
+    mode: emailForwardDefault.value.mode,
+    targetEmail: emailForwardDefault.value.targetEmail,
+    targetFromAddress: emailForwardDefault.value.targetFromAddress,
+    targetForwardType: emailForwardDefault.value.targetForwardType
   }
-  incomingDefaultEditorVisible.value = true
+  emailForwardDefaultEditorVisible.value = true
 }
 
-const closeIncomingDefaultEditor = () => {
-  incomingDefaultEditorVisible.value = false
+const closeEmailForwardDefaultEditor = () => {
+  emailForwardDefaultEditorVisible.value = false
 }
 
-const saveIncomingDefaultEditor = () => {
-  if (!incomingDefaultEditor.value.targetEmail.trim()) {
-    toast.error('默认转发邮箱不能为空')
+const saveEmailForwardDefaultEditor = () => {
+  if (!emailForwardDefaultEditor.value.targetEmail.trim()) {
+    toast.error('默认收件人不能为空')
     return
   }
   if (
-      incomingDefaultEditor.value.targetForwardType === 'cf' &&
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(incomingDefaultEditor.value.targetFromAddress.trim())
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailForwardDefaultEditor.value.targetFromAddress.trim())
   ) {
-    toast.error('请输入有效的 CF 发件人邮箱')
+    toast.error('请输入有效的转发发件人邮箱')
     return
   }
 
-  incomingDefault.value = {
-    ...incomingDefault.value,
-    mode: incomingDefaultEditor.value.mode,
-    targetEmail: incomingDefaultEditor.value.targetEmail.trim(),
-    targetFromAddress: incomingDefaultEditor.value.targetFromAddress.trim(),
-    targetForwardType: incomingDefaultEditor.value.targetForwardType
+  emailForwardDefault.value = {
+    ...emailForwardDefault.value,
+    mode: emailForwardDefaultEditor.value.mode,
+    targetEmail: emailForwardDefaultEditor.value.targetEmail.trim(),
+    targetFromAddress: emailForwardDefaultEditor.value.targetFromAddress.trim(),
+    targetForwardType: emailForwardDefaultEditor.value.targetForwardType
   }
-  closeIncomingDefaultEditor()
+  closeEmailForwardDefaultEditor()
 }
 
-const toggleIncomingDefaultEnabled = () => {
-  incomingDefault.value.enabled = !incomingDefault.value.enabled
+const toggleEmailForwardDefaultEnabled = () => {
+  emailForwardDefault.value.enabled = !emailForwardDefault.value.enabled
 }
 
-const resetIncomingDefaultRule = () => {
-  incomingDefault.value = {...originalIncomingDefault.value}
+const resetEmailForwardDefaultRule = () => {
+  emailForwardDefault.value = {...originalEmailForwardDefault.value}
 }
 
 const openCreateRule = (category: RuleCategory) => {
@@ -1457,11 +1659,11 @@ const openCreateRule = (category: RuleCategory) => {
   ruleEditorVisible.value = true
 }
 
-const openEditRule = (rule: NotificationRule | IncomingRule) => {
+const openEditRule = (rule: WebhookRule | EmailForwardRule) => {
   if ('targetChannelIds' in rule) {
     ruleEditor.value = {
       id: rule.id,
-      category: 'notification',
+      category: 'webhook',
       name: rule.name,
       enabled: rule.enabled,
       matchMode: rule.matchMode,
@@ -1477,7 +1679,7 @@ const openEditRule = (rule: NotificationRule | IncomingRule) => {
   } else {
     ruleEditor.value = {
       id: rule.id,
-      category: 'incoming',
+      category: 'email_forward',
       name: rule.name,
       enabled: rule.enabled,
       matchMode: rule.matchMode,
@@ -1499,8 +1701,8 @@ const closeRuleEditor = () => {
 }
 
 const toggleRuleEditorChannel = (channelId: number) => {
-  const channel = notificationChannels.value.find((item) => item.id === channelId)
-  if (!channel || !channel.enabled) return
+  const channel = webhookChannels.value.find((item) => item.id === channelId)
+  if (!channel) return
 
   if (ruleEditor.value.targetChannelIds.includes(channelId)) {
     ruleEditor.value.targetChannelIds = ruleEditor.value.targetChannelIds.filter((id) => id !== channelId)
@@ -1515,28 +1717,27 @@ const saveRuleEditor = async () => {
     return
   }
 
-  if (ruleEditor.value.category === 'notification' && ruleEditor.value.targetChannelIds.length === 0) {
+  if (ruleEditor.value.category === 'webhook' && ruleEditor.value.targetChannelIds.length === 0) {
     toast.error('至少选择一个通道')
     return
   }
 
-  if (ruleEditor.value.category === 'incoming' && !ruleEditor.value.targetEmail.trim()) {
-    toast.error('转发邮箱不能为空')
+  if (ruleEditor.value.category === 'email_forward' && !ruleEditor.value.targetEmail.trim()) {
+    toast.error('收件人不能为空')
     return
   }
 
   if (
-      ruleEditor.value.category === 'incoming' &&
-      ruleEditor.value.targetForwardType === 'cf' &&
+      ruleEditor.value.category === 'email_forward' &&
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ruleEditor.value.targetFromAddress.trim())
   ) {
-    toast.error('请输入有效的 CF 发件人邮箱')
+    toast.error('请输入有效的转发发件人邮箱')
     return
   }
 
   const id = ruleEditor.value.id || temporaryRoutingId--
-  if (ruleEditor.value.category === 'notification') {
-    const rule: NotificationRule = {
+  if (ruleEditor.value.category === 'webhook') {
+    const rule: WebhookRule = {
       id,
       name: ruleEditor.value.name.trim(),
       enabled: ruleEditor.value.enabled,
@@ -1547,11 +1748,11 @@ const saveRuleEditor = async () => {
       contentPattern: ruleEditor.value.contentPattern.trim(),
       targetChannelIds: [...ruleEditor.value.targetChannelIds]
     }
-    const index = notificationRules.value.findIndex((item) => item.id === id)
-    if (index >= 0) notificationRules.value.splice(index, 1, rule)
-    else notificationRules.value.unshift(rule)
+    const index = webhookRules.value.findIndex((item) => item.id === id)
+    if (index >= 0) webhookRules.value.splice(index, 1, rule)
+    else webhookRules.value.unshift(rule)
   } else {
-    const rule: IncomingRule = {
+    const rule: EmailForwardRule = {
       id,
       name: ruleEditor.value.name.trim(),
       enabled: ruleEditor.value.enabled,
@@ -1564,29 +1765,29 @@ const saveRuleEditor = async () => {
       targetFromAddress: ruleEditor.value.targetFromAddress.trim(),
       targetForwardType: ruleEditor.value.targetForwardType
     }
-    const index = incomingRules.value.findIndex((item) => item.id === id)
-    if (index >= 0) incomingRules.value.splice(index, 1, rule)
-    else incomingRules.value.unshift(rule)
+    const index = emailForwardRules.value.findIndex((item) => item.id === id)
+    if (index >= 0) emailForwardRules.value.splice(index, 1, rule)
+    else emailForwardRules.value.unshift(rule)
   }
   closeRuleEditor()
   toast.success('已应用到页面，保存后生效')
 }
 
-const toggleNotificationRule = (rule: NotificationRule) => {
+const toggleWebhookRule = (rule: WebhookRule) => {
   rule.enabled = !rule.enabled
 }
 
-const toggleIncomingRule = (rule: IncomingRule) => {
+const toggleEmailForwardRule = (rule: EmailForwardRule) => {
   rule.enabled = !rule.enabled
 }
 
-const deleteNotificationRule = (id: number) => {
-  notificationRules.value = notificationRules.value.filter((rule) => rule.id !== id)
+const deleteWebhookRule = (id: number) => {
+  webhookRules.value = webhookRules.value.filter((rule) => rule.id !== id)
   toast.success('已从页面移除，保存后生效')
 }
 
-const deleteIncomingRule = (id: number) => {
-  incomingRules.value = incomingRules.value.filter((rule) => rule.id !== id)
+const deleteEmailForwardRule = (id: number) => {
+  emailForwardRules.value = emailForwardRules.value.filter((rule) => rule.id !== id)
   toast.success('已从页面移除，保存后生效')
 }
 
@@ -1689,7 +1890,7 @@ const openEmailFromLog = () => {
   }
 
   router.push({
-    path: '/all-emails',
+    path: '/inbox',
     query: {
       email: String(selectedLog.value.email_id)
     }
@@ -1710,7 +1911,7 @@ const changeLogPage = async (page: number) => {
 
 const formatChannelNames = (channelIds: number[]) => {
   const names = channelIds
-      .map((id) => notificationChannels.value.find((channel) => channel.id === id)?.name)
+      .map((id) => webhookChannels.value.find((channel) => channel.id === id)?.name)
       .filter((name): name is string => Boolean(name))
   return names.length > 0 ? names.join(' / ') : '未选择通道'
 }
@@ -1727,14 +1928,14 @@ const webhookTypeLabel = (type: WebhookType) => {
 const forwardTypeLabel = (type: ForwardType) => {
   const labels: Record<ForwardType, string> = {
     internal: '站内转发',
-    smtp: 'SMTP 转发',
-    cf: 'CF 转发'
+    cf: 'CF 转发',
+    resend: 'Resend 转发'
   }
   return labels[type] || type
 }
 
 const getLogChannelLabel = (log: any) => {
-  const matchedChannel = notificationChannels.value.find((channel) => channel.url === log.webhook_url)
+  const matchedChannel = webhookChannels.value.find((channel) => channel.url === log.webhook_url)
   if (matchedChannel) {
     return matchedChannel.name
   }
@@ -1762,76 +1963,7 @@ const getLogDeliveryTargetLabel = (log: any) => log.webhook_url?.startsWith('mai
 
 const matchModeLabel = (mode: MatchMode) => mode === 'all' ? '全部条件匹配' : '任一条件匹配'
 
-const matchesRule = (
-    source: { from_address?: string; to_address?: string; subject?: string; content?: string },
-    rule: {
-      matchMode: MatchMode;
-      senderPattern: string;
-      recipientPattern: string;
-      subjectPattern: string;
-      contentPattern: string
-    }
-) => {
-  const checks = [
-    !rule.senderPattern || (source.from_address || '').toLowerCase().includes(rule.senderPattern.toLowerCase()),
-    !rule.recipientPattern || (source.to_address || '').toLowerCase().includes(rule.recipientPattern.toLowerCase()),
-    !rule.subjectPattern || (source.subject || '').toLowerCase().includes(rule.subjectPattern.toLowerCase()),
-    !rule.contentPattern || (source.content || '').toLowerCase().includes(rule.contentPattern.toLowerCase())
-  ]
-
-  return rule.matchMode === 'all' ? checks.every(Boolean) : checks.some(Boolean)
-}
-
-const resolveWebhookTargetsForLog = (log: any) => {
-  const currentChannels: NotificationChannel[] = []
-
-  notificationRules.value
-      .filter((rule) => rule.enabled && matchesRule(log, rule))
-      .flatMap((rule) => rule.targetChannelIds)
-      .forEach((channelId) => {
-        const channel = notificationChannels.value.find((item) => item.id === channelId && item.enabled)
-        if (channel && !currentChannels.some((item) => item.id === channel.id)) {
-          currentChannels.push(channel)
-        }
-      })
-
-  if (defaultNotificationEnabled.value) {
-    const shouldUseDefault = defaultNotificationMode.value === 'always' || currentChannels.length === 0
-    if (shouldUseDefault) {
-      selectedDefaultChannels.value.forEach((channel) => {
-        if (channel.enabled && !currentChannels.some((item) => item.id === channel.id)) {
-          currentChannels.push(channel)
-        }
-      })
-    }
-  }
-
-  if (currentChannels.length === 0) {
-    const matchedByUrl = notificationChannels.value.find((channel) => channel.url === log.webhook_url)
-    if (matchedByUrl) {
-      currentChannels.push(matchedByUrl)
-    }
-  }
-
-  return currentChannels
-}
-
-const resolveForwardTargetsForLog = (log: any) => {
-  const targets = incomingRules.value
-      .filter((rule) => rule.enabled && matchesRule(log, rule))
-      .map((rule) => rule.targetEmail)
-
-  if (incomingDefault.value.enabled) {
-    const shouldUseDefault = incomingDefault.value.mode === 'always' || targets.length === 0
-    if (shouldUseDefault && incomingDefault.value.targetEmail.trim()) {
-      targets.push(incomingDefault.value.targetEmail.trim())
-    }
-  }
-
-  return Array.from(new Set(targets))
-}
-
-const getRuleConditionChips = (rule: NotificationRule | IncomingRule) => {
+const getRuleConditionChips = (rule: WebhookRule | EmailForwardRule) => {
   const chips: string[] = [matchModeLabel(rule.matchMode)]
   if (rule.senderPattern) chips.push(`发件人含 ${rule.senderPattern}`)
   if (rule.recipientPattern) chips.push(`收件人含 ${rule.recipientPattern}`)
@@ -1839,8 +1971,6 @@ const getRuleConditionChips = (rule: NotificationRule | IncomingRule) => {
   if (rule.contentPattern) chips.push(`正文含 ${rule.contentPattern}`)
   return chips.length > 0 ? chips : ['匹配全部邮件']
 }
-
-const formatDateTime = (value?: string | null) => value ? new Date(value).toLocaleString('zh-CN') : '未记录'
 
 const refreshRoutingPage = async () => {
   await loadPageData(true)
@@ -2038,6 +2168,13 @@ onUnmounted(() => {
   font-weight: 700;
 }
 
+.panel-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .panel-actions,
 .channel-actions,
 .rule-inline-actions,
@@ -2217,6 +2354,66 @@ onUnmounted(() => {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.mail-channel-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px dashed rgba(52, 84, 117, 0.22);
+  background: rgba(244, 248, 252, 0.96);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.mail-channel-empty strong {
+  color: var(--text-strong);
+}
+
+.mail-channel-list {
+  display: grid;
+  gap: 14px;
+}
+
+.mail-channel-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 251, 0.98));
+}
+
+.token-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.token-input-wrap .form-control {
+  padding-right: 64px;
+}
+
+.token-visibility-button {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(23, 78, 166, 0.08);
+  color: #174ea6;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.token-visibility-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .form-group label {

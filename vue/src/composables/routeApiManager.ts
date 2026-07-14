@@ -62,21 +62,39 @@ export interface RouteConfig {
 // ==================== 路由配置 ====================
 
 export const ROUTE_CONFIGS: Record<string, RouteConfig> = {
-  'all-emails': {
-    routeName: 'all-emails',
-    description: '全部邮件',
+  inbox: {
+    routeName: 'inbox',
+    description: '收件箱',
     requiresAuth: true,
     adminOnly: true,
     autoLoad: true,
     apis: [
       {
         method: 'getEmails',
-        cacheKeyPrefix: 'all_emails',
+        cacheKeyPrefix: 'inbox_emails',
         ttl: 2 * 60 * 1000, // 2分钟
         useCache: true,
         useSmartCache: true,
         dependencies: ['new_email'],
-        defaultParams: { page: 1, limit: 20 }
+        defaultParams: { page: 1, limit: 20, folder: 'inbox' }
+      }
+    ]
+  },
+  sent: {
+    routeName: 'sent',
+    description: '已发送',
+    requiresAuth: true,
+    adminOnly: true,
+    autoLoad: true,
+    apis: [
+      {
+        method: 'getEmails',
+        cacheKeyPrefix: 'sent_emails',
+        ttl: 2 * 60 * 1000,
+        useCache: true,
+        useSmartCache: true,
+        dependencies: ['new_email'],
+        defaultParams: { page: 1, limit: 20, folder: 'sent' }
       }
     ]
   },
@@ -399,17 +417,16 @@ export function useRouteGlobalRefreshManager() {
   // 执行全局刷新
   const executeGlobalRefresh = async () => {
     if (isRefreshing.value) {
-      console.log('🔄 全局刷新已在进行中，跳过')
       return
     }
 
     if (!isSupportedRoute.value) {
-      console.log('⚠️ 当前路由不支持统一刷新管理')
+      console.warn('⚠️ 当前路由不支持统一刷新管理')
       return
     }
 
     if (!hasPermission.value) {
-      console.log('⚠️ 没有权限执行全局刷新')
+      console.warn('⚠️ 没有权限执行全局刷新')
       return
     }
 
@@ -423,7 +440,6 @@ export function useRouteGlobalRefreshManager() {
       } else {
         await callApiMethod({}, true) // 强制刷新
       }
-      console.log('✅ 全局刷新完成')
     } catch (error) {
       console.error('❌ 全局刷新失败:', error)
       throw error
@@ -459,9 +475,9 @@ export const dashboardRouteConfig = {
   apis: ROUTE_CONFIGS.dashboard.apis
 }
 
-export const allEmailsRouteConfig = {
-  routeName: 'all-emails',
-  apis: ROUTE_CONFIGS['all-emails'].apis
+export const inboxRouteConfig = {
+  routeName: 'inbox',
+  apis: ROUTE_CONFIGS.inbox.apis
 }
 
 export const systemSettingsRouteConfig = {

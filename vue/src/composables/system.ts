@@ -1,20 +1,13 @@
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import type { SystemHealth, SystemConfig } from '@/types'
-import { systemApiService } from '@/composables/api-system'
-import { useStorage } from '@vueuse/core'
-import { cacheService } from '@/composables/cache'
-import { API_CACHE_KEYS, invalidateApiCache, invalidateApiCacheByPrefix } from '@/composables/api-cache'
-import { smartCache } from '@/composables/smartCache'
+import {defineStore} from 'pinia'
+import {computed, ref} from 'vue'
+import type {SystemConfig, SystemHealth} from '@/types'
+import {systemApiService} from '@/composables/api-system'
+import {useStorage} from '@vueuse/core'
+import {cacheService} from '@/composables/cache'
+import {API_CACHE_KEYS, invalidateApiCache, invalidateApiCacheByPrefix} from '@/composables/api-cache'
+import {smartCache} from '@/composables/smartCache'
 
 // 调试工具函数
-const debugLog = (...args: any[]) => {
-  const isDebugMode = import.meta.env.DEV || import.meta.env.VITE_DEBUG === 'true'
-  if (isDebugMode) {
-    console.log('[SystemStore]', ...args)
-  }
-}
-
 export const useSystemStore = defineStore('system', () => {
   type ChangeSignalKey = 'emails' | 'dashboard' | 'forward_logs' | 'routing_config' | 'system_config'
   type ChangeSignals = Partial<Record<ChangeSignalKey, number>> & { updated_at?: string }
@@ -95,7 +88,6 @@ export const useSystemStore = defineStore('system', () => {
     const changedKeys = detectChangedSignals(signals)
     if (changedKeys.length > 0) {
       invalidateCachesForChanges(changedKeys)
-      debugLog('检测到后端变更信号，已清理相关缓存:', changedKeys)
     }
     return changedKeys
   }
@@ -131,13 +123,14 @@ export const useSystemStore = defineStore('system', () => {
         // 将 health 接口的 config 字段同步到 systemConfig 缓存
         // 注意：只更新特定字段，不覆盖完整配置
         if (response.data.health?.config) {
-          const healthConfig = response.data.health.config as { allow_registration: number; debug_mode: number }
+          const healthConfig = response.data.health.config as { allow_registration: number; debug_mode: number; timezone?: string }
 
           // 使用空值合并赋值操作符，确保 systemConfig 存在并更新字段
           (systemConfig.value ??= {}).allow_registration = healthConfig.allow_registration
           systemConfig.value.debug_mode = healthConfig.debug_mode
-
-          debugLog('系统健康状态配置已同步到 localStorage (部分更新):', systemConfig.value)
+          if (healthConfig.timezone) {
+            systemConfig.value.timezone = healthConfig.timezone
+          }
         }
 
         const changedKeys = applyChangeSignals(response.data.health?.changes)
@@ -185,9 +178,7 @@ export const useSystemStore = defineStore('system', () => {
       const response = await systemApiService.getSystemConfig(options)
       if (response.success && response.data) {
         // 正确提取 config 字段并保存到 localStorage
-        const config = response.data.config || response.data
-        systemConfig.value = config
-        debugLog('系统配置已保存到 localStorage:', config)
+        systemConfig.value = response.data.config || response.data
         return { success: true }
       } else {
         return { success: false, error: response.message || '获取系统配置失败' }
@@ -206,12 +197,9 @@ export const useSystemStore = defineStore('system', () => {
   const isDebugMode = computed(() => {
     // 只从 systemConfig 读取数据库设置，绝对不使用环境变量
     if (systemConfig.value?.debug_mode !== undefined) {
-      const result = systemConfig.value.debug_mode === 1
-      debugLog('debug_mode:', systemConfig.value.debug_mode, 'type:', typeof systemConfig.value.debug_mode, 'result:', result)
-      return result
+      return systemConfig.value.debug_mode === 1
     }
     // 如果数据库设置不可用，默认返回 false（不使用环境变量）
-    debugLog('debug_mode 未定义，默认返回 false')
     return false
   })
 

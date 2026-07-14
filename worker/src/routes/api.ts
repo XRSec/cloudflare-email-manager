@@ -30,6 +30,8 @@ import {
   getAttachmentById,
   sendEmail,
   createEmail,
+  copyEmailAttachments,
+  buildForwardedEmailBody,
   saveRawEmailToR2,
   getRawEmailFromR2,
   getRawEmailBytesFromR2,
@@ -37,7 +39,7 @@ import {
 } from '../services/email';
 import PostalMime from 'postal-mime';
 import { getSystemConfig } from '../services/settings';
-import { handleEmailForwarding, logForwardResult, sendWebhook } from '../services/webhook';
+import { logForwardResult, sendWebhook } from '../services/webhook';
 import { bumpChangeSignals, getChangeSignals } from '../services/changeSignals';
 
 import type { Env, ApiResponse, EmailQueryParams, D1Database } from '../types';
@@ -80,13 +82,164 @@ async function getEmailListCacheKey(params: EmailQueryParams, emailsVersion: num
     query.set(key, String(value));
   }
 
-  const hash = await createStableHash(query.toString());
+  const hash = await createStableHash(`display-v3:${query.toString()}`);
   return `${KVCacheService.KEYS.EMAIL_LIST}:v${emailsVersion}:${hash}`;
 }
 
 async function getEmailDetailCacheKey(emailId: string, updatedAt?: string): Promise<string> {
-  const version = await createStableHash(`detail-v2:${updatedAt || 'unknown'}`);
+  const version = await createStableHash(`detail-v4:${updatedAt || 'unknown'}`);
   return `${KVCacheService.KEYS.EMAIL_DETAIL}${emailId}:v${version}`;
+}
+
+function parseEmailHeaders(headersJson?: string | null): Record<string, string> {
+  if (!headersJson) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(headersJson);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function formatAddressDisplay(name?: string | null, address?: string | null): string {
+  const cleanAddress = (address || '').trim();
+  const cleanName = (name || '').trim() || (cleanAddress.includes('@') ? cleanAddress.split('@')[0] : '');
+
+  if (!cleanName) {
+    return cleanAddress;
+  }
+
+  return cleanAddress ? `${cleanName} <${cleanAddress}>` : cleanName;
+}
+
+function decodeMimeHeaderValue(value: string): string {
+  return value.replace(/=\?([^?]+)\?([bqBQ])\?([^?]+)\?=/g, (_match, charset, encoding, encoded) => {
+    try {
+      const normalizedCharset = String(charset || 'utf-8').toLowerCase();
+      const bytes = String(encoding).toLowerCase() === 'b'
+        ? Uint8Array.from(atob(String(encoded).replace(/\s/g, '')), char => char.charCodeAt(0))
+        : decodeQuotedPrintableHeader(String(encoded));
+      return new TextDecoder(normalizedCharset).decode(bytes);
+    } catch {
+      return String(encoded);
+    }
+  }).trim();
+}
+
+function decodeQuotedPrintableHeader(value: string): Uint8Array {
+  const normalized = value.replace(/_/g, ' ');
+  const bytes: number[] = [];
+  for (let i = 0; i < normalized.length; i++) {
+    if (normalized[i] === '=' && /^[0-9a-fA-F]{2}$/.test(normalized.slice(i + 1, i + 3))) {
+      bytes.push(parseInt(normalized.slice(i + 1, i + 3), 16));
+      i += 2;
+    } else {
+      bytes.push(normalized.charCodeAt(i));
+    }
+  }
+  return new Uint8Array(bytes);
+}
+
+function parseAddressHeader(value?: string | null): { name: string; address: string } {
+  const source = (value || '').trim();
+  if (!source) return { name: '', address: '' };
+
+  const bracketMatch = source.match(/^(.*?)<([^<>@\s]+@[^<>\s]+)>/);
+  if (bracketMatch) {
+    return {
+      name: decodeMimeHeaderValue(bracketMatch[1].trim().replace(/^"|"$/g, '')),
+      address: bracketMatch[2].trim()
+    };
+  }
+
+  const emailMatch = source.match(/([^\s<>@]+@[^\s<>]+)/);
+  return {
+    name: '',
+    address: emailMatch?.[1]?.trim() || source
+  };
+}
+
+function buildOutgoingRawEmail(params: {
+  from: string;
+  to: string;
+  subject: string;
+  content: string;
+  contentType: string;
+  messageId: string;
+  replyTo?: string;
+}): string {
+  return [
+    `From: ${params.from}`,
+    `To: ${params.to}`,
+    `Subject: ${params.subject}`,
+    `Date: ${new Date().toUTCString()}`,
+    `Message-ID: ${params.messageId}`,
+    ...(params.replyTo ? [`Reply-To: ${params.replyTo}`] : []),
+    `MIME-Version: 1.0`,
+    `Content-Type: ${params.contentType}; charset=UTF-8`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    params.content
+  ].join('\r\n');
+}
+
+function getEmailAddressDomain(address: string): string {
+  const normalized = address.trim().toLowerCase();
+  const atIndex = normalized.lastIndexOf('@');
+  if (atIndex < 0 || atIndex === normalized.length - 1) {
+    return '';
+  }
+  return normalized.slice(atIndex + 1);
+}
+
+function stripHtmlForOutgoingPreview(content: string): string {
+  return content
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|td|h[1-6]|li)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_match, dec) => String.fromCharCode(parseInt(dec, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_match, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\n\s*\n\s*\n/g, '\n\n')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
+
+function buildOutgoingEmailPreview(content: string, contentType: 'text' | 'html'): string {
+  if (contentType === 'text') {
+    return (content.trim() || '[无内容预览]').slice(0, 1000);
+  }
+
+  return (stripHtmlForOutgoingPreview(content) || '[无内容预览]').slice(0, 1000);
+}
+
+function getEmailFromDisplay(email: { from_address?: string | null; headers_json?: string | null }): string {
+  const headers = parseEmailHeaders(email.headers_json);
+  const rawFrom = parseAddressHeader(headers.from || '');
+  const parsedAddress = headers.parsed_from_address || rawFrom.address || email.from_address || '';
+  const parsedName = headers.parsed_from_name || rawFrom.name || '';
+  const display = formatAddressDisplay(parsedName, parsedAddress);
+
+  if (display) {
+    return display;
+  }
+
+  return headers.from?.includes('<') ? headers.from : (email.from_address || '');
+}
+
+function toPublicEmail(email: any) {
+  const { headers_json, ...publicEmail } = email;
+  return publicEmail;
 }
 
 function containsCjk(text: string): boolean {
@@ -142,6 +295,11 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
     // 解析查询参数
     const queryParams: EmailQueryParams = {
       ...getPaginationParams(c.req.query()),
+      folder: c.req.query('folder') === 'sent' ? 'sent' : 'inbox',
+      recipient_domain: c.req.query('recipient_domain')?.trim() || undefined,
+      recipient_mailbox: c.req.query('recipient_mailbox')?.trim() || undefined,
+      sender_mailbox: c.req.query('sender_mailbox')?.trim() || undefined,
+      recipient: c.req.query('recipient')?.trim() || undefined,
       search: c.req.query('search')?.trim() || undefined,
       status: c.req.query('status')?.trim() || undefined,
       sender: c.req.query('sender')?.trim() || undefined,
@@ -151,7 +309,6 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
       has_attachments: hasAttachments,
       sort: c.req.query('sort')?.trim() || undefined,
       order: c.req.query('order')?.trim() as 'asc' | 'desc' | undefined
-      // 注意：已移除 scope 参数，单用户模式下不再需要
     };
 
     let kvCache: KVCacheService | null = null;
@@ -179,8 +336,8 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
 
     // 转换字段名以匹配前端期望的格式
     const items = result.emails.map(email => ({
-      ...email,
-      from: email.from_address || '',
+      ...toPublicEmail(email),
+      from: getEmailFromDisplay(email),
       to: email.to_address || '',
       status: email.is_read ? 'read' : 'unread',
       owner_username: (email as any).owner_username || null,
@@ -191,7 +348,9 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
 
     const data = {
       total: result.total,
-      items
+      items,
+      groups: result.groups || [],
+      hierarchyGroups: result.hierarchyGroups || []
     };
 
     if (kvCache && cacheKey) {
@@ -359,8 +518,8 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
     debugLog(`[邮件详情] 过滤后的有效附件数量: ${validAttachments.length}`);
 
     const emailData = {
-      ...email,
-      from: email.from_address || '',
+      ...toPublicEmail(email),
+      from: getEmailFromDisplay(email),
       to: email.to_address || '',
       status: email.is_read ? 'read' : 'unread',
       attachments: validAttachments.map(att => {
@@ -600,8 +759,8 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
       `).bind(channelId).first();
 
       const url = (channel?.channel_url as string | undefined)?.trim();
-      if (!channel || channel.enabled !== 1 || !url) {
-        throw new HTTPException(400, { message: 'Webhook 通道不存在或未启用' });
+      if (!channel || !url) {
+        throw new HTTPException(400, { message: 'Webhook 通道不存在' });
       }
 
       const channelType = channel.channel_type as string | undefined;
@@ -630,24 +789,17 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
     const targetDomain = targetEmail.split('@').pop() || '';
     const config = await getSystemConfig(c.env.DB);
     const localDomains = Array.isArray(config.supported_emails) ? config.supported_emails : [];
-    const targetForwardType = ['internal', 'smtp', 'cf'].includes(body.targetForwardType) ? body.targetForwardType : 'internal';
+    const targetForwardType = ['internal', 'cf', 'resend'].includes(body.targetForwardType) ? body.targetForwardType : 'internal';
     const isLocalDomain = localDomains.includes(targetDomain);
-    const fromAddress = email.from_address || `unknown@${targetDomain}`;
     const targetFromAddress = typeof body.from === 'string' ? body.from.trim() : '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetFromAddress)) {
+      throw new HTTPException(400, { message: '转发发件人邮箱格式无效' });
+    }
     const originalReplyTo = email.reply_to || email.from_address || undefined;
     const forwardedBy = 'cloudflare-email-manager';
     const forwardSubject = `Fwd: ${email.subject || '(无主题)'}`;
-    const forwardContent = [
-      `转发邮件（由系统转发）`,
-      ``,
-      `转发系统: ${forwardedBy}`,
-      `原发件人: ${email.from_address || '-'}`,
-      `原收件人: ${email.to_address || '-'}`,
-      `原主题: ${email.subject || '(无主题)'}`,
-      `接收时间: ${email.received_at || '-'}`,
-      ``,
-      email.content || ''
-    ].join('\n');
+    const forwardedBody = await buildForwardedEmailBody(email, { forwardedBy }, c.env.R2);
+    const mimeContentType = forwardedBody.contentType === 'html' ? 'text/html' : 'text/plain';
 
     try {
       if (targetForwardType === 'internal') {
@@ -655,6 +807,7 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
           throw new HTTPException(400, { message: '站内转发目标域名不在系统配置中' });
         }
 
+        const fromAddress = targetFromAddress;
         const forwardedEmailId = crypto.randomUUID();
         const now = new Date().toISOString();
         const messageId = `<forward-${forwardedEmailId}@${targetDomain}>`;
@@ -669,19 +822,19 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
           `X-CEM-Original-From: ${email.from_address || ''}`,
           `X-CEM-Original-To: ${email.to_address || ''}`,
           `MIME-Version: 1.0`,
-          `Content-Type: text/plain; charset=UTF-8`,
+          `Content-Type: ${mimeContentType}; charset=UTF-8`,
           `Content-Transfer-Encoding: 8bit`,
           ``,
-          forwardContent
+          forwardedBody.content
         ].join('\r\n');
 
         const forwardedEmail = await createEmail(c.env.DB, {
           subject: forwardSubject,
           from_address: fromAddress,
           to_address: targetEmail,
-          content: forwardContent.slice(0, 1000),
-          is_read: 0,
-          attachment_count: 0,
+          content: forwardedBody.preview.slice(0, 1000),
+          is_read: 1,
+          attachment_count: c.env.R2 ? email.attachment_count || 0 : 0,
           message_id: messageId,
           headers_json: JSON.stringify({
             from: fromAddress,
@@ -699,12 +852,21 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
           reply_to: email.reply_to || email.from_address,
           cc: null,
           bcc: null,
-          content_type: 'text/plain; charset=UTF-8',
+          content_type: `${mimeContentType}; charset=UTF-8`,
+          folder: 'sent',
           received_at: now
         }, forwardedEmailId);
 
         if (c.env.R2) {
           await saveRawEmailToR2(c.env.R2, rawEmail, messageId, forwardedEmail.id, fromAddress, targetEmail);
+          const copiedAttachmentCount = await copyEmailAttachments(c.env.DB, c.env.R2, email.id, forwardedEmail.id);
+          if (copiedAttachmentCount !== (email.attachment_count || 0)) {
+            await c.env.DB.prepare(`
+              UPDATE emails
+              SET attachment_count = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+            `).bind(copiedAttachmentCount, forwardedEmail.id).run();
+          }
         }
 
         await logForwardResult(c.env.DB, email.id, `mailto:${targetEmail}`, {
@@ -712,18 +874,13 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
           responseCode: 200
         }, c.env.KV, { from: fromAddress, to: targetEmail });
 
-        await handleEmailForwarding(forwardedEmail, null, c.env.DB, c.env);
         await bumpChangeSignals(c.env.DB, ['emails', 'dashboard']);
 
         return c.json<ApiResponse>({
           success: true,
-          message: '收件转发已投递到本地域并触发路由',
+          message: '邮件转发已投递到本地域',
           data: { mode, target: targetEmail, local: true, forwardedEmailId: forwardedEmail.id }
         });
-      }
-
-      if (targetForwardType === 'cf' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetFromAddress)) {
-        throw new HTTPException(400, { message: 'CF 转发发件人邮箱格式无效' });
       }
 
       const sendResult = await sendEmail(c.env, {
@@ -731,8 +888,8 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
         from: targetFromAddress,
         reply_to: originalReplyTo,
         subject: forwardSubject,
-        content: forwardContent,
-        content_type: 'text',
+        content: forwardedBody.content,
+        content_type: forwardedBody.contentType,
         delivery_method: targetForwardType
       });
 
@@ -741,19 +898,79 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
         responseCode: 200
       }, c.env.KV, { from: targetFromAddress, to: targetEmail });
 
+      const sentEmailId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const sentMessageId = sendResult.messageId
+        ? `<${sendResult.messageId}@${targetForwardType}.forward>`
+        : `<forward-sent-${sentEmailId}@${targetDomain}>`;
+      const rawEmail = buildOutgoingRawEmail({
+        from: targetFromAddress,
+        to: targetEmail,
+        subject: forwardSubject,
+        content: forwardedBody.content,
+        contentType: mimeContentType,
+        messageId: sentMessageId,
+        replyTo: originalReplyTo
+      });
+
+      const sentEmail = await createEmail(c.env.DB, {
+        subject: forwardSubject,
+        from_address: targetFromAddress,
+        to_address: targetEmail,
+        content: forwardedBody.preview.slice(0, 1000),
+        is_read: 1,
+        attachment_count: c.env.R2 ? email.attachment_count || 0 : 0,
+        message_id: sentMessageId,
+        headers_json: JSON.stringify({
+          from: targetFromAddress,
+          to: targetEmail,
+          subject: forwardSubject,
+          date: now,
+          'message-id': sentMessageId,
+          'x-cem-forwarded': '1',
+          'x-cem-forwarded-by': forwardedBy,
+          'x-cem-original-from': email.from_address || '',
+          'x-cem-original-to': email.to_address || ''
+        }),
+        size_bytes: new TextEncoder().encode(rawEmail).byteLength,
+        date: now,
+        reply_to: originalReplyTo || null,
+        cc: null,
+        bcc: null,
+        content_type: `${mimeContentType}; charset=UTF-8`,
+        folder: 'sent',
+        resend_email_id: targetForwardType === 'resend' ? sendResult.messageId || null : null,
+        received_at: now
+      }, sentEmailId);
+
+      if (c.env.R2) {
+        await saveRawEmailToR2(c.env.R2, rawEmail, sentMessageId, sentEmail.id, targetFromAddress, targetEmail);
+        const copiedAttachmentCount = await copyEmailAttachments(c.env.DB, c.env.R2, email.id, sentEmail.id);
+        if (copiedAttachmentCount !== (email.attachment_count || 0)) {
+          await c.env.DB.prepare(`
+            UPDATE emails
+            SET attachment_count = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).bind(copiedAttachmentCount, sentEmail.id).run();
+        }
+      }
+
+      await bumpChangeSignals(c.env.DB, ['emails', 'dashboard']);
+
       return c.json<ApiResponse>({
         success: true,
-        message: '收件转发已提交投递',
+        message: '邮件转发已提交投递',
         data: {
           mode,
           target: targetEmail,
           local: false,
           targetForwardType,
-          messageId: sendResult.messageId || null
+          messageId: sendResult.messageId || null,
+          sentEmailId: sentEmail.id
         }
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : '收件转发失败';
+      const message = error instanceof Error ? error.message : '邮件转发失败';
       await logForwardResult(c.env.DB, email.id, `mailto:${targetEmail}`, {
         success: false,
         errorMessage: message
@@ -1100,30 +1317,132 @@ api.get('/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
  */
 api.post('/emails/send', jwtAuthMiddleware, async (c) => {
   try {
-    const payload = c.get('jwtPayload');
-    const { to, from, subject, content, content_type = 'markdown' } = await c.req.json();
+    const { to, from, subject, content, content_type, delivery_method } = await c.req.json();
 
-    if (!to || !subject || !content) {
-      throw new HTTPException(400, { message: '收件人、主题和内容不能为空' });
+    if (!to || !from || !subject || !content) {
+      throw new HTTPException(400, { message: '发件人、收件人、主题和内容不能为空' });
     }
 
-    // 单管理员模式：所有用户都是管理员，可以发送邮件
+    if (!['internal', 'cf', 'resend'].includes(delivery_method)) {
+      throw new HTTPException(400, { message: '发送类型必须是 internal、cf 或 resend' });
+    }
 
-    // 发送邮件（使用默认域名）
-    const sendResult = await sendEmail(c.env, {
+    if (!['text', 'html'].includes(content_type)) {
+      throw new HTTPException(400, { message: '内容格式必须是 text 或 html' });
+    }
+
+    const method = delivery_method as 'internal' | 'cf' | 'resend';
+    const normalizedContentType = content_type as 'text' | 'html';
+    const sendResult = method === 'internal'
+      ? { messageId: undefined }
+      : await sendEmail(c.env, {
+        to,
+        from,
+        subject,
+        content,
+        content_type: normalizedContentType,
+        delivery_method: method
+      });
+
+    const sentEmailId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const targetDomain = String(to).split('@').pop() || 'sent.local';
+    const messageId = sendResult.messageId
+      ? `<${sendResult.messageId}@${method}.send>`
+      : `<sent-${sentEmailId}@${targetDomain}>`;
+    const rawEmail = buildOutgoingRawEmail({
+      from,
       to,
-      from: from || undefined,
       subject,
       content,
-      content_type
+      contentType: normalizedContentType === 'html' ? 'text/html' : 'text/plain',
+      messageId
     });
+    const previewContent = buildOutgoingEmailPreview(String(content), normalizedContentType);
+
+    const sentEmail = await createEmail(c.env.DB, {
+      subject,
+      from_address: from,
+      to_address: to,
+      content: previewContent,
+      is_read: 1,
+      attachment_count: 0,
+      message_id: messageId,
+      headers_json: JSON.stringify({
+        from,
+        to,
+        subject,
+        date: now,
+        'message-id': messageId
+      }),
+      size_bytes: new TextEncoder().encode(rawEmail).byteLength,
+      date: now,
+      reply_to: null,
+      cc: null,
+      bcc: null,
+      content_type: `${normalizedContentType === 'html' ? 'text/html' : 'text/plain'}; charset=UTF-8`,
+      folder: 'sent',
+      resend_email_id: method === 'resend' ? sendResult.messageId || null : null,
+      received_at: now
+    }, sentEmailId);
+
+    if (c.env.R2) {
+      await saveRawEmailToR2(c.env.R2, rawEmail, messageId, sentEmail.id, from, to);
+    }
+
+    let inboxEmailId: string | null = null;
+    const config = await getSystemConfig(c.env.DB);
+    const localDomains = Array.isArray(config.supported_emails) ? config.supported_emails : [];
+    const localTargetDomain = getEmailAddressDomain(String(to));
+    const isLocalRecipient = method === 'internal' && localDomains.includes(localTargetDomain);
+
+    if (isLocalRecipient) {
+      inboxEmailId = crypto.randomUUID();
+      const inboxEmail = await createEmail(c.env.DB, {
+        subject,
+        from_address: from,
+        to_address: to,
+        content: previewContent,
+        is_read: 0,
+        attachment_count: 0,
+        message_id: messageId,
+        headers_json: JSON.stringify({
+          from,
+          to,
+          subject,
+          date: now,
+          'message-id': messageId,
+          'x-cem-local-delivery': '1',
+          'x-cem-sent-email-id': sentEmail.id
+        }),
+        size_bytes: new TextEncoder().encode(rawEmail).byteLength,
+        date: now,
+        reply_to: from,
+        cc: null,
+        bcc: null,
+        content_type: `${normalizedContentType === 'html' ? 'text/html' : 'text/plain'}; charset=UTF-8`,
+        folder: 'inbox',
+        resend_email_id: null,
+        received_at: now
+      }, inboxEmailId);
+
+      if (c.env.R2) {
+        await saveRawEmailToR2(c.env.R2, rawEmail, messageId, inboxEmail.id, from, to);
+      }
+    }
+
+    await bumpChangeSignals(c.env.DB, ['emails', 'dashboard']);
 
     return c.json<ApiResponse>({
       success: true,
-      message: '邮件已提交投递',
+      message: isLocalRecipient ? '邮件已发送并投递到站内收件箱' : '邮件已提交投递',
       data: {
         target: to,
-        messageId: sendResult.messageId || null
+        messageId: sendResult.messageId || null,
+        deliveryMethod: method,
+        localDelivered: isLocalRecipient,
+        inboxEmailId,
+        sentEmailId: sentEmail.id
       }
     });
   } catch (error) {
@@ -1131,7 +1450,8 @@ api.post('/emails/send', jwtAuthMiddleware, async (c) => {
       throw error;
     }
     errorLog('[发送邮件] 失败:', error);
-    throw new HTTPException(500, { message: '发送邮件失败' });
+    const message = error instanceof Error ? error.message : '发送邮件失败';
+    throw new HTTPException(500, { message });
   }
 });
 
@@ -1177,6 +1497,11 @@ const selectRoutingRows = async (db: D1Database) => {
 };
 
 const buildRoutingPayload = (rows: any[]) => {
+  const maskSecretValue = (secret: string) => {
+    if (!secret || secret.length <= 8) return '****';
+    return `${secret.slice(0, 4)}${'*'.repeat(Math.max(4, secret.length - 8))}${secret.slice(-4)}`;
+  };
+
   const mapped = rows.map((row) => ({
     id: Number(row.id),
     category: row.category,
@@ -1190,7 +1515,7 @@ const buildRoutingPayload = (rows: any[]) => {
     targetChannelIds: parseJsonNumberArray(row.target_channel_ids),
     targetEmail: row.target_email || '',
     targetFromAddress: row.target_from_address || '',
-    targetForwardType: ['smtp', 'cf'].includes(row.target_forward_type) ? row.target_forward_type : 'internal',
+    targetForwardType: ['cf', 'resend'].includes(row.target_forward_type) ? row.target_forward_type : 'internal',
     isDefault: row.is_default === 1,
     defaultMode: row.default_mode === 'always' ? 'always' : 'unmatched',
     channelType: row.channel_type || 'dingtalk',
@@ -1207,24 +1532,32 @@ const buildRoutingPayload = (rows: any[]) => {
         url: channelUrl,
         secret: channelSecret
       })),
-    notificationRules: mapped
-      .filter((item) => item.category === 'notification' && !item.isDefault)
+    mailChannels: mapped
+      .filter((item) => item.category === 'mail_channel')
+      .map(({ category, enabled, matchMode, senderPattern, recipientPattern, subjectPattern, contentPattern, targetChannelIds, targetEmail, targetFromAddress, targetForwardType, isDefault, defaultMode, channelType, channelUrl, channelSecret, ...item }) => ({
+        ...item,
+        type: 'resend',
+        domain: channelUrl,
+        token: maskSecretValue(channelSecret)
+      })),
+    webhookRules: mapped
+      .filter((item) => item.category === 'webhook' && !item.isDefault)
       .map(({ category, targetEmail, targetFromAddress, targetForwardType, isDefault, defaultMode, channelType, channelUrl, channelSecret, ...item }) => item),
-    incomingRules: mapped
-      .filter((item) => item.category === 'incoming' && !item.isDefault)
+    emailForwardRules: mapped
+      .filter((item) => item.category === 'email_forward' && !item.isDefault)
       .map(({ category, targetChannelIds, isDefault, defaultMode, channelType, channelUrl, channelSecret, ...item }) => item),
-    defaultNotificationRule: mapped
-      .filter((item) => item.category === 'notification' && item.isDefault)
+    defaultWebhookRule: mapped
+      .filter((item) => item.category === 'webhook' && item.isDefault)
       .map(({ category, targetEmail, targetFromAddress, targetForwardType, isDefault, channelType, channelUrl, channelSecret, ...item }) => item)[0] || null,
-    defaultIncomingRule: mapped
-      .filter((item) => item.category === 'incoming' && item.isDefault)
+    defaultEmailForwardRule: mapped
+      .filter((item) => item.category === 'email_forward' && item.isDefault)
       .map(({ category, targetChannelIds, isDefault, channelType, channelUrl, channelSecret, ...item }) => item)[0] || null
   };
 };
 
 const normalizeRoutingItem = (item: any) => {
   const category = item.category;
-  if (!['channel', 'notification', 'incoming'].includes(category)) {
+  if (!['channel', 'mail_channel', 'webhook', 'email_forward'].includes(category)) {
     throw new HTTPException(400, { message: '配置类型无效' });
   }
 
@@ -1234,35 +1567,46 @@ const normalizeRoutingItem = (item: any) => {
   }
 
   const isChannel = category === 'channel';
+  const isMailChannel = category === 'mail_channel';
   const channelUrl = isChannel && typeof item.url === 'string' ? item.url.trim() : '';
+  const mailChannelDomain = isMailChannel && typeof item.domain === 'string'
+    ? item.domain.trim().toLowerCase().replace(/^@+/, '')
+    : '';
+  const mailChannelToken = isMailChannel && typeof item.token === 'string' ? item.token.trim() : '';
   if (isChannel && !channelUrl) {
     throw new HTTPException(400, { message: '通道 URL 不能为空' });
   }
+  if (isMailChannel && !/^(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/.test(mailChannelDomain)) {
+    throw new HTTPException(400, { message: '邮件通道发件域名无效' });
+  }
+  if (isMailChannel && !mailChannelToken) {
+    throw new HTTPException(400, { message: '邮件通道 API Key 不能为空' });
+  }
 
-  const targetChannelIds = category === 'notification'
+  const targetChannelIds = category === 'webhook'
     ? (Array.isArray(item.targetChannelIds) ? item.targetChannelIds.map(Number).filter(Number.isInteger) : [])
     : [];
-  const targetEmail = category === 'incoming' && typeof item.targetEmail === 'string' ? item.targetEmail.trim() : '';
-  const targetFromAddress = category === 'incoming' && typeof item.targetFromAddress === 'string' ? item.targetFromAddress.trim() : '';
-  const targetForwardType = category === 'incoming' && ['internal', 'smtp', 'cf'].includes(item.targetForwardType)
+  const targetEmail = category === 'email_forward' && typeof item.targetEmail === 'string' ? item.targetEmail.trim() : '';
+  const targetFromAddress = category === 'email_forward' && typeof item.targetFromAddress === 'string' ? item.targetFromAddress.trim() : '';
+  const targetForwardType = category === 'email_forward' && ['internal', 'cf', 'resend'].includes(item.targetForwardType)
     ? item.targetForwardType
     : 'internal';
 
-  if (category === 'notification' && targetChannelIds.length === 0) {
-    throw new HTTPException(400, { message: '至少选择一个通知通道' });
+  if (category === 'webhook' && targetChannelIds.length === 0) {
+    throw new HTTPException(400, { message: '至少选择一个 Webhook 通道' });
   }
-  if (category === 'incoming' && !targetEmail) {
+  if (category === 'email_forward' && !targetEmail) {
     throw new HTTPException(400, { message: '转发邮箱不能为空' });
   }
-  if (category === 'incoming' && targetForwardType === 'cf' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetFromAddress)) {
-    throw new HTTPException(400, { message: 'CF 转发发件人邮箱格式无效' });
+  if (category === 'email_forward' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetFromAddress)) {
+    throw new HTTPException(400, { message: '转发发件人邮箱格式无效' });
   }
 
   return {
     clientId: Number(item.id),
     category,
     name,
-    enabled: item.enabled ? 1 : 0,
+    enabled: item.enabled === false ? 0 : 1,
     matchMode: item.matchMode === 'any' ? 'any' : 'all',
     senderPattern: typeof item.senderPattern === 'string' ? item.senderPattern.trim() : '',
     recipientPattern: typeof item.recipientPattern === 'string' ? item.recipientPattern.trim() : '',
@@ -1274,54 +1618,112 @@ const normalizeRoutingItem = (item: any) => {
     targetForwardType,
     isDefault: item.isDefault ? 1 : 0,
     defaultMode: item.isDefault ? (item.defaultMode === 'always' ? 'always' : 'unmatched') : null,
-    channelType: isChannel && ['dingtalk', 'feishu', 'bark'].includes(item.type) ? item.type : null,
-    channelUrl,
-    channelSecret: isChannel && typeof item.secret === 'string' ? item.secret.trim() : ''
+    channelType: isChannel && ['dingtalk', 'feishu', 'bark'].includes(item.type)
+      ? item.type
+      : isMailChannel ? 'resend' : null,
+    channelUrl: isMailChannel ? mailChannelDomain : channelUrl,
+    channelSecret: isMailChannel ? mailChannelToken : (isChannel && typeof item.secret === 'string' ? item.secret.trim() : '')
   };
 };
 
 type NormalizedRoutingItem = ReturnType<typeof normalizeRoutingItem>;
 
-const insertRoutingItem = async (db: D1Database, item: NormalizedRoutingItem, targetChannelIds?: number[]) => {
-  const result = await db.prepare(`
+const routingItemColumns = [
+  'category',
+  'name',
+  'enabled',
+  'match_mode',
+  'sender_pattern',
+  'recipient_pattern',
+  'subject_pattern',
+  'content_pattern',
+  'target_channel_ids',
+  'target_email',
+  'target_from_address',
+  'target_forward_type',
+  'is_default',
+  'default_mode',
+  'channel_type',
+  'channel_url',
+  'channel_secret'
+];
+
+const buildRoutingItemValues = (item: NormalizedRoutingItem, targetChannelIds?: number[]) => [
+  item.category,
+  item.name,
+  item.enabled,
+  item.matchMode,
+  item.senderPattern,
+  item.recipientPattern,
+  item.subjectPattern,
+  item.contentPattern,
+  JSON.stringify(targetChannelIds || item.targetChannelIds),
+  item.targetEmail,
+  item.targetFromAddress,
+  item.targetForwardType,
+  item.isDefault,
+  item.defaultMode,
+  item.channelType,
+  item.channelUrl,
+  item.channelSecret
+];
+
+const upsertRoutingItem = async (
+  db: D1Database,
+  item: NormalizedRoutingItem,
+  targetChannelIds?: number[]
+) => {
+  const values = buildRoutingItemValues(item, targetChannelIds);
+
+  if (!Number.isInteger(item.clientId) || item.clientId <= 0) {
+    const placeholders = routingItemColumns.map(() => '?').join(', ');
+    const result = await db.prepare(`
+      INSERT INTO routing_rules (${routingItemColumns.join(', ')})
+      VALUES (${placeholders})
+    `).bind(...values).run();
+
+    return Number(result.meta?.last_row_id);
+  }
+
+  const placeholders = ['?', ...routingItemColumns.map(() => '?')].join(', ');
+  const updateAssignments = routingItemColumns
+    .map((column) => `${column} = excluded.${column}`)
+    .join(', ');
+
+  await db.prepare(`
     INSERT INTO routing_rules (
-      category,
-      name,
-      enabled,
-      match_mode,
-      sender_pattern,
-      recipient_pattern,
-      subject_pattern,
-      content_pattern,
-      target_channel_ids,
-      target_email,
-      target_from_address,
-      target_forward_type,
-      is_default,
-      default_mode,
-      channel_type,
-      channel_url,
-      channel_secret
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      id,
+      ${routingItemColumns.join(', ')}
+    ) VALUES (${placeholders})
+    ON CONFLICT(id) DO UPDATE SET
+      ${updateAssignments}
   `).bind(
-    item.category,
-    item.name,
-    item.enabled,
-    item.matchMode,
-    item.senderPattern,
-    item.recipientPattern,
-    item.subjectPattern,
-    item.contentPattern,
-    JSON.stringify(targetChannelIds || item.targetChannelIds),
-    item.targetEmail,
-    item.targetFromAddress,
-    item.targetForwardType,
-    item.isDefault,
-    item.defaultMode,
-    item.channelType,
-    item.channelUrl,
-    item.channelSecret
+    item.clientId,
+    ...values
   ).run();
+
+  return item.clientId;
+};
+
+const saveRoutingItem = async (db: D1Database, item: NormalizedRoutingItem, targetChannelIds?: number[]) => {
+  const values = buildRoutingItemValues(item, targetChannelIds);
+
+  if (Number.isInteger(item.clientId) && item.clientId > 0) {
+    const assignments = routingItemColumns.map((column) => `${column} = ?`).join(', ');
+    await db.prepare(`
+      UPDATE routing_rules
+      SET ${assignments}
+      WHERE id = ?
+    `).bind(...values, item.clientId).run();
+
+    return item.clientId;
+  }
+
+  const placeholders = routingItemColumns.map(() => '?').join(', ');
+  const result = await db.prepare(`
+    INSERT INTO routing_rules (${routingItemColumns.join(', ')})
+    VALUES (${placeholders})
+  `).bind(...values).run();
 
   return Number(result.meta?.last_row_id);
 };
@@ -1358,56 +1760,88 @@ api.post('/routing', jwtAuthMiddleware, async (c) => {
       const channels: NormalizedRoutingItem[] = Array.isArray(config.channels)
         ? config.channels.map((item: any) => normalizeRoutingItem({ ...item, category: 'channel' }))
         : [];
-      const notificationRules: NormalizedRoutingItem[] = Array.isArray(config.notificationRules)
-        ? config.notificationRules.map((item: any) => normalizeRoutingItem({ ...item, category: 'notification' }))
+      const mailChannels: NormalizedRoutingItem[] = Array.isArray(config.mailChannels)
+        ? config.mailChannels.map((item: any) => normalizeRoutingItem({ ...item, category: 'mail_channel' }))
         : [];
-      const incomingRules: NormalizedRoutingItem[] = Array.isArray(config.incomingRules)
-        ? config.incomingRules.map((item: any) => normalizeRoutingItem({ ...item, category: 'incoming' }))
+      const existingRoutingRows = await selectRoutingRows(c.env.DB);
+      const existingMailChannelSecrets = new Map(
+        existingRoutingRows
+          .filter((row: any) => row.category === 'mail_channel')
+          .map((row: any) => [Number(row.id), String(row.channel_secret || '')])
+      );
+      const existingMailChannelSecretsByDomain = new Map(
+        existingRoutingRows
+          .filter((row: any) => row.category === 'mail_channel' && row.channel_type === 'resend')
+          .map((row: any) => [String(row.channel_url || '').trim().toLowerCase(), String(row.channel_secret || '')])
+      );
+      mailChannels.forEach((channel) => {
+        if (channel.channelSecret.includes('*')) {
+          const existingSecret = existingMailChannelSecrets.get(channel.clientId) || existingMailChannelSecretsByDomain.get(channel.channelUrl);
+          if (!existingSecret) {
+            throw new HTTPException(400, { message: `邮件通道 ${channel.name} 的 API Key 已脱敏，请重新输入完整 API Key` });
+          }
+          channel.channelSecret = existingSecret;
+        }
+      });
+      const webhookRules: NormalizedRoutingItem[] = Array.isArray(config.webhookRules)
+        ? config.webhookRules.map((item: any) => normalizeRoutingItem({ ...item, category: 'webhook' }))
         : [];
-      const defaultNotificationRule = config.defaultNotificationRule
-        ? normalizeRoutingItem({ ...config.defaultNotificationRule, category: 'notification', isDefault: true })
+      const emailForwardRules: NormalizedRoutingItem[] = Array.isArray(config.emailForwardRules)
+        ? config.emailForwardRules.map((item: any) => normalizeRoutingItem({ ...item, category: 'email_forward' }))
+        : [];
+      const defaultWebhookRule = config.defaultWebhookRule
+        ? normalizeRoutingItem({ ...config.defaultWebhookRule, category: 'webhook', isDefault: true })
         : null;
-      const defaultIncomingRule = config.defaultIncomingRule
-        ? normalizeRoutingItem({ ...config.defaultIncomingRule, category: 'incoming', isDefault: true })
+      const defaultEmailForwardRule = config.defaultEmailForwardRule
+        ? normalizeRoutingItem({ ...config.defaultEmailForwardRule, category: 'email_forward', isDefault: true })
         : null;
 
       if (channels.length === 0) {
-        throw new HTTPException(400, { message: '至少保留一个通知通道' });
+        throw new HTTPException(400, { message: '至少保留一个 Webhook 通道' });
       }
 
       const channelClientIds = new Set(channels.map((item) => item.clientId).filter(Number.isInteger));
       const assertKnownChannelIds = (ids: number[]) => {
         if (ids.some((id) => !channelClientIds.has(id))) {
-          throw new HTTPException(400, { message: '规则引用了不存在的通知通道' });
+          throw new HTTPException(400, { message: '规则引用了不存在的 Webhook 通道' });
         }
       };
 
-      notificationRules.forEach((rule) => assertKnownChannelIds(rule.targetChannelIds));
-      if (defaultNotificationRule) {
-        assertKnownChannelIds(defaultNotificationRule.targetChannelIds);
+      webhookRules.forEach((rule) => assertKnownChannelIds(rule.targetChannelIds));
+      if (defaultWebhookRule) {
+        assertKnownChannelIds(defaultWebhookRule.targetChannelIds);
       }
 
-      await c.env.DB.prepare('DELETE FROM routing_rules').run();
-
       const channelIdMap = new Map<number, number>();
+      const retainedIds: number[] = [];
       for (const channel of channels) {
-        const insertedId = await insertRoutingItem(c.env.DB, channel);
-        channelIdMap.set(channel.clientId, insertedId);
+        const savedId = await upsertRoutingItem(c.env.DB, channel);
+        channelIdMap.set(channel.clientId, savedId);
+        retainedIds.push(savedId);
+      }
+      for (const channel of mailChannels) {
+        retainedIds.push(await upsertRoutingItem(c.env.DB, channel));
       }
 
       const remapChannelIds = (ids: number[]) => ids.map((id) => channelIdMap.get(id)).filter((id): id is number => Number.isInteger(id));
 
-      if (defaultNotificationRule) {
-        await insertRoutingItem(c.env.DB, defaultNotificationRule, remapChannelIds(defaultNotificationRule.targetChannelIds));
+      if (defaultWebhookRule) {
+        retainedIds.push(await upsertRoutingItem(c.env.DB, defaultWebhookRule, remapChannelIds(defaultWebhookRule.targetChannelIds)));
       }
-      if (defaultIncomingRule) {
-        await insertRoutingItem(c.env.DB, defaultIncomingRule);
+      if (defaultEmailForwardRule) {
+        retainedIds.push(await upsertRoutingItem(c.env.DB, defaultEmailForwardRule));
       }
-      for (const rule of notificationRules) {
-        await insertRoutingItem(c.env.DB, rule, remapChannelIds(rule.targetChannelIds));
+      for (const rule of webhookRules) {
+        retainedIds.push(await upsertRoutingItem(c.env.DB, rule, remapChannelIds(rule.targetChannelIds)));
       }
-      for (const rule of incomingRules) {
-        await insertRoutingItem(c.env.DB, rule);
+      for (const rule of emailForwardRules) {
+        retainedIds.push(await upsertRoutingItem(c.env.DB, rule));
+      }
+
+      const uniqueRetainedIds = Array.from(new Set(retainedIds)).filter((id) => Number.isInteger(id) && id > 0);
+      if (uniqueRetainedIds.length > 0) {
+        const placeholders = uniqueRetainedIds.map(() => '?').join(',');
+        await c.env.DB.prepare(`DELETE FROM routing_rules WHERE id NOT IN (${placeholders})`).bind(...uniqueRetainedIds).run();
       }
 
       await bumpChangeSignals(c.env.DB, ['routing_config', 'dashboard']);
@@ -1420,110 +1854,24 @@ api.post('/routing', jwtAuthMiddleware, async (c) => {
 
     if (action === 'save') {
       const item = body.item || {};
-      const category = item.category;
-      if (!['channel', 'notification', 'incoming'].includes(category)) {
-        throw new HTTPException(400, { message: '配置类型无效' });
-      }
+      const normalized = normalizeRoutingItem(item);
 
-      const id = Number(item.id);
-      const hasId = Number.isInteger(id) && id > 0;
-      const name = typeof item.name === 'string' ? item.name.trim() : '';
-      if (!name) {
-        throw new HTTPException(400, { message: '名称不能为空' });
-      }
-
-      const isChannel = category === 'channel';
-      const channelUrl = isChannel && typeof item.url === 'string' ? item.url.trim() : '';
-      if (isChannel && !channelUrl) {
-        throw new HTTPException(400, { message: '通道 URL 不能为空' });
-      }
-
-      const targetChannelIds = category === 'notification'
-        ? (Array.isArray(item.targetChannelIds) ? item.targetChannelIds.map(Number).filter(Number.isInteger) : [])
-        : [];
-      const targetEmail = category === 'incoming' && typeof item.targetEmail === 'string' ? item.targetEmail.trim() : '';
-      const targetFromAddress = category === 'incoming' && typeof item.targetFromAddress === 'string' ? item.targetFromAddress.trim() : '';
-      const targetForwardType = category === 'incoming' && ['internal', 'smtp', 'cf'].includes(item.targetForwardType)
-        ? item.targetForwardType
-        : 'internal';
-
-      if (category === 'notification' && targetChannelIds.length === 0) {
-        throw new HTTPException(400, { message: '至少选择一个通知通道' });
-      }
-      if (category === 'incoming' && !targetEmail) {
-        throw new HTTPException(400, { message: '转发邮箱不能为空' });
-      }
-      if (category === 'incoming' && targetForwardType === 'cf' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetFromAddress)) {
-        throw new HTTPException(400, { message: 'CF 转发发件人邮箱格式无效' });
-      }
-
-      const values = [
-        category,
-        name,
-        item.enabled ? 1 : 0,
-        item.matchMode === 'any' ? 'any' : 'all',
-        typeof item.senderPattern === 'string' ? item.senderPattern.trim() : '',
-        typeof item.recipientPattern === 'string' ? item.recipientPattern.trim() : '',
-        typeof item.subjectPattern === 'string' ? item.subjectPattern.trim() : '',
-        typeof item.contentPattern === 'string' ? item.contentPattern.trim() : '',
-        JSON.stringify(targetChannelIds),
-        targetEmail,
-        targetFromAddress,
-        targetForwardType,
-        item.isDefault ? 1 : 0,
-        item.isDefault ? (item.defaultMode === 'always' ? 'always' : 'unmatched') : null,
-        isChannel && ['dingtalk', 'feishu', 'bark'].includes(item.type) ? item.type : null,
-        channelUrl,
-        isChannel && typeof item.secret === 'string' ? item.secret.trim() : ''
-      ];
-
-      if (hasId) {
-        await c.env.DB.prepare(`
-          UPDATE routing_rules
-          SET
-            category = ?,
-            name = ?,
-            enabled = ?,
-            match_mode = ?,
-            sender_pattern = ?,
-            recipient_pattern = ?,
-            subject_pattern = ?,
-            content_pattern = ?,
-            target_channel_ids = ?,
-            target_email = ?,
-            target_from_address = ?,
-            target_forward_type = ?,
-            is_default = ?,
-            default_mode = ?,
-            channel_type = ?,
-            channel_url = ?,
-            channel_secret = ?
+      if (normalized.category === 'mail_channel' && normalized.channelSecret.includes('*')) {
+        const existing = await c.env.DB.prepare(`
+          SELECT channel_secret
+          FROM routing_rules
           WHERE id = ?
-        `).bind(...values, id).run();
-      } else {
-        await c.env.DB.prepare(`
-          INSERT INTO routing_rules (
-            category,
-            name,
-            enabled,
-            match_mode,
-            sender_pattern,
-            recipient_pattern,
-            subject_pattern,
-            content_pattern,
-            target_channel_ids,
-            target_email,
-            target_from_address,
-            target_forward_type,
-            is_default,
-            default_mode,
-            channel_type,
-            channel_url,
-            channel_secret
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(...values).run();
+            AND category = 'mail_channel'
+          LIMIT 1
+        `).bind(normalized.clientId).first();
+        const existingSecret = typeof existing?.channel_secret === 'string' ? existing.channel_secret.trim() : '';
+        if (!existingSecret) {
+          throw new HTTPException(400, { message: '邮件通道 API Key 已脱敏，请重新输入完整 API Key' });
+        }
+        normalized.channelSecret = existingSecret;
       }
 
+      await saveRoutingItem(c.env.DB, normalized);
       await bumpChangeSignals(c.env.DB, ['routing_config', 'dashboard']);
       return c.json<ApiResponse>({
         success: true,

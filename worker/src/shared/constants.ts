@@ -87,10 +87,7 @@ export const API_ENDPOINTS = {
     TOOLS_KV_SET: '/api/tools/kv/set',
     TOOLS_KV_DELETE: '/api/tools/kv/delete/:key',
     TOOLS_KV_STATS: '/api/tools/kv/stats',
-    TOOLS_KV_LIST: '/api/tools/kv/list',
-
-    // 工具：模拟邮件
-    TOOLS_SIMULATE_EMAIL: '/api/tools/simulate-email'
+    TOOLS_KV_LIST: '/api/tools/kv/list'
 } as const;
 
 /**

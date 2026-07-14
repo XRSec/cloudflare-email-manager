@@ -29,8 +29,6 @@ class CacheService {
 
       const cacheKey = this.CACHE_PREFIX + key
       localStorage.setItem(cacheKey, JSON.stringify(entry))
-
-      console.log(`缓存已保存: ${key} (${size} bytes)`)
     } catch (error) {
       console.error(`保存缓存失败 ${key}:`, error)
     }
@@ -161,8 +159,6 @@ class CacheService {
           clearedCount++
         }
       })
-
-      console.log(`🗑️ 按模式清除缓存: ${pattern}, 清除了 ${clearedCount} 项`)
     } catch (error) {
       console.error(`按模式清除缓存失败 ${pattern}:`, error)
     }
@@ -241,12 +237,10 @@ export function withCache<T extends (...args: any[]) => Promise<any>>(
     // 尝试从缓存获取
     const cached = cacheService.get(key)
     if (cached !== undefined) {
-      console.log(`Cache hit for key: ${key}`)
       return cached
     }
 
     // 缓存未命中，调用原函数
-    console.log(`Cache miss for key: ${key}, calling API`)
     const result = await fn(...args)
 
     // 将结果存入缓存
@@ -276,12 +270,10 @@ export class PageDataLoader {
     // 尝试从缓存获取
     const cached = cacheService.get(key)
     if (cached && !forceRefresh) {
-      console.log(`Cache hit for page: ${this.routeName}`)
       return cached
     }
 
     // 缓存未命中，调用加载器
-    console.log(`Cache miss for page: ${this.routeName}, loading data`)
     const result = await this.loader()
 
     // 将结果存入缓存
@@ -329,7 +321,6 @@ export class BrowserCacheManager {
         })
         if (clearedCount > 0) {
           cleared.push(`localStorage (${clearedCount} 项)`)
-          console.log(`✅ localStorage 已清理 ${clearedCount} 项`)
         }
       } catch (error) {
         errors.push(`localStorage 清理失败: ${error}`)
@@ -342,7 +333,6 @@ export class BrowserCacheManager {
         sessionStorage.clear()
         if (count > 0) {
           cleared.push(`sessionStorage (${count} 项)`)
-          console.log(`✅ sessionStorage 已清理 ${count} 项`)
         }
       } catch (error) {
         errors.push(`sessionStorage 清理失败: ${error}`)
@@ -368,7 +358,6 @@ export class BrowserCacheManager {
           )
           if (databases.length > 0) {
             cleared.push(`IndexedDB (${databases.length} 个数据库)`)
-            console.log(`✅ IndexedDB 已清理 ${databases.length} 个数据库`)
           }
         } catch (error) {
           errors.push(`IndexedDB 清理失败: ${error}`)

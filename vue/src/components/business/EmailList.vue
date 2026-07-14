@@ -1,10 +1,10 @@
 <template>
   <div class="emails-list">
     <div v-for="email in emails" :key="email.id" class="email-item"
-      :class="{ 'email-unread': email.status === 'unread', 'email-selected': selectedIds.includes(email.id) }">
+      :class="{ 'email-unread': email.status === 'unread', 'email-selected': selectedEmailIds.includes(email.id) }">
       <div class="email-header">
         <div class="email-checkbox-wrapper" v-if="enableSelection">
-          <input type="checkbox" :checked="selectedIds.includes(email.id)"
+          <input type="checkbox" :checked="selectedEmailIds.includes(email.id)"
             @change="handleCheckboxChange(email.id, $event)" />
         </div>
         <div class="email-subject-wrapper">
@@ -46,6 +46,8 @@
 
 <script setup lang="ts">
 import { StatusBadge, Button } from '@/components/common'
+import { computed } from 'vue'
+import { formatDateTime } from '@/utils/time'
 
 interface Email {
   id: string
@@ -71,6 +73,8 @@ const props = withDefaults(defineProps<Props>(), {
   selectedIds: () => []
 })
 
+const selectedEmailIds = computed(() => props.selectedIds ?? [])
+
 const emit = defineEmits<{
   delete: [id: string]
   view: [id: string]
@@ -80,7 +84,7 @@ const emit = defineEmits<{
 
 const handleCheckboxChange = (emailId: string, event: Event) => {
   const checked = (event.target as HTMLInputElement).checked
-  const currentSelected = [...(props.selectedIds || [])]
+  const currentSelected = [...selectedEmailIds.value]
 
   if (checked) {
     if (!currentSelected.includes(emailId)) {
@@ -97,15 +101,11 @@ const handleCheckboxChange = (emailId: string, event: Event) => {
 }
 
 const handleViewClick = (id: string) => {
-  console.log('📧 [EmailList] 点击详情按钮')
-  console.log('📁 文件名: EmailList.vue')
-  console.log('📂 文件路径: vue/src/components/business/EmailList.vue')
-  console.log('🆔 邮件ID:', id)
   emit('view', id)
 }
 
 const formatTime = (dateString: string) => {
-  return new Date(dateString).toLocaleString('zh-CN')
+  return formatDateTime(dateString)
 }
 
 const truncateText = (text: string, maxLength: number) => {

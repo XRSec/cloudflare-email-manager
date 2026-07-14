@@ -36,6 +36,18 @@ function normalizeDomainList(domains: string[]): string[] {
     ));
 }
 
+function maskSecretValue(secret: string): string {
+    if (!secret || secret.length <= 8) {
+        return '****';
+    }
+
+    const start = secret.substring(0, 4);
+    const end = secret.substring(secret.length - 4);
+    const middle = '*'.repeat(Math.max(4, secret.length - 8));
+
+    return `${start}${middle}${end}`;
+}
+
 /**
  * 初始化系统设置缓存
  */
@@ -64,6 +76,7 @@ export async function initializeSystemSettings(db: D1Database): Promise<void> {
             'api_rate_limit': String(SYSTEM_DEFAULTS.API_RATE_LIMIT),
             'api_rate_limit_max_requests': String(SYSTEM_DEFAULTS.API_RATE_LIMIT_MAX_REQUESTS),
             'supported_emails': JSON.stringify(SYSTEM_DEFAULTS.SUPPORTED_EMAILS),
+            'timezone': SYSTEM_DEFAULTS.TIMEZONE,
         };
 
         // 特殊处理 JWT Secret
@@ -171,6 +184,7 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
         const debugMode = parseInt(getOptionalSetting('debug_mode', String(SYSTEM_DEFAULTS.DEBUG_MODE))) === 1;
         const apiRateLimit = parseInt(getOptionalSetting('api_rate_limit', String(SYSTEM_DEFAULTS.API_RATE_LIMIT))) === 1;
         const apiRateLimitMaxRequests = parseInt(getOptionalSetting('api_rate_limit_max_requests', String(SYSTEM_DEFAULTS.API_RATE_LIMIT_MAX_REQUESTS)));
+        const timezone = getOptionalSetting('timezone', SYSTEM_DEFAULTS.TIMEZONE);
 
         // 附件保留天数
         const attachmentRetentionDays = parseInt(getOptionalSetting('attachment_retention_days', String(SYSTEM_DEFAULTS.ATTACHMENT_RETENTION_DAYS)));
@@ -191,7 +205,8 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
             jwt_secret: maskedJWTSecret, // 显示前后各四位
             api_rate_limit: apiRateLimit ? 1 : 0,
             api_rate_limit_max_requests: apiRateLimitMaxRequests,
-            supported_emails: supportedDomains
+            supported_emails: supportedDomains,
+            timezone
         };
     } catch (error) {
         const { errorLog } = await import('../utils/debug');
@@ -228,6 +243,15 @@ export async function updateSystemConfig(db: D1Database, config: Partial<SystemC
 
     if (config.api_rate_limit_max_requests !== undefined) {
         updates.push({ key: 'api_rate_limit_max_requests', value: config.api_rate_limit_max_requests.toString() });
+    }
+
+    if (config.timezone !== undefined) {
+        const timezone = config.timezone.trim();
+        const validation = validateConfigValue('timezone', timezone);
+        if (!validation.valid) {
+            throw new Error(validation.error || '时区配置无效');
+        }
+        updates.push({ key: 'timezone', value: timezone });
     }
 
     if (config.cookie_max_age !== undefined) {
@@ -287,15 +311,7 @@ export async function getAllSystemSettings(db: D1Database): Promise<SystemSettin
  * 掩码 JWT 密钥，只显示前后各四位
  */
 function maskJWTSecret(secret: string): string {
-    if (!secret || secret.length <= 8) {
-        return '****';
-    }
-
-    const start = secret.substring(0, 4);
-    const end = secret.substring(secret.length - 4);
-    const middle = '*'.repeat(Math.max(4, secret.length - 8));
-
-    return `${start}${middle}${end}`;
+    return maskSecretValue(secret);
 }
 
 /**

@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS emails (
     cc TEXT, -- 抄送地址（从 headers 提取）
     bcc TEXT, -- 密送地址（从 headers 提取）
     content_type TEXT, -- 邮件内容类型（从 headers 提取）
+    folder TEXT DEFAULT 'inbox' CHECK(folder IN ('inbox','sent')), -- 邮件归档：inbox=收件箱，sent=已发送
+    resend_email_id TEXT, -- Resend 投递 ID
     received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -86,6 +88,8 @@ CREATE INDEX IF NOT EXISTS idx_emails_subject ON emails(subject);
 CREATE INDEX IF NOT EXISTS idx_emails_is_read ON emails(is_read);
 CREATE INDEX IF NOT EXISTS idx_emails_received_at ON emails(received_at);
 CREATE INDEX IF NOT EXISTS idx_emails_created_at ON emails(created_at);
+CREATE INDEX IF NOT EXISTS idx_emails_folder ON emails(folder);
+CREATE INDEX IF NOT EXISTS idx_emails_resend_email_id ON emails(resend_email_id);
 
 -- ===================
 -- 依赖 users 的表
@@ -137,7 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_forward_logs_sent_at ON forward_logs(sent_at);
 -- 消息路由规则表
 CREATE TABLE IF NOT EXISTS routing_rules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT NOT NULL CHECK(category IN ('channel','notification','incoming')), -- channel=通知通道, notification=Webhook通知, incoming=收件转发
+    category TEXT NOT NULL CHECK(category IN ('channel','mail_channel','webhook','email_forward')), -- channel=Webhook通道, mail_channel=邮件通道, webhook=Webhook规则, email_forward=邮件转发
     name TEXT NOT NULL,
     enabled INTEGER DEFAULT 0 CHECK(enabled IN (0,1)), -- 默认未启用
     match_mode TEXT NOT NULL DEFAULT 'all' CHECK(match_mode IN ('all','any')),
@@ -145,15 +149,15 @@ CREATE TABLE IF NOT EXISTS routing_rules (
     recipient_pattern TEXT DEFAULT '',
     subject_pattern TEXT DEFAULT '',
     content_pattern TEXT DEFAULT '',
-    target_channel_ids TEXT DEFAULT '[]', -- 通知通道ID列表（JSON数组）
-    target_email TEXT DEFAULT '', -- 收件转发目标邮箱
-    target_from_address TEXT DEFAULT '', -- CF/SMTP 转发发件人
-    target_forward_type TEXT DEFAULT 'internal' CHECK(target_forward_type IN ('internal','smtp','cf')), -- 收件转发方式
+    target_channel_ids TEXT DEFAULT '[]', -- Webhook通道ID列表（JSON数组）
+    target_email TEXT DEFAULT '', -- 邮件转发目标邮箱
+    target_from_address TEXT DEFAULT '', -- CF/Resend 转发发件人
+    target_forward_type TEXT DEFAULT 'internal' CHECK(target_forward_type IN ('internal','cf','resend')), -- 邮件转发方式
     is_default INTEGER DEFAULT 0 CHECK(is_default IN (0,1)), -- 是否默认规则
     default_mode TEXT CHECK(default_mode IS NULL OR default_mode IN ('always','unmatched')), -- 默认规则模式
-    channel_type TEXT CHECK(channel_type IS NULL OR channel_type IN ('dingtalk','feishu','bark')), -- 通知通道类型
-    channel_url TEXT DEFAULT '', -- 通知通道 URL
-    channel_secret TEXT DEFAULT '', -- 通知通道密钥
+    channel_type TEXT CHECK(channel_type IS NULL OR channel_type IN ('dingtalk','feishu','bark','resend')), -- 通道类型
+    channel_url TEXT DEFAULT '', -- Webhook URL 或邮件通道发件域名
+    channel_secret TEXT DEFAULT '', -- Webhook 密钥或邮件通道 API Key
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -228,6 +232,7 @@ INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
 ('debug_mode', '0', '调试模式开关 (1=开启, 0=关闭)'),
 ('api_rate_limit', '0', 'API访问频率限制开关 (1=启用, 0=禁用)'),
 ('api_rate_limit_max_requests', '100', '每分钟最大请求数（10-10000）'),
+('timezone', 'Asia/Shanghai', '系统显示时区（IANA时区）'),
 ('supported_emails', '["example.com", "example.dev"]', '已支持的邮箱域名列表（JSON数组）');
 
 -- 插入默认管理员用户（密码：123456，已哈希）
@@ -255,15 +260,16 @@ INSERT OR IGNORE INTO routing_rules (
     channel_url,
     channel_secret
 ) VALUES
-(1, 'notification', '账单邮件推送到财务群', 0, 'all', 'billing@', '', '账单', '', '[1001]', '', '', 'internal', 0, NULL, NULL, '', ''),
-(2, 'notification', '登录验证码走 Bark', 0, 'any', '', '', '验证码', 'login code', '[1002]', '', '', 'internal', 0, NULL, NULL, '', ''),
-(3, 'notification', '默认通知规则', 0, 'all', '', '', '', '', '[1001]', '', '', 'internal', 1, 'unmatched', NULL, '', ''),
-(11, 'incoming', 'GitHub 通知归档到开发邮箱', 0, 'all', 'notifications@github.com', 'dev@', '', '', '[]', 'dev-archive@example.com', '', 'internal', 0, NULL, NULL, '', ''),
-(12, 'incoming', '账单类邮件转给财务', 0, 'any', 'billing@', '', 'invoice', 'payment', '[]', 'finance@example.com', '', 'internal', 0, NULL, NULL, '', ''),
-(13, 'incoming', '默认转发规则', 0, 'all', '', '', '', '', '[]', 'archive@example.com', '', 'internal', 1, 'unmatched', NULL, '', ''),
+(1, 'webhook', '账单邮件推送到财务群', 0, 'all', 'billing@', '', '账单', '', '[1001]', '', '', 'internal', 0, NULL, NULL, '', ''),
+(2, 'webhook', '登录验证码走 Bark', 0, 'any', '', '', '验证码', 'login code', '[1002]', '', '', 'internal', 0, NULL, NULL, '', ''),
+(3, 'webhook', '默认 Webhook 规则', 0, 'all', '', '', '', '', '[1001]', '', '', 'internal', 1, 'unmatched', NULL, '', ''),
+(11, 'email_forward', 'GitHub 邮件归档到开发邮箱', 0, 'all', 'notifications@github.com', 'dev@', '', '', '[]', 'dev-archive@example.com', '', 'internal', 0, NULL, NULL, '', ''),
+(12, 'email_forward', '账单类邮件转给财务', 0, 'any', 'billing@', '', 'invoice', 'payment', '[]', 'finance@example.com', '', 'internal', 0, NULL, NULL, '', ''),
+(13, 'email_forward', '默认邮件转发规则', 0, 'all', '', '', '', '', '[]', 'archive@example.com', 'cem@example.com', 'internal', 1, 'unmatched', NULL, '', ''),
 (1001, 'channel', '财务钉钉群', 1, 'all', '', '', '', '', '[]', '', '', 'internal', 0, NULL, 'dingtalk', 'https://oapi.dingtalk.com/robot/send?access_token=mock-finance', ''),
 (1002, 'channel', '移动 Bark', 1, 'all', '', '', '', '', '[]', '', '', 'internal', 0, NULL, 'bark', 'https://api.day.app/mock-device-key/', ''),
-(1003, 'channel', 'GitHub 飞书', 1, 'all', '', '', '', '', '[]', '', '', 'internal', 0, NULL, 'feishu', 'https://open.feishu.cn/open-apis/bot/v2/hook/mock-github', '');
+(1003, 'channel', 'GitHub 飞书', 1, 'all', '', '', '', '', '[]', '', '', 'internal', 0, NULL, 'feishu', 'https://open.feishu.cn/open-apis/bot/v2/hook/mock-github', ''),
+(1005, 'mail_channel', 'example.com', 0, 'all', '', '', '', '', '[]', '', '', 'internal', 0, NULL, 'resend', 'example.com', 're_NggwCemBr8UFABoVubisAhaubepWN05SB0');
 
 -- ===================
 -- 注意：sqlite_sequence 会在第一次插入带 AUTOINCREMENT 的表时自动更新

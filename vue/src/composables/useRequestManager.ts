@@ -111,7 +111,6 @@ export function useRequestManager() {
     if (pendingRequest) {
       // 如果强制刷新，等待当前请求完成后，再发送新请求
       if (forceRefresh) {
-        console.log('🔄 强制刷新：等待当前请求完成', requestKey)
         // 等待当前请求完成（忽略错误）
         try {
           await pendingRequest.promise
@@ -122,7 +121,6 @@ export function useRequestManager() {
         pendingRequests.delete(requestKey)
         // 继续执行下面的逻辑，发送新的请求
       } else {
-        console.log('🔄 请求去重：使用正在进行的请求', requestKey)
         requestStats.value.deduped++
         return pendingRequest.promise
       }
@@ -142,7 +140,6 @@ export function useRequestManager() {
       }
 
       if (cached !== undefined && cached !== null) {
-        console.log('📦 使用缓存数据:', cacheKey)
         requestStats.value.cached++
         return cached
       }
@@ -151,7 +148,6 @@ export function useRequestManager() {
     // 创建请求Promise
     const requestPromise = (async () => {
       try {
-        console.log('🌐 发送请求:', { cacheKey, params, forceRefresh })
         requestStats.value.total++
 
         // 执行请求
@@ -167,7 +163,6 @@ export function useRequestManager() {
           } else {
             cacheService.set(cacheKey, response, ttl)
           }
-          console.log('💾 缓存响应:', cacheKey)
         }
 
         requestStats.value.fresh++
@@ -203,8 +198,6 @@ export function useRequestManager() {
 
     // 清除智能缓存
     smartCache.delete(cacheKey)
-
-    console.log('🗑️ 清除缓存:', cacheKey)
   }
 
   /**
@@ -215,8 +208,6 @@ export function useRequestManager() {
     // 清除简单缓存
     cacheService.clearByPrefix(prefix)
     smartCache.deleteByPrefix(prefix)
-
-    console.log('🗑️ 清除缓存前缀:', prefix)
   }
 
   /**
@@ -246,7 +237,6 @@ export function useRequestManager() {
    */
   const clearPendingRequests = () => {
     pendingRequests.clear()
-    console.log('🗑️ 清除所有待处理请求')
   }
 
   return {

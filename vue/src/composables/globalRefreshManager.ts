@@ -35,7 +35,6 @@ export function useUnifiedGlobalRefreshManager() {
   // 执行全局刷新
   const executeGlobalRefresh = async (customParams?: any) => {
     if (refreshing.value) {
-      console.log('🔄 刷新正在进行中，跳过重复请求')
       return null
     }
 
@@ -43,23 +42,18 @@ export function useUnifiedGlobalRefreshManager() {
     const startTime = new Date()
 
     try {
-      console.log('🌍 开始全局刷新')
-
       let result = null
       let handledByPageRefresh = false
 
       const pageRefresh = window.refreshCurrentPage
       if (pageRefresh && typeof pageRefresh === 'function' && pageRefresh !== executeGlobalRefresh) {
-        console.log('🔧 使用当前页面注册的刷新方法')
         handledByPageRefresh = true
-        result = await pageRefresh()
+        result = pageRefresh()
       } else if (isSupportedRoute.value && hasPermission.value) {
         // 检查是否支持统一管理
-        console.log('📋 使用统一刷新管理器（直接调用API刷新缓存）')
         // 支持统一管理的路由，直接调用刷新，更新缓存
         result = await executeUnifiedRefresh()
       } else {
-        console.log('🔧 使用页面级刷新方法（触发事件）')
         // 不支持统一管理的路由，先触发事件，然后调用页面级刷新方法
         window.dispatchEvent(new CustomEvent('global:refresh', {
           detail: {
@@ -93,8 +87,6 @@ export function useUnifiedGlobalRefreshManager() {
 
       lastRefreshTime.value = endTime
 
-      console.log(`✅ 全局刷新完成，耗时: ${endTime.getTime() - startTime.getTime()}ms`)
-
       // 🔥 重要：触发刷新完成事件，通知所有页面组件重新加载数据
       // 对于支持统一管理的路由，缓存已更新，页面需要重新加载数据以更新显示
       if (!handledByPageRefresh) {
@@ -106,7 +98,6 @@ export function useUnifiedGlobalRefreshManager() {
             result
           }
         }))
-        console.log('🎉 已触发 global:refresh:complete 事件，通知页面组件更新显示')
       }
 
       return result
@@ -144,7 +135,6 @@ export function useUnifiedGlobalRefreshManager() {
   // 清除刷新历史
   const clearRefreshHistory = () => {
     refreshHistory.value = []
-    console.log('🗑️ 刷新历史已清除')
   }
 
   // 获取刷新统计
@@ -180,14 +170,12 @@ export function usePageRefreshRegistry() {
   // 注册页面级刷新方法
   const registerPageRefresh = (refreshFunction: () => Promise<any> | void) => {
     window.refreshCurrentPage = refreshFunction
-    console.log('📝 页面级刷新方法已注册')
   }
 
   // 注销页面级刷新方法
   const unregisterPageRefresh = () => {
     if (window.refreshCurrentPage) {
       delete window.refreshCurrentPage
-      console.log('🗑️ 页面级刷新方法已注销')
     }
   }
 
@@ -208,25 +196,21 @@ export function useGlobalRefreshEventListener() {
   // 监听全局刷新事件
   const addGlobalRefreshListener = (callback: (event: CustomEvent) => void) => {
     window.addEventListener('global:refresh', callback as EventListener)
-    console.log('👂 全局刷新事件监听器已添加')
   }
 
   // 移除全局刷新事件监听器
   const removeGlobalRefreshListener = (callback: (event: CustomEvent) => void) => {
     window.removeEventListener('global:refresh', callback as EventListener)
-    console.log('🗑️ 全局刷新事件监听器已移除')
   }
 
   // 监听全局刷新完成事件
   const addGlobalRefreshCompleteListener = (callback: (event: CustomEvent) => void) => {
     window.addEventListener('global:refresh:complete', callback as EventListener)
-    console.log('👂 全局刷新完成事件监听器已添加')
   }
 
   // 移除全局刷新完成事件监听器
   const removeGlobalRefreshCompleteListener = (callback: (event: CustomEvent) => void) => {
     window.removeEventListener('global:refresh:complete', callback as EventListener)
-    console.log('🗑️ 全局刷新完成事件监听器已移除')
   }
 
   return {

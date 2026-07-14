@@ -91,6 +91,7 @@ export interface SystemConfig {
     jwt_secret?: string
     api_rate_limit?: number
     api_rate_limit_max_requests?: number
+    timezone?: string
     supported_emails?: string[]
 }
 

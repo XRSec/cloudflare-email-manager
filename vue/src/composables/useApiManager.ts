@@ -3,9 +3,9 @@
  * 提供接口路由映射、统一调用、定时轮询、数据存储等功能
  */
 
-import { ref, computed, onUnmounted } from 'vue'
-import { useRequestManager } from './useRequestManager'
-import { apiService } from './api'
+import {computed, onUnmounted, ref} from 'vue'
+import {useRequestManager} from './useRequestManager'
+import {apiService} from './api'
 
 // 接口方法类型
 export type ApiMethod =
@@ -77,7 +77,6 @@ export function useApiManager() {
    */
   const registerRoute = (config: ApiRouteConfig) => {
     routeConfigs.value.set(config.routeName, config)
-    console.log('📋 注册接口路由:', config.routeName, config.apis.map(a => a.method))
   }
 
   /**
@@ -126,16 +125,11 @@ export function useApiManager() {
     }, {} as any) : {}
     const dedupeKey = `${method}_${JSON.stringify(sortedParams)}`
 
-    console.log(`🔑 生成去重键: ${dedupeKey}`, { method, params: sortedParams, forceRefresh })
-
     // 调用请求管理器
     const response = await requestManager.request(
       async () => {
-        console.log(`🌐 执行API调用: ${method}`, params)
         // 调用实际的API方法
-        const apiResponse = await (apiService as any)[method](params)
-        console.log(`✅ API调用完成: ${method}`, { success: apiResponse?.success })
-        return apiResponse
+        return await (apiService as any)[method](params)
       },
       sortedParams,
       {
@@ -244,8 +238,6 @@ export function useApiManager() {
       params,
       callback
     })
-
-    console.log(`🔄 启动轮询: ${method}，间隔: ${pollingInterval}ms`)
   }
 
   /**
@@ -258,7 +250,6 @@ export function useApiManager() {
     if (task) {
       clearInterval(task.timerId)
       pollingTasks.value.delete(taskKey)
-      console.log(`⏹️ 停止轮询: ${method}`)
     }
   }
 
@@ -270,7 +261,6 @@ export function useApiManager() {
       clearInterval(task.timerId)
     })
     pollingTasks.value.clear()
-    console.log('⏹️ 停止所有轮询')
   }
 
   /**
@@ -297,7 +287,6 @@ export function useApiManager() {
     const promises = routeConfig.apis.map(async api => {
       try {
         const apiParams = params[api.method] || params
-        console.log(`📡 调用接口: ${api.method}`, { params: apiParams, forceRefresh, routeName })
         const data = await callApi(api.method, apiParams, {
           forceRefresh,
           routeName
@@ -311,8 +300,6 @@ export function useApiManager() {
     })
 
     await Promise.allSettled(promises)
-
-    console.log(`✅ 路由 ${routeName} 的所有接口加载完成`, Object.keys(results))
     return results
   }
 

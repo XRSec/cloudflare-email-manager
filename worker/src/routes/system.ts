@@ -160,7 +160,8 @@ systemRoutes.get('/health', async (c) => {
             // 构建配置对象 - 只保留必要的健康检查相关配置
             const configData = {
                 allow_registration: config.allow_registration,
-                debug_mode: config.debug_mode
+                debug_mode: config.debug_mode,
+                timezone: config.timezone
             };
 
             healthInfo.config = configData;

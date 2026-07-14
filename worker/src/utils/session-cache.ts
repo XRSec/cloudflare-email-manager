@@ -47,7 +47,6 @@ class LocalStorageCache {
         try {
             const serialized = JSON.stringify(cacheItem);
             localStorage.setItem(this.prefix + key, serialized);
-            console.log(`[LocalCache] 缓存已设置: ${key}`);
         } catch (error) {
             console.error(`[LocalCache] 设置缓存失败: ${key}`, error);
             // 如果是配额超出错误，尝试清理过期缓存
@@ -84,7 +83,6 @@ class LocalStorageCache {
             // 检查是否过期
             if (Date.now() - item.timestamp > item.ttl) {
                 this.delete(key);
-                console.log(`[LocalCache] 缓存已过期并删除: ${key}`);
                 return null;
             }
 
@@ -106,7 +104,6 @@ class LocalStorageCache {
         }
 
         localStorage.removeItem(this.prefix + key);
-        console.log(`[LocalCache] 缓存已删除: ${key}`);
     }
 
     /**
@@ -127,7 +124,6 @@ class LocalStorageCache {
         }
 
         keysToRemove.forEach(key => localStorage.removeItem(key));
-        console.log(`[LocalCache] 已清空 ${keysToRemove.length} 个缓存项`);
     }
 
     /**
@@ -135,7 +131,6 @@ class LocalStorageCache {
      */
     refresh(key: string): void {
         this.delete(key);
-        console.log(`[LocalCache] 缓存已刷新: ${key}`);
     }
 
     /**
@@ -188,10 +183,6 @@ class LocalStorageCache {
                 cleanedCount++;
             }
         });
-
-        if (cleanedCount > 0) {
-            console.log(`[LocalCache] 清理了 ${cleanedCount} 个过期缓存项`);
-        }
     }
 
     /**

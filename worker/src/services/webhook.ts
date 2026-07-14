@@ -30,14 +30,14 @@
 
 import { signJWT } from '../utils/crypto';
 import { retryD1Operation } from '../utils/retry';
-import { createEmail, saveRawEmailToR2, sendEmail } from './email';
+import { buildForwardedEmailBody, copyEmailAttachments, createEmail, saveRawEmailToR2, sendEmail } from './email';
 import { getSystemConfig } from './settings';
 import { bumpChangeSignals } from './changeSignals';
 import { KVCacheService } from './kvCache';
 import type { Email, Env, ForwardLog, D1Database } from '../types';
 import { WEBHOOK_STATUS } from '../shared/constants';
 
-type NotificationChannel = {
+type WebhookChannel = {
     id: number;
     name: string;
     type: 'dingtalk' | 'feishu' | 'bark';
@@ -46,7 +46,7 @@ type NotificationChannel = {
     enabled: boolean;
 };
 
-type NotificationRoutingRule = {
+type WebhookRoutingRule = {
     id: number;
     enabled: boolean;
     matchMode: 'all' | 'any';
@@ -59,7 +59,7 @@ type NotificationRoutingRule = {
     defaultMode: 'always' | 'unmatched';
 };
 
-type IncomingRoutingRule = {
+type EmailForwardRoutingRule = {
     id: number;
     enabled: boolean;
     matchMode: 'all' | 'any';
@@ -69,7 +69,7 @@ type IncomingRoutingRule = {
     contentPattern: string;
     targetEmail: string;
     targetFromAddress: string;
-    targetForwardType: 'internal' | 'smtp' | 'cf';
+    targetForwardType: 'internal' | 'cf' | 'resend';
     isDefault: boolean;
     defaultMode: 'always' | 'unmatched';
 };
@@ -410,18 +410,18 @@ export async function sendWebhook(
 }
 
 /**
- * 处理邮件转发
- * 根据 routing_rules 中的通知通道和通知规则发送 webhook
+ * 处理邮件路由
+ * 根据 routing_rules 中的 Webhook 通道和 Webhook 规则发送 webhook
  */
 export async function handleEmailForwarding(email: Email, userId: number | null, db: D1Database, env?: Env): Promise<void> {
     try {
-        const channels = await loadNotificationChannels(db);
+        const channels = await loadWebhookChannels(db);
 
         if (channels.length === 0) {
             const { debugLog } = await import('../utils/debug');
-            debugLog('Webhook', '未配置通知通道，跳过发送');
+            debugLog('Webhook', '未配置 Webhook 通道，跳过发送');
         } else {
-            const rules = await loadNotificationRules(db);
+            const rules = await loadWebhookRules(db);
             const defaultRule = rules.find((rule) => rule.isDefault && rule.enabled);
             const matchedChannelIds = new Set<number>();
 
@@ -440,10 +440,10 @@ export async function handleEmailForwarding(email: Email, userId: number | null,
             const targetChannels = channels.filter((channel) => matchedChannelIds.has(channel.id));
             if (targetChannels.length === 0) {
                 const { debugLog } = await import('../utils/debug');
-                debugLog('Webhook', '没有命中的通知通道，跳过发送');
+                debugLog('Webhook', '没有命中的 Webhook 通道，跳过发送');
             } else {
                 const { debugLog } = await import('../utils/debug');
-                debugLog('Webhook', `发送 ${targetChannels.length} 个通知通道`);
+                debugLog('Webhook', `发送 ${targetChannels.length} 个 Webhook 通道`);
 
                 for (const channel of targetChannels) {
                     const result = await sendWebhook(
@@ -458,7 +458,7 @@ export async function handleEmailForwarding(email: Email, userId: number | null,
         }
 
         if (env) {
-            await handleIncomingForwarding(email, db, env);
+            await handleEmailForwardingRules(email, db, env);
         }
     } catch (error) {
         const { errorLog } = await import('../utils/debug');
@@ -466,7 +466,7 @@ export async function handleEmailForwarding(email: Email, userId: number | null,
     }
 }
 
-async function loadNotificationRules(db: D1Database): Promise<NotificationRoutingRule[]> {
+async function loadWebhookRules(db: D1Database): Promise<WebhookRoutingRule[]> {
     const result = await db.prepare(`
         SELECT
             id,
@@ -480,7 +480,7 @@ async function loadNotificationRules(db: D1Database): Promise<NotificationRoutin
             is_default,
             default_mode
         FROM routing_rules
-        WHERE category = 'notification'
+        WHERE category = 'webhook'
     `).all();
 
     return (result.results || []).map((row: any) => ({
@@ -497,7 +497,7 @@ async function loadNotificationRules(db: D1Database): Promise<NotificationRoutin
     }));
 }
 
-async function loadNotificationChannels(db: D1Database): Promise<NotificationChannel[]> {
+async function loadWebhookChannels(db: D1Database): Promise<WebhookChannel[]> {
     const result = await db.prepare(`
         SELECT id, name, enabled, channel_type, channel_url, channel_secret
         FROM routing_rules
@@ -513,7 +513,7 @@ async function loadNotificationChannels(db: D1Database): Promise<NotificationCha
             url: row.channel_url || '',
             secret: row.channel_secret || ''
         }))
-        .filter((channel) => channel.enabled && channel.url);
+        .filter((channel) => channel.url);
 }
 
 function parseChannelIds(value: unknown): number[] {
@@ -531,7 +531,7 @@ function parseChannelIds(value: unknown): number[] {
 
 function matchesRoutingRule(
     email: Email,
-    rule: Pick<IncomingRoutingRule | NotificationRoutingRule, 'matchMode' | 'senderPattern' | 'recipientPattern' | 'subjectPattern' | 'contentPattern'>
+    rule: Pick<EmailForwardRoutingRule | WebhookRoutingRule, 'matchMode' | 'senderPattern' | 'recipientPattern' | 'subjectPattern' | 'contentPattern'>
 ): boolean {
     const checks = [
         !rule.senderPattern || (email.from_address || '').toLowerCase().includes(rule.senderPattern.toLowerCase()),
@@ -543,7 +543,7 @@ function matchesRoutingRule(
     return rule.matchMode === 'all' ? checks.every(Boolean) : checks.some(Boolean);
 }
 
-async function loadIncomingRules(db: D1Database): Promise<IncomingRoutingRule[]> {
+async function loadEmailForwardRules(db: D1Database): Promise<EmailForwardRoutingRule[]> {
     const result = await db.prepare(`
         SELECT
             id,
@@ -559,7 +559,7 @@ async function loadIncomingRules(db: D1Database): Promise<IncomingRoutingRule[]>
             is_default,
             default_mode
         FROM routing_rules
-        WHERE category = 'incoming'
+        WHERE category = 'email_forward'
     `).all();
 
     return (result.results || []).map((row: any) => ({
@@ -572,7 +572,7 @@ async function loadIncomingRules(db: D1Database): Promise<IncomingRoutingRule[]>
         contentPattern: row.content_pattern || '',
         targetEmail: row.target_email || '',
         targetFromAddress: row.target_from_address || '',
-        targetForwardType: row.target_forward_type === 'smtp' || row.target_forward_type === 'cf' ? row.target_forward_type : 'internal',
+        targetForwardType: row.target_forward_type === 'cf' || row.target_forward_type === 'resend' ? row.target_forward_type : 'internal',
         isDefault: row.is_default === 1,
         defaultMode: row.default_mode === 'always' ? 'always' : 'unmatched'
     }));
@@ -589,14 +589,14 @@ function isSystemForwardedEmail(email: Email): boolean {
     }
 }
 
-async function handleIncomingForwarding(email: Email, db: D1Database, env: Env): Promise<void> {
+async function handleEmailForwardingRules(email: Email, db: D1Database, env: Env): Promise<void> {
     if (isSystemForwardedEmail(email)) {
         const { debugLog } = await import('../utils/debug');
-        debugLog('Webhook', '系统转发邮件跳过收件转发，避免循环');
+        debugLog('Webhook', '系统转发邮件跳过邮件转发，避免循环');
         return;
     }
 
-    const rules = await loadIncomingRules(db);
+    const rules = await loadEmailForwardRules(db);
     const defaultRule = rules.find((rule) => rule.isDefault && rule.enabled);
     const matchedRules = rules.filter((rule) => !rule.isDefault && rule.enabled && rule.targetEmail && matchesRoutingRule(email, rule));
     const targetRules = [...matchedRules];
@@ -613,26 +613,18 @@ async function handleIncomingForwarding(email: Email, db: D1Database, env: Env):
     }
 }
 
-async function forwardEmailByRule(email: Email, rule: IncomingRoutingRule, db: D1Database, env: Env): Promise<void> {
+async function forwardEmailByRule(email: Email, rule: EmailForwardRoutingRule, db: D1Database, env: Env): Promise<void> {
     const targetEmail = rule.targetEmail.trim().toLowerCase();
     const targetDomain = targetEmail.split('@').pop() || '';
-    const fromAddress = email.from_address || `unknown@${targetDomain}`;
     const targetFromAddress = rule.targetFromAddress.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetFromAddress)) {
+        throw new Error('转发发件人邮箱格式无效');
+    }
     const originalReplyTo = email.reply_to || email.from_address || undefined;
     const forwardedBy = 'cloudflare-email-manager';
     const forwardSubject = `Fwd: ${email.subject || '(无主题)'}`;
-    const forwardContent = [
-        `转发邮件（由系统转发）`,
-        ``,
-        `转发系统: ${forwardedBy}`,
-        `转发规则: ${rule.id}`,
-        `原发件人: ${email.from_address || '-'}`,
-        `原收件人: ${email.to_address || '-'}`,
-        `原主题: ${email.subject || '(无主题)'}`,
-        `接收时间: ${email.received_at || '-'}`,
-        ``,
-        email.content || ''
-    ].join('\n');
+    const forwardedBody = await buildForwardedEmailBody(email, { forwardedBy, ruleId: rule.id }, env.R2);
+    const mimeContentType = forwardedBody.contentType === 'html' ? 'text/html' : 'text/plain';
 
     try {
         if (rule.targetForwardType === 'internal') {
@@ -642,6 +634,7 @@ async function forwardEmailByRule(email: Email, rule: IncomingRoutingRule, db: D
                 throw new Error('站内转发目标域名不在系统配置中');
             }
 
+            const fromAddress = targetFromAddress;
             const forwardedEmailId = crypto.randomUUID();
             const now = new Date().toISOString();
             const messageId = `<forward-${forwardedEmailId}@${targetDomain}>`;
@@ -657,19 +650,19 @@ async function forwardEmailByRule(email: Email, rule: IncomingRoutingRule, db: D
                 `X-CEM-Original-From: ${email.from_address || ''}`,
                 `X-CEM-Original-To: ${email.to_address || ''}`,
                 `MIME-Version: 1.0`,
-                `Content-Type: text/plain; charset=UTF-8`,
+                `Content-Type: ${mimeContentType}; charset=UTF-8`,
                 `Content-Transfer-Encoding: 8bit`,
                 ``,
-                forwardContent
+                forwardedBody.content
             ].join('\r\n');
 
             const forwardedEmail = await createEmail(db, {
                 subject: forwardSubject,
                 from_address: fromAddress,
                 to_address: targetEmail,
-                content: forwardContent.slice(0, 1000),
-                is_read: 0,
-                attachment_count: 0,
+                content: forwardedBody.preview.slice(0, 1000),
+                is_read: 1,
+                attachment_count: env.R2 ? email.attachment_count || 0 : 0,
                 message_id: messageId,
                 headers_json: JSON.stringify({
                     from: fromAddress,
@@ -688,23 +681,31 @@ async function forwardEmailByRule(email: Email, rule: IncomingRoutingRule, db: D
                 reply_to: email.reply_to || email.from_address,
                 cc: null,
                 bcc: null,
-                content_type: 'text/plain; charset=UTF-8',
+                content_type: `${mimeContentType}; charset=UTF-8`,
+                folder: 'sent',
                 received_at: now
             }, forwardedEmailId);
 
             if (env.R2) {
                 await saveRawEmailToR2(env.R2, rawEmail, messageId, forwardedEmail.id, fromAddress, targetEmail);
+                const copiedAttachmentCount = await copyEmailAttachments(db, env.R2, email.id, forwardedEmail.id);
+                if (copiedAttachmentCount !== (email.attachment_count || 0)) {
+                    await retryD1Operation('更新站内转发附件数量', async () => {
+                        return await db.prepare(`
+                            UPDATE emails
+                            SET attachment_count = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        `).bind(copiedAttachmentCount, forwardedEmail.id).run();
+                    });
+                }
             }
 
             await logForwardResult(db, email.id, `mailto:${targetEmail}`, {
                 success: true,
                 responseCode: 200
             }, env.KV, { from: fromAddress, to: targetEmail });
+            await bumpChangeSignals(db, ['emails', 'dashboard']);
             return;
-        }
-
-        if (rule.targetForwardType === 'cf' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetFromAddress)) {
-            throw new Error('CF 转发发件人邮箱格式无效');
         }
 
         await sendEmail(env, {
@@ -712,17 +713,80 @@ async function forwardEmailByRule(email: Email, rule: IncomingRoutingRule, db: D
             from: targetFromAddress,
             reply_to: originalReplyTo,
             subject: forwardSubject,
-            content: forwardContent,
-            content_type: 'text',
+            content: forwardedBody.content,
+            content_type: forwardedBody.contentType,
             delivery_method: rule.targetForwardType
         });
+
+        const sentEmailId = crypto.randomUUID();
+        const now = new Date().toISOString();
+        const sentMessageId = `<forward-sent-${sentEmailId}@${targetDomain}>`;
+        const rawEmail = [
+            `From: ${targetFromAddress}`,
+            `To: ${targetEmail}`,
+            `Subject: ${forwardSubject}`,
+            `Date: ${new Date().toUTCString()}`,
+            `Message-ID: ${sentMessageId}`,
+            ...(originalReplyTo ? [`Reply-To: ${originalReplyTo}`] : []),
+            `MIME-Version: 1.0`,
+            `Content-Type: ${mimeContentType}; charset=UTF-8`,
+            `Content-Transfer-Encoding: 8bit`,
+            ``,
+            forwardedBody.content
+        ].join('\r\n');
+
+        const sentEmail = await createEmail(db, {
+            subject: forwardSubject,
+            from_address: targetFromAddress,
+            to_address: targetEmail,
+            content: forwardedBody.preview.slice(0, 1000),
+            is_read: 1,
+            attachment_count: env.R2 ? email.attachment_count || 0 : 0,
+            message_id: sentMessageId,
+            headers_json: JSON.stringify({
+                from: targetFromAddress,
+                to: targetEmail,
+                subject: forwardSubject,
+                date: now,
+                'message-id': sentMessageId,
+                'x-cem-forwarded': '1',
+                'x-cem-forwarded-by': forwardedBy,
+                'x-cem-forward-rule-id': String(rule.id),
+                'x-cem-original-from': email.from_address || '',
+                'x-cem-original-to': email.to_address || ''
+            }),
+            size_bytes: new TextEncoder().encode(rawEmail).byteLength,
+            date: now,
+            reply_to: originalReplyTo || null,
+            cc: null,
+            bcc: null,
+            content_type: `${mimeContentType}; charset=UTF-8`,
+            folder: 'sent',
+            resend_email_id: null,
+            received_at: now
+        }, sentEmailId);
+
+        if (env.R2) {
+            await saveRawEmailToR2(env.R2, rawEmail, sentMessageId, sentEmail.id, targetFromAddress, targetEmail);
+            const copiedAttachmentCount = await copyEmailAttachments(db, env.R2, email.id, sentEmail.id);
+            if (copiedAttachmentCount !== (email.attachment_count || 0)) {
+                await retryD1Operation('更新已发送转发附件数量', async () => {
+                    return await db.prepare(`
+                        UPDATE emails
+                        SET attachment_count = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    `).bind(copiedAttachmentCount, sentEmail.id).run();
+                });
+            }
+        }
 
         await logForwardResult(db, email.id, `mailto:${targetEmail}`, {
             success: true,
             responseCode: 200
         }, env.KV, { from: targetFromAddress, to: targetEmail });
+        await bumpChangeSignals(db, ['emails', 'dashboard']);
     } catch (error) {
-        const message = error instanceof Error ? error.message : '收件转发失败';
+        const message = error instanceof Error ? error.message : '邮件转发失败';
         await logForwardResult(db, email.id, `mailto:${targetEmail}`, {
             success: false,
             errorMessage: message

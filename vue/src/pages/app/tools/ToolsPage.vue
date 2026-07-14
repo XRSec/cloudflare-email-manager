@@ -33,53 +33,6 @@
         </div>
       </div>
 
-      <!-- 模拟邮件接收 -->
-      <div class="tools-section" ref="simulateEmailSectionRef">
-        <div class="section-header">
-          <h2>模拟邮件接收</h2>
-          <button class="btn btn-sm btn-secondary" @click="showEmailForm = !showEmailForm">
-            {{ showEmailForm ? '🔼 收起' : '🔽 展开' }}
-          </button>
-        </div>
-        <p v-if="showEmailForm" class="tools-note">此功能模拟邮件接收，邮件会被系统处理并存储到数据库中，支持添加图片附件</p>
-        <form v-if="showEmailForm" @submit.prevent="sendTestEmail" class="email-form">
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">发件人</label>
-              <input v-model="testEmail.from" type="email" class="form-control" placeholder="sender@example.com"
-                required>
-            </div>
-            <div class="form-group">
-              <label class="form-label">收件人</label>
-              <input v-model="testEmail.to" type="email" class="form-control" placeholder="user@example.com" required>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">主题</label>
-            <input v-model="testEmail.subject" type="text" class="form-control" placeholder="测试邮件主题" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">内容</label>
-            <textarea v-model="testEmail.content" class="form-control" rows="3" placeholder="测试邮件内容"
-              required></textarea>
-          </div>
-          <div class="form-group">
-            <label class="form-label">图片附件（可选）</label>
-            <input ref="fileInput" type="file" class="form-control" accept="image/*" multiple
-              @change="handleFileSelect">
-            <div v-if="selectedFiles.length > 0" class="selected-files">
-              <div v-for="(file, index) in selectedFiles" :key="index" class="file-item">
-                <span class="file-name">📎 {{ file.name }} ({{ formatFileSize(file.size) }})</span>
-                <button type="button" class="btn-remove" @click="removeFile(index)" title="移除">✕</button>
-              </div>
-            </div>
-          </div>
-          <button type="submit" class="btn btn-primary" :disabled="sending">
-            {{ sending ? '模拟中...' : '模拟邮件接收' }}
-          </button>
-        </form>
-      </div>
-
       <!-- API 测试 -->
       <div class="tools-section" ref="apiTestSectionRef">
         <h2>API 测试</h2>
@@ -378,7 +331,7 @@
                     </div>
                     <div class="stats-item">
                       <span>上次统计:</span>
-                      <span>{{ new Date().toLocaleString() }}</span>
+                      <span>{{ formatDateTime(new Date()) }}</span>
                     </div>
                   </div>
                 </div>
@@ -869,26 +822,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { useAuthStore } from '@/composables/auth'
-import { useSystemStore } from '@/composables/system'
-import { systemApiService } from '@/composables/api-system'
-import { userApiService } from '@/composables/api-user'
-import { toolsApiService } from '@/composables/api-tools'
-import { cacheService, browserCacheManager } from '@/composables/cache'
-import { toast } from '@/utils/toast'
+import {computed, nextTick, onMounted, onUnmounted, ref, watch} from 'vue'
+import {useRoute} from 'vue-router'
+import {useAuthStore} from '@/composables/auth'
+import {useSystemStore} from '@/composables/system'
+import {systemApiService} from '@/composables/api-system'
+import {userApiService} from '@/composables/api-user'
+import {toolsApiService} from '@/composables/api-tools'
+import {browserCacheManager, cacheService} from '@/composables/cache'
+import {toast} from '@/utils/toast'
+import {formatDateTime} from '@/utils/time'
 
 const authStore = useAuthStore()
 const route = useRoute()
-const sending = ref(false)
 const testResult = ref('')
 const cacheInfo = ref<any>(null)
-const showEmailForm = ref(false) // 控制模拟邮件接收表单的显示
 
 // 区块 DOM 引用（用于根据 ?section= 滚动定位）
 const systemSectionRef = ref<HTMLElement | null>(null)
-const simulateEmailSectionRef = ref<HTMLElement | null>(null)
 const apiTestSectionRef = ref<HTMLElement | null>(null)
 const databaseSectionRef = ref<HTMLElement | null>(null)
 const cacheSectionRef = ref<HTMLElement | null>(null)
@@ -904,9 +855,6 @@ const scrollToSection = (section?: string | null) => {
   switch (section) {
     case 'system':
       target = systemSectionRef.value
-      break
-    case 'simulate':
-      target = simulateEmailSectionRef.value
       break
     case 'api':
       target = apiTestSectionRef.value
@@ -1157,34 +1105,6 @@ const hasActiveOperationData = () => {
   return operation?.hasData()
 }
 
-
-const testEmail = ref({
-  from: 'sender@example.com',
-  to: 'test@example.com',
-  subject: '测试邮件',
-  content: '这是一封测试邮件，用于验证邮件发送功能。'
-})
-
-const selectedFiles = ref<File[]>([])
-const fileInput = ref<HTMLInputElement | null>(null)
-
-// 处理文件选择
-const handleFileSelect = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (target.files) {
-    const newFiles = Array.from(target.files)
-    selectedFiles.value = [...selectedFiles.value, ...newFiles]
-  }
-}
-
-// 移除文件
-const removeFile = (index: number) => {
-  selectedFiles.value.splice(index, 1)
-  if (fileInput.value) {
-    fileInput.value.value = ''
-  }
-}
-
 // 计算属性
 const userInfo = computed(() => {
   if (authStore.user) {
@@ -1221,54 +1141,9 @@ const pageTitle = computed(() => '工具')
 const pageIcon = computed(() => '🛠️')
 
 const getMessageBox = async () => {
-  const { ElMessageBox } = await import('element-plus')
+  await import('element-plus/es/components/message-box/style/css')
+  const { ElMessageBox } = await import('element-plus/es/components/message-box/index.mjs')
   return ElMessageBox
-}
-
-// 发送测试邮件（使用工具模式模拟邮件接口）
-const sendTestEmail = async () => {
-  sending.value = true
-  try {
-    const formData = new FormData()
-    formData.append('from', testEmail.value.from)
-    formData.append('to', testEmail.value.to)
-    formData.append('subject', testEmail.value.subject)
-    formData.append('content', testEmail.value.content)
-    formData.append('content_type', 'text')
-
-    // 添加附件
-    selectedFiles.value.forEach((file) => {
-      formData.append(`attachments`, file)
-    })
-
-    // 使用工具模式的模拟邮件接口
-    const response = await fetch('/api/tools/simulate-email', {
-      method: 'POST',
-      credentials: 'include',
-      body: formData
-    })
-
-    const result = await response.json()
-
-    if (result.success) {
-      toast.success(
-        `邮件已成功发送${selectedFiles.value.length > 0 ? `，包含 ${selectedFiles.value.length} 个附件` : ''}`,
-        '模拟邮件成功'
-      )
-      // 清空附件列表
-      selectedFiles.value = []
-      if (fileInput.value) {
-        fileInput.value.value = ''
-      }
-    } else {
-      toast.error(result.error || '测试邮件模拟失败', '模拟邮件失败')
-    }
-  } catch (error) {
-    console.error('发送测试邮件失败:', error)
-    toast.error('发送测试邮件失败', '模拟邮件失败')
-  } finally {
-    sending.value = false
-  }
 }
 
 // API 测试方法
@@ -1449,15 +1324,9 @@ const showCacheInfoData = () => {
   // 获取所有localStorage中的数据
   const allLocalStorageKeys = Object.keys(localStorage)
 
-  console.log('所有localStorage键:', allLocalStorageKeys)
-  console.log('localStorage总数量:', allLocalStorageKeys.length)
-  console.log('所有cookies:', document.cookie)
-
   // 先显示所有localStorage数据，不进行过滤
-  const cemKeys = allLocalStorageKeys
-
   // 处理每个CEM相关的键
-  cemKeys.forEach(key => {
+  allLocalStorageKeys.forEach(key => {
     const item = localStorage.getItem(key);
 
     if (item) {
@@ -1506,7 +1375,7 @@ const showCacheInfoData = () => {
 
   // 如果没有找到任何缓存，显示空状态
   if (Object.keys(cacheData).length === 0) {
-    console.log('没有找到任何缓存数据')
+    console.warn('没有找到任何缓存数据')
   }
 
   // 添加缓存统计信息
@@ -1527,7 +1396,6 @@ const showCacheInfoData = () => {
     }
   }
 
-  console.log('缓存信息:', info)
   cacheInfo.value = info
 }
 
@@ -1705,8 +1573,6 @@ const revalidateAuth = async () => {
     if (!authStore.isAuthenticated) {
       alert('数据库初始化完成，但登录状态已失效，请重新登录')
       window.location.href = '/login'
-    } else {
-      console.log('登录状态验证成功')
     }
   } catch (error) {
     console.error('重新验证登录状态失败:', error)
@@ -1717,7 +1583,7 @@ const revalidateAuth = async () => {
 // 格式化时间
 const formatTime = (timestamp: string) => {
   if (!timestamp) return 'N/A'
-  return new Date(timestamp).toLocaleString('zh-CN')
+  return formatDateTime(timestamp, 'N/A')
 }
 
 // 获取表格数量
@@ -1744,7 +1610,6 @@ const loadDatabaseStats = async () => {
 
     if (result.success) {
       dbStats.value = result.data
-      console.log('✅ 数据库统计获取成功:', dbStats.value)
       toast.success('数据库统计获取成功')
     } else {
       throw new Error(result.message || '获取数据库统计失败')
@@ -1772,20 +1637,19 @@ const testDatabaseConnection = async () => {
         success: true,
         message: '数据库连接正常',
         responseTime: responseTime,
-        timestamp: new Date().toLocaleString(),
+        timestamp: formatDateTime(new Date()),
         details: {
           version: response.data.version?.version || 'Unknown',
           totalTables: response.data.tables?.length || 0
         }
       }
-      console.log('🔗 数据库连接测试成功:', dbTestResult.value)
       toast.success('数据库连接测试成功')
     } else {
       dbTestResult.value = {
         success: false,
         message: `连接失败: ${response.message || '未知错误'}`,
         responseTime: responseTime,
-        timestamp: new Date().toLocaleString(),
+        timestamp: formatDateTime(new Date()),
         error: response.message
       }
       console.error('数据库连接测试失败:', response.message)
@@ -1797,7 +1661,7 @@ const testDatabaseConnection = async () => {
       success: false,
       message: '连接超时或网络错误',
       responseTime: responseTime,
-      timestamp: new Date().toLocaleString(),
+      timestamp: formatDateTime(new Date()),
       error: error instanceof Error ? error.message : '未知错误'
     }
     console.error('数据库连接测试失败:', error)
@@ -1866,7 +1730,7 @@ const formatCacheSize = (size: number | string): string => {
 
 // 缓存时间格式化
 const formatCacheTime = (time: string): string => {
-  return new Date(time).toLocaleString('zh-CN')
+  return formatDateTime(time)
 }
 
 
@@ -1913,7 +1777,7 @@ const formatCacheExpiry = (created: string | number, ttl: string | number): stri
     const createdTime = new Date(created)
     const ttlSeconds = typeof ttl === 'string' ? parseInt(ttl) || 0 : ttl || 0
     const expiryTime = new Date(createdTime.getTime() + ttlSeconds * 1000)
-    return expiryTime.toLocaleString('zh-CN')
+    return formatDateTime(expiryTime)
   } catch {
     return '未知'
   }
@@ -1983,15 +1847,9 @@ const viewCacheContent = (key: string) => {
   } else {
     try {
       const parsedItem = JSON.parse(item)
-      console.log(`[viewCacheContent] 处理键: ${key}`)
-      console.log(`[viewCacheContent] 解析后的数据:`, parsedItem)
-      console.log(`[viewCacheContent] 数据类型:`, typeof parsedItem)
-
       // 如果是缓存条目格式（有value, expiry, size）
       if (parsedItem.value !== undefined && parsedItem.expiry !== undefined) {
         const content = parsedItem.value
-        console.log(`[viewCacheContent] 缓存条目内容:`, content)
-        console.log(`[viewCacheContent] 内容类型:`, typeof content)
 
         if (content === undefined || content === null) {
           contentStr = '缓存内容为空'
@@ -2031,9 +1889,6 @@ const viewCacheContent = (key: string) => {
 
 // 格式化系统配置显示 - 直接返回原始JSON
 const formatSystemConfig = (config: any): string => {
-  console.log(`[formatSystemConfig] 输入配置:`, config)
-  console.log(`[formatSystemConfig] 配置类型:`, typeof config)
-
   if (config === null || config === undefined) {
     return 'null'
   }
@@ -2241,7 +2096,7 @@ const deleteR2Files = async (keys: string[]) => {
 const formatR2Time = (time: string | null): string => {
   if (!time) return '-'
   try {
-    return new Date(time).toLocaleString('zh-CN')
+    return formatDateTime(time)
   } catch {
     return time
   }
@@ -2525,13 +2380,6 @@ watch(
   font-size: 13px;
 }
 
-/* 邮件表单样式 */
-.email-form {
-  max-width: 500px;
-  /* 限制表单最大宽度 */
-  width: 100%;
-}
-
 .form-row {
   display: flex;
   gap: 15px;
@@ -2552,47 +2400,6 @@ watch(
   margin-bottom: 5px;
   font-weight: 500;
   color: #555;
-}
-
-.selected-files {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.file-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  background: #f8f9fa;
-  border: 1px solid #e9ecef;
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-.file-name {
-  color: #495057;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.btn-remove {
-  background: none;
-  border: none;
-  color: #dc3545;
-  cursor: pointer;
-  padding: 0 8px;
-  font-size: 18px;
-  line-height: 1;
-  transition: color 0.2s;
-}
-
-.btn-remove:hover {
-  color: #c82333;
 }
 
 .form-control {
@@ -5152,10 +4959,5 @@ watch(
     font-size: 13px;
   }
 
-  .file-item {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
 }
 </style>

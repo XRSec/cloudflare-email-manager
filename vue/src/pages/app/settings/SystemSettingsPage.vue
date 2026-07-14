@@ -20,7 +20,7 @@
             <CheckboxField v-else-if="field.type === 'checkbox'" v-model="(formData as any)[field.key]" :label="field.label"
               :disabled="((field as any).disabled || saving)" :error="(field as any).error"
               :help="(field as any).help" />
-            <TagListInput v-else v-model="(formData as any)[field.key]" :label="field.label"
+            <TagListInput v-else-if="field.type === 'tag-list'" v-model="(formData as any)[field.key]" :label="field.label"
               :placeholder="(field as any).placeholder" :disabled="saving" :help="(field as any).help"
               :validate-fn="validateDomainName" />
           </div>
@@ -73,6 +73,7 @@ const formData = ref({
   apiRateLimit: false,
   apiRateLimitMaxRequests: 100,
   sessionTimeout: 60,
+  timezone: 'Asia/Shanghai',
   supportedDomains: [] as string[]
 })
 
@@ -159,6 +160,19 @@ const settingsSections = computed(() => [
         help: '范围：60-2880 分钟（1小时-48小时），默认：2880 分钟（48小时）'
       }
     ]
+  },
+  {
+    title: '显示配置',
+    fields: [
+      {
+        key: 'timezone',
+        label: '显示时区',
+        type: 'text' as const,
+        placeholder: 'Asia/Shanghai',
+        required: true,
+        help: '使用 IANA 时区名称，例如 Asia/Shanghai、UTC、America/New_York'
+      }
+    ]
   }
 ])
 
@@ -191,6 +205,15 @@ const parseSupportedDomains = (value: unknown): string[] => {
 
 const parseEnabledFlag = (value: unknown) => value === 1 || value === true || value === '1'
 
+const isValidTimeZone = (value: string) => {
+  try {
+    new Intl.DateTimeFormat('zh-CN', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
+}
+
 const validateDomainName = (value: string) => {
   const domain = normalizeDomainValue(value)
   const domainRegex = /^(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/
@@ -203,7 +226,6 @@ watch(data, (newData) => {
     // 后端返回的数据结构: { success: true, data: { config: {...} } }
     // 或者直接是 API 响应: { data: { config: {...} } }
     const config = newData.data?.config || newData.data || {}
-    console.log('📋 系统设置数据更新:', config)
 
     formData.value = {
       systemName: config.system_name || '',
@@ -216,10 +238,10 @@ watch(data, (newData) => {
       apiRateLimit: parseEnabledFlag(config.api_rate_limit),
       apiRateLimitMaxRequests: config.api_rate_limit_max_requests || 100,
       sessionTimeout: config.cookie_max_age ? Math.floor(config.cookie_max_age / 60) : (config.session_timeout || 60),
+      timezone: config.timezone || 'Asia/Shanghai',
       supportedDomains: parseSupportedDomains(config.supported_emails)
     }
     originalData.value = { ...formData.value } as any
-    console.log('✅ 表单数据已更新，debugMode:', formData.value.debugMode)
   }
 }, { immediate: true })
 
@@ -250,6 +272,15 @@ const saveSettings = async (settingsData: any) => {
 
     if (settingsData.apiRateLimitMaxRequests !== undefined) {
       updateData.api_rate_limit_max_requests = settingsData.apiRateLimitMaxRequests
+    }
+
+    if (settingsData.timezone !== undefined) {
+      const timezone = String(settingsData.timezone).trim()
+      if (!isValidTimeZone(timezone)) {
+        toast.error('请输入有效的 IANA 时区，例如 Asia/Shanghai')
+        return
+      }
+      updateData.timezone = timezone
     }
 
     // 附件保留天数
@@ -299,11 +330,9 @@ const saveSettings = async (settingsData: any) => {
       const currentData = data.value
       if (currentData?.data?.config) {
         systemStore.systemConfig = currentData.data.config
-        console.log('✅ 已从页面数据更新 systemStore 缓存')
       } else if (currentData?.config) {
         // 兼容不同的数据结构
         systemStore.systemConfig = currentData.config
-        console.log('✅ 已从页面数据更新 systemStore 缓存（兼容格式）')
       }
 
       // 更新原始数据备份（使用最新的表单数据）
@@ -324,7 +353,6 @@ const saveSettings = async (settingsData: any) => {
 
 // 页面初始化
 onMounted(() => {
-  console.log('⚙️ 系统设置页面初始化')
 })
 </script>
 
@@ -378,7 +406,6 @@ onMounted(() => {
   justify-content: flex-end;
   margin-top: 20px;
   padding-top: 20px;
-  border-top: 1px solid rgba(15, 23, 42, 0.08);
   flex-wrap: wrap;
 }
 

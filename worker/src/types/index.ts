@@ -60,6 +60,8 @@ export interface Email {
     cc: string | null; // 抄送地址（从 headers 提取）
     bcc: string | null; // 密送地址（从 headers 提取）
     content_type: string | null; // 邮件内容类型（从 headers 提取）
+    folder?: 'inbox' | 'sent'; // 邮件归档：收件箱或已发送
+    resend_email_id?: string | null; // Resend 投递 ID
     received_at: string;
     created_at?: string;
     updated_at?: string;
@@ -129,17 +131,18 @@ export interface PaginationParams {
     order?: 'asc' | 'desc';
 }
 
-// 邮件查询参数接口
-// 单用户模式说明：系统中只有一个管理员用户，所有邮件都关联到该管理员。
-// scope 参数已废弃，不再使用，但保留字段以保持向后兼容。
 export interface EmailQueryParams extends PaginationParams {
+    folder?: 'inbox' | 'sent';
+    recipient_domain?: string;
+    recipient_mailbox?: string;
+    sender_mailbox?: string;
+    recipient?: string;
     sender?: string;
     subject?: string;
     start_date?: string;
     end_date?: string;
     has_attachments?: boolean;
     status?: string;
-    scope?: string; // 已废弃：单用户模式下不再需要此参数
 }
 
 // 用户设置更新接口
@@ -161,6 +164,7 @@ export interface SystemConfig {
     // API频率限制配置
     api_rate_limit?: number; // 1=启用, 0=禁用
     api_rate_limit_max_requests?: number; // 每分钟最大请求数
+    timezone?: string; // IANA 时区，例如 Asia/Shanghai
     // 默认Webhook配置
     // 已支持的邮箱域名列表
     supported_emails?: string[];

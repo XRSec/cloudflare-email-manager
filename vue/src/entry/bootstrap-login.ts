@@ -52,7 +52,7 @@ export async function mountLoginApp() {
       await openFullApp()
     }
   } catch (error) {
-    console.log('登录壳会话检查未命中有效会话')
+    console.warn('登录壳会话检查未命中有效会话')
   }
 
   return app

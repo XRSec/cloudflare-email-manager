@@ -6,6 +6,84 @@ import type { D1Database, R2Bucket } from '@cloudflare/workers-types';
 import type { Email, Attachment, EmailQueryParams, Env } from '../types';
 import { getSystemSetting } from './settings';
 import { retryR2Operation, retryD1Operation } from '../utils/retry';
+import PostalMime from 'postal-mime';
+
+function getAddressDomain(address?: string): string {
+    const normalized = (address || '').trim().toLowerCase();
+    const match = normalized.match(/@([^>\s]+)>?$/);
+    return (match?.[1] || '').replace(/^@+/, '');
+}
+
+async function getResendTokenForAddress(db: D1Database, from?: string): Promise<string> {
+    const domain = getAddressDomain(from);
+    if (!domain) {
+        throw new Error('使用 Resend 发信时必须提供有效发件人地址');
+    }
+
+    const channel = await db.prepare(`
+        SELECT channel_secret
+        FROM routing_rules
+        WHERE category = 'mail_channel'
+          AND channel_type = 'resend'
+          AND channel_url = ?
+        LIMIT 1
+    `).bind(domain).first();
+    const token = typeof channel?.channel_secret === 'string' ? channel.channel_secret.trim() : '';
+    if (!token) {
+        throw new Error(`邮件通道未配置 ${domain} 的 Resend API Key`);
+    }
+
+    return token;
+}
+
+async function sendViaResend(db: D1Database, emailData: {
+    to: string;
+    from?: string;
+    subject: string;
+    content: string;
+    content_type: 'text' | 'html';
+    reply_to?: string;
+}): Promise<{ messageId?: string }> {
+    const token = await getResendTokenForAddress(db, emailData.from);
+    const isHtml = emailData.content_type === 'html';
+    const payload = {
+        from: emailData.from,
+        to: [emailData.to],
+        subject: emailData.subject,
+        ...(emailData.reply_to ? { reply_to: emailData.reply_to } : {}),
+        ...(isHtml ? { html: emailData.content } : { text: emailData.content })
+    };
+
+    const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const responseText = await response.text();
+    let responseBody: any = {};
+    try {
+        responseBody = responseText ? JSON.parse(responseText) : {};
+    } catch {
+        responseBody = { message: responseText };
+    }
+
+    if (!response.ok) {
+        throw new Error(responseBody?.message || responseBody?.error || `Resend 投递失败：${response.status}`);
+    }
+
+    return { messageId: responseBody?.id };
+}
+
+function removeHiddenHtmlContent(html: string): string {
+    return html
+        .replace(/<([a-z][\w:-]*)(?=[^>]*\bdata-skip-in-text\s*=\s*["']?true["']?)[^>]*>[\s\S]*?<\/\1>/gi, '')
+        .replace(/<([a-z][\w:-]*)(?=[^>]*\bhidden\b)[^>]*>[\s\S]*?<\/\1>/gi, '')
+        .replace(/<([a-z][\w:-]*)(?=[^>]*\bstyle\s*=\s*["'][^"']*(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0|max-height\s*:\s*0|max-width\s*:\s*0)[^"']*["'])[^>]*>[\s\S]*?<\/\1>/gi, '');
+}
 
 /**
  * 从 HTML 中提取纯文本内容
@@ -23,12 +101,14 @@ export async function extractTextFromHtml(html: string): Promise<string> {
         return '';
     }
 
+    const visibleHtml = removeHiddenHtmlContent(html);
+
     try {
         // 动态导入 html-to-text 库
         const { convert } = await import('html-to-text');
 
         // 使用 html-to-text 转换 HTML 为纯文本
-        const text = convert(html, {
+        const text = convert(visibleHtml, {
             // 保留换行符
             preserveNewlines: true,
             // 长单词换行
@@ -41,6 +121,8 @@ export async function extractTextFromHtml(html: string): Promise<string> {
                 // 忽略 script 和 style 标签
                 { selector: 'script', format: 'skip' },
                 { selector: 'style', format: 'skip' },
+                { selector: '[data-skip-in-text="true"]', format: 'skip' },
+                { selector: '[hidden]', format: 'skip' },
                 // 处理链接
                 { selector: 'a', options: { ignoreHref: false } },
                 // 处理图片（显示 alt 文本）
@@ -60,8 +142,118 @@ export async function extractTextFromHtml(html: string): Promise<string> {
         const { debugLog } = await import('../utils/debug');
         debugLog('邮件处理', 'html-to-text 转换失败，使用备用方法:', error);
         // 如果 html-to-text 转换失败，使用简单的备用方法
-        return extractTextFromHtmlFallback(html);
+        return extractTextFromHtmlFallback(visibleHtml);
     }
+}
+
+export type ForwardedEmailBody = {
+    content: string;
+    contentType: 'text' | 'html';
+    preview: string;
+};
+
+type ForwardedEmailMeta = {
+    forwardedBy: string;
+    ruleId?: number | string;
+};
+
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function extractHtmlBodyContent(html: string): string {
+    const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+    const styleTags = Array.from(html.matchAll(/<style\b[^>]*>[\s\S]*?<\/style>/gi)).map(match => match[0]).join('\n');
+    return `${styleTags}${styleTags ? '\n' : ''}${bodyMatch ? bodyMatch[1] : html}`;
+}
+
+function buildForwardHeaderLines(email: Email, meta: ForwardedEmailMeta): string[] {
+    return [
+        '转发邮件（由系统转发）',
+        '',
+        `转发系统: ${meta.forwardedBy}`,
+        ...(meta.ruleId !== undefined ? [`转发规则: ${meta.ruleId}`] : []),
+        `原发件人: ${email.from_address || '-'}`,
+        `原收件人: ${email.to_address || '-'}`,
+        `原主题: ${email.subject || '(无主题)'}`,
+        `接收时间: ${email.received_at || '-'}`
+    ];
+}
+
+function buildForwardHeaderHtml(email: Email, meta: ForwardedEmailMeta): string {
+    const rows = buildForwardHeaderLines(email, meta)
+        .filter(line => line)
+        .map((line) => {
+            const [label, ...rest] = line.split(':');
+            if (rest.length === 0) {
+                return `<div style="font-weight:600;margin-bottom:8px">${escapeHtml(line)}</div>`;
+            }
+            return `<div><strong>${escapeHtml(label)}:</strong> ${escapeHtml(rest.join(':').trim())}</div>`;
+        })
+        .join('');
+
+    return [
+        '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.6;color:#333;background:#f6f8fa;border:1px solid #d0d7de;border-radius:6px;padding:12px;margin:0 0 16px">',
+        rows,
+        '</div>'
+    ].join('');
+}
+
+export async function buildForwardedEmailBody(email: Email, meta: ForwardedEmailMeta, r2?: R2Bucket | any): Promise<ForwardedEmailBody> {
+    const headerLines = buildForwardHeaderLines(email, meta);
+
+    if (r2) {
+        const rawEmailBytes = await getRawEmailBytesFromR2(r2, email.id);
+        if (!rawEmailBytes) {
+            throw new Error(`原始邮件不存在：${email.id}`);
+        }
+
+        const parser = new PostalMime();
+        const parsedEmail = await parser.parse(rawEmailBytes);
+
+        if (parsedEmail.html && parsedEmail.html.trim()) {
+            const previewText = await extractTextFromHtml(parsedEmail.html);
+            const originalHtml = extractHtmlBodyContent(parsedEmail.html.trim());
+            return {
+                content: [
+                    '<!doctype html>',
+                    '<html>',
+                    '<body>',
+                    buildForwardHeaderHtml(email, meta),
+                    '<div style="margin:0;padding:0">',
+                    originalHtml,
+                    '</div>',
+                    '</body>',
+                    '</html>'
+                ].join(''),
+                contentType: 'html',
+                preview: [...headerLines, '', previewText || email.content || ''].join('\n').trim()
+            };
+        }
+
+        if (parsedEmail.text && parsedEmail.text.trim()) {
+            const originalText = parsedEmail.text.trim();
+            return {
+                content: [...headerLines, '', originalText].join('\n'),
+                contentType: 'text',
+                preview: [...headerLines, '', originalText].join('\n').trim()
+            };
+        }
+
+        throw new Error(`原始邮件无可转发正文：${email.id}`);
+    }
+
+    const fallbackText = (email.content || '').trim();
+    return {
+        content: [...headerLines, '', fallbackText].join('\n'),
+        contentType: 'text',
+        preview: [...headerLines, '', fallbackText].join('\n').trim()
+    };
 }
 
 /**
@@ -504,7 +696,7 @@ export function removeAttachmentsFromRawEmail(rawEmail: string): string {
  *
  * 3. MIME格式示例:
  *    ```
- *    From: sender@example.com
+ *    From: cem@example.com
  *    To: recipient@example.com
  *    Subject: Test Email
  *    Date: Mon, 1 Jan 2024 12:00:00 +0000
@@ -704,9 +896,9 @@ export async function createEmail(
             id, subject, from_address, to_address, content,
             is_read, attachment_count, message_id, headers_json, size_bytes,
             date, reply_to, cc, bcc, content_type,
-            received_at, created_at, updated_at
+            folder, resend_email_id, received_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `;
 
     const bound = [
@@ -725,6 +917,8 @@ export async function createEmail(
         emailData.cc || null,
         emailData.bcc || null,
         emailData.content_type || null,
+        emailData.folder === 'sent' ? 'sent' : 'inbox',
+        emailData.resend_email_id || null,
         emailData.received_at || new Date().toISOString()
     ];
 
@@ -762,7 +956,7 @@ export async function getEmailById(db: D1Database, id: string): Promise<Email | 
             SELECT id, subject, from_address, to_address, content,
                    is_read, attachment_count, message_id, headers_json, size_bytes,
                    date, reply_to, cc, bcc, content_type,
-                   received_at, created_at, updated_at
+                   folder, resend_email_id, received_at, created_at, updated_at
             FROM emails
             WHERE id = ?
         `).bind(id).first();
@@ -788,6 +982,8 @@ export async function getEmailById(db: D1Database, id: string): Promise<Email | 
         cc: result.cc as string | null,
         bcc: result.bcc as string | null,
         content_type: result.content_type as string | null,
+        folder: result.folder === 'sent' ? 'sent' : 'inbox',
+        resend_email_id: result.resend_email_id as string | null,
         received_at: result.received_at as string,
         created_at: result.created_at as string | undefined,
         updated_at: result.updated_at as string | undefined,
@@ -806,7 +1002,12 @@ export async function getEmailById(db: D1Database, id: string): Promise<Email | 
 export async function getAllEmails(
     db: D1Database,
     params: EmailQueryParams = {}
-): Promise<{ emails: Email[]; total: number }> {
+): Promise<{
+    emails: Email[];
+    total: number;
+    groups: Array<{ value: string; count: number }>;
+    hierarchyGroups: Array<{ domain: string; recipient: string; sender: string; count: number }>;
+}> {
     try {
         const { debugLog, errorLog } = await import('../utils/debug');
         debugLog('邮件查询', '开始执行，参数:', params);
@@ -825,6 +1026,11 @@ export async function getAllEmails(
         const {
             page = 1,
             limit = 20,
+            folder = 'inbox',
+            recipient_domain,
+            recipient_mailbox,
+            sender_mailbox,
+            recipient,
             search,
             status,
             sender,
@@ -839,48 +1045,82 @@ export async function getAllEmails(
         const offset = (page - 1) * limit;
         const conditions: string[] = [];
         const values: any[] = [];
+        const groupConditions: string[] = [];
+        const groupValues: any[] = [];
         const normalizedSort = allowedSortFields.has(sort) ? sort : 'received_at';
         const normalizedOrder = order.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+        const normalizedFolder = folder === 'sent' ? 'sent' : 'inbox';
+        const mailboxColumn = normalizedFolder === 'sent' ? 'from_address' : 'to_address';
+        const recipientDomainExpression = `CASE
+            WHEN to_address IS NULL OR TRIM(to_address) = '' OR INSTR(to_address, '@') = 0 THEN '(空域名)'
+            ELSE LOWER(SUBSTR(to_address, INSTR(to_address, '@') + 1))
+        END`;
+        const senderExpression = `COALESCE(NULLIF(TRIM(from_address), ''), '(空地址)')`;
+        const mailboxExpression = `COALESCE(NULLIF(TRIM(${mailboxColumn}), ''), '(空地址)')`;
+        const addCondition = (condition: string, conditionValues: any[] = [], options: { group?: boolean } = {}) => {
+            conditions.push(condition);
+            values.push(...conditionValues);
+            if (options.group !== false) {
+                groupConditions.push(condition);
+                groupValues.push(...conditionValues);
+            }
+        };
 
         // 构建查询条件
+        addCondition('folder = ?', [normalizedFolder]);
+
+        if (recipient_domain) {
+            addCondition(`${recipientDomainExpression} = ?`, [recipient_domain], { group: false });
+        }
+
+        if (recipient_mailbox) {
+            addCondition('to_address = ?', [recipient_mailbox], { group: false });
+        }
+
+        if (sender_mailbox) {
+            addCondition(`${senderExpression} = ?`, [sender_mailbox], { group: false });
+        }
+
         if (search) {
-            conditions.push('(subject LIKE ? OR content LIKE ? OR from_address LIKE ? OR to_address LIKE ?)');
             const searchPattern = `%${search}%`;
-            values.push(searchPattern, searchPattern, searchPattern, searchPattern);
+            addCondition(
+                '(subject LIKE ? OR content LIKE ? OR from_address LIKE ? OR to_address LIKE ?)',
+                [searchPattern, searchPattern, searchPattern, searchPattern]
+            );
         }
 
         if (status === 'read') {
-            conditions.push('is_read = 1');
+            addCondition('is_read = 1');
         } else if (status === 'unread') {
-            conditions.push('is_read = 0');
+            addCondition('is_read = 0');
         }
 
         if (sender) {
-            conditions.push('from_address LIKE ?');
-            values.push(`%${sender}%`);
+            addCondition('from_address LIKE ?', [`%${sender}%`]);
+        }
+
+        if (recipient) {
+            addCondition('to_address LIKE ?', [`%${recipient}%`]);
         }
 
         if (subject) {
-            conditions.push('subject LIKE ?');
-            values.push(`%${subject}%`);
+            addCondition('subject LIKE ?', [`%${subject}%`]);
         }
 
         if (start_date) {
-            conditions.push('received_at >= ?');
-            values.push(start_date);
+            addCondition('received_at >= ?', [start_date]);
         }
 
         if (end_date) {
-            conditions.push('received_at <= ?');
-            values.push(end_date);
+            addCondition('received_at <= ?', [end_date]);
         }
 
         if (has_attachments !== undefined) {
             // 使用 attachment_count > 0 来判断是否有附件
             if (has_attachments) {
-                conditions.push('attachment_count > 0');
+                addCondition('attachment_count > 0');
             } else {
-                conditions.push('attachment_count = 0');
+                addCondition('attachment_count = 0');
             }
         }
 
@@ -894,7 +1134,7 @@ export async function getAllEmails(
                 e.content, e.is_read, e.attachment_count,
                 e.message_id, e.headers_json, e.size_bytes,
                 e.date, e.reply_to, e.cc, e.bcc, e.content_type,
-                e.received_at, e.created_at, e.updated_at
+                e.folder, e.resend_email_id, e.received_at, e.created_at, e.updated_at
             FROM emails e
             ${whereClause}
             ${orderClause}
@@ -909,6 +1149,27 @@ export async function getAllEmails(
             FROM emails
             ${whereClause}
         `).bind(...values).first();
+
+        const groupWhereClause = groupConditions.length > 0 ? `WHERE ${groupConditions.join(' AND ')}` : '';
+        const groupsResult = await db.prepare(`
+            SELECT ${mailboxExpression} as value, COUNT(*) as count
+            FROM emails
+            ${groupWhereClause}
+            GROUP BY ${mailboxExpression}
+            ORDER BY count DESC, value ASC
+        `).bind(...groupValues).all();
+
+        const hierarchyGroupsResult = await db.prepare(`
+            SELECT
+                ${recipientDomainExpression} as domain,
+                ${mailboxExpression} as recipient,
+                ${senderExpression} as sender,
+                COUNT(*) as count
+            FROM emails
+            ${groupWhereClause}
+            GROUP BY ${recipientDomainExpression}, ${mailboxExpression}, ${senderExpression}
+            ORDER BY domain ASC, recipient ASC, count DESC, sender ASC
+        `).bind(...groupValues).all();
 
         debugLog('邮件查询', '总数查询结果:', countResult?.total);
 
@@ -928,6 +1189,8 @@ export async function getAllEmails(
             cc: result.cc as string | null,
             bcc: result.bcc as string | null,
             content_type: result.content_type as string | null,
+            folder: (result.folder === 'sent' ? 'sent' : 'inbox') as 'inbox' | 'sent',
+            resend_email_id: result.resend_email_id as string | null,
             received_at: result.received_at as string,
             created_at: result.created_at as string | undefined,
             updated_at: result.updated_at as string | undefined,
@@ -937,7 +1200,17 @@ export async function getAllEmails(
 
         return {
             emails,
-            total: countResult?.total as number || 0
+            total: countResult?.total as number || 0,
+            groups: (groupsResult.results || []).map((row: any) => ({
+                value: String(row.value || '(空地址)'),
+                count: Number(row.count || 0)
+            })),
+            hierarchyGroups: (hierarchyGroupsResult.results || []).map((row: any) => ({
+                domain: String(row.domain || '(空域名)'),
+                recipient: String(row.recipient || '(空地址)'),
+                sender: String(row.sender || '(空地址)'),
+                count: Number(row.count || 0)
+            }))
         };
     } catch (error) {
         const { errorLog } = await import('../utils/debug');
@@ -1191,6 +1464,82 @@ export async function createAttachment(
         created_at: createdAttachment.created_at as string | undefined,
         updated_at: createdAttachment.updated_at as string | undefined,
     };
+}
+
+/**
+ * 将一封邮件的附件复制到另一封邮件。
+ *
+ * 站内转发不会经过 SMTP/MIME 重新投递，必须复制 R2 对象和附件表记录，
+ * 否则新邮件只会有正文摘要，前端附件列表为空。
+ */
+export async function copyEmailAttachments(
+    db: D1Database,
+    r2: R2Bucket | any,
+    sourceEmailId: string,
+    targetEmailId: string
+): Promise<number> {
+    const attachments = (await getEmailAttachments(db, sourceEmailId))
+        .filter(attachment => !attachment.deleted_at);
+
+    let copiedCount = 0;
+    const usedKeys = new Set<string>();
+
+    for (let i = 0; i < attachments.length; i++) {
+        const attachment = attachments[i];
+        const sourcePrefix = `attachments/${sourceEmailId}/`;
+        if (!attachment.r2_key.startsWith(sourcePrefix)) {
+            throw new Error(`附件存储路径无效：${attachment.r2_key}`);
+        }
+
+        const sourceObject = await retryR2Operation(`读取待转发附件 ${attachment.r2_key}`, async () => {
+            return await r2.get(attachment.r2_key);
+        });
+
+        if (!sourceObject) {
+            throw new Error(`待转发附件不存在：${attachment.filename}`);
+        }
+
+        const targetR2Key = attachment.r2_key.replace(sourcePrefix, `attachments/${targetEmailId}/`);
+        if (usedKeys.has(targetR2Key)) {
+            throw new Error(`转发附件目标路径重复：${targetR2Key}`);
+        }
+        usedKeys.add(targetR2Key);
+
+        const content = await sourceObject.arrayBuffer();
+        await retryR2Operation(`复制转发附件 ${attachment.filename}`, async () => {
+            return await r2.put(targetR2Key, content, {
+                httpMetadata: {
+                    contentType: attachment.content_type || 'application/octet-stream',
+                    contentDisposition: attachment.content_id
+                        ? 'inline'
+                        : `attachment; filename="${encodeURIComponent(attachment.filename)}"`,
+                    cacheControl: 'public, max-age=31536000'
+                },
+                customMetadata: {
+                    emailId: targetEmailId,
+                    sourceEmailId,
+                    sourceAttachmentId: attachment.id,
+                    filename: attachment.filename,
+                    contentId: attachment.content_id || '',
+                    copiedAt: new Date().toISOString()
+                }
+            });
+        });
+
+        await createAttachment(db, {
+            email_id: targetEmailId,
+            filename: attachment.filename,
+            content_type: attachment.content_type || 'application/octet-stream',
+            size_bytes: attachment.size_bytes || content.byteLength,
+            r2_key: targetR2Key,
+            content_id: attachment.content_id || null,
+            deleted_at: null
+        });
+
+        copiedCount++;
+    }
+
+    return copiedCount;
 }
 
 /**
@@ -1499,8 +1848,8 @@ export async function sendEmail(
         from?: string;
         subject: string;
         content: string;
-        content_type: 'text' | 'html' | 'markdown';
-        delivery_method?: 'smtp' | 'cf' | 'internal';
+        content_type: 'text' | 'html';
+        delivery_method?: 'cf' | 'internal' | 'resend';
         reply_to?: string;
     }
 ): Promise<{ messageId?: string }> {
@@ -1515,6 +1864,10 @@ export async function sendEmail(
         content_type: emailData.content_type,
         delivery_method: deliveryMethod
     });
+
+    if (deliveryMethod === 'resend') {
+        return await sendViaResend(env.DB, emailData);
+    }
 
     if (deliveryMethod !== 'cf') {
         throw new Error(`${deliveryMethod} 邮件发送功能尚未实现`);

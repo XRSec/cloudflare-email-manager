@@ -57,7 +57,6 @@ export const useAuthStore = defineStore('auth', () => {
       if (isInitialAuthCheck && error.response?.status === 401) {
         // 初始化认证检查时的 401 是正常的，用于判断用户是否已登录
         // 不清理数据，保持原样，让 App.vue 的认证流程处理
-        console.log('🔍 初始化认证检查：用户未登录或 cookies 无效（正常情况）')
         // 不清理 user.value 和 userStorage.value，保持之前的状态（可能是从 localStorage 恢复的）
         return {
           success: false,
@@ -110,10 +109,8 @@ export const useAuthStore = defineStore('auth', () => {
       const response = await authApiService.login({ username, password }) as LoginResponse
       if (response.success && response.data) {
         // 登录成功，直接使用返回的用户信息
-        console.log('✅ 登录成功，设置用户信息:', response.data.user)
         user.value = response.data.user // TODO 有意义吗？
         userStorage.value = response.data.user
-        console.log('🔐 当前认证状态:', !!user.value)
 
         return { success: true }
       } else {

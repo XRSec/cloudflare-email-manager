@@ -42,8 +42,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { FormField } from '@/components'
+import {computed, ref, watch} from 'vue'
+import {FormField} from '@/components'
 
 interface WebhookData {
   url: string
@@ -86,7 +86,6 @@ const isUpdating = ref(false)
 // 监听 props 变化，同步到本地状态（只在非更新状态时同步）
 watch(() => props.modelValue, (newValue) => {
   if (!isUpdating.value) {
-    console.log('WebhookConfigFields: 从父组件同步数据', newValue)
     localWebhookData.value = {
       url: newValue.url || '',
       type: newValue.type || 'custom',
@@ -98,14 +97,12 @@ watch(() => props.modelValue, (newValue) => {
 
 // 更新字段的方法
 const updateField = (field: keyof WebhookData, value: any) => {
-  console.log(`WebhookConfigFields: 更新字段 ${field}:`, value)
   isUpdating.value = true
 
   const updated = {
     ...localWebhookData.value,
     [field]: value
   }
-  console.log('WebhookConfigFields: 更新后的完整数据:', updated)
 
   localWebhookData.value = updated
   emit('update:modelValue', updated)
@@ -120,8 +117,7 @@ const fieldId = computed(() => `webhook-${Math.random().toString(36).substr(2, 9
 
 // 自定义消息模板的帮助文本
 const customMessageHelp = computed(() => {
-  const baseHelp = '自定义发送到 webhook 的消息内容。支持变量：{{from}}（发件人）、{{to}}（收件人）、{{subject}}（主题）、{{content}}（内容）、{{received_at}}（接收时间）、{{attachment_count}}（附件数量）。留空则使用默认格式。'
-  return baseHelp
+  return '自定义发送到 webhook 的消息内容。支持变量：{{from}}（发件人）、{{to}}（收件人）、{{subject}}（主题）、{{content}}（内容）、{{received_at}}（接收时间）、{{attachment_count}}（附件数量）。留空则使用默认格式。'
 })
 </script>
 

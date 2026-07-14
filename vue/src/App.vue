@@ -75,7 +75,6 @@ window.router = router
 
 // 全局消息提示函数
 window.showMessage = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
-  console.log(`[${type.toUpperCase()}] ${message}`)
   void import('@/utils/toast').then(({ toast }) => {
     switch (type) {
       case 'success':
@@ -103,30 +102,23 @@ const loadMainInterface = async (
 ) => {
   const { skipPreload = false } = options
 
-  console.log('⏳ 准备切换到 main-preload 阶段')
   await loadNextStage('main-preload')
-  console.log('✅ 已切换到 main-preload 阶段')
 
   // 等待阶段切换完成
   await nextTick()
-  console.log('✅ nextTick 完成')
 
   // 在预加载阶段真正预取目标路由的 chunk，避免主界面展示后再二次等待
   if (!skipPreload) {
     try {
-      console.log('📦 预加载目标路由资源:', targetUrl)
       await preloadRouteComponents(targetUrl)
-      console.log('✅ 目标路由资源预加载完成')
     } catch (error) {
       console.warn('⚠️ 目标路由资源预加载失败，回退到正常路由加载:', error)
     }
   }
 
   // 在预加载阶段执行路由跳转（此时 router-view 还没有显示）
-  console.log('🚀 执行路由跳转到:', targetUrl)
   try {
     await router.push(targetUrl)
-    console.log('✅ 路由跳转完成')
   } catch (error) {
     console.error('❌ 路由跳转失败:', error)
     // 如果路由跳转失败，仍然切换到主界面
@@ -134,15 +126,10 @@ const loadMainInterface = async (
 
   // 等待路由跳转完成
   await nextTick()
-  console.log('✅ 路由跳转后的 nextTick 完成')
 
   // 现在切换到主界面阶段（router-view 会显示，此时路由已经准备好）
-  console.log('⏳ 准备切换到 main 阶段')
   setStage('main')
   await nextTick()
-  console.log('✅ 已切换到 main 阶段')
-
-  console.log('✅ 主界面已加载')
 }
 
 const resolveTargetUrl = () => {
@@ -169,17 +156,15 @@ const verifySessionFromLoginStage = async () => {
   try {
     const result = await authStore.fetchCurrentUser()
     if (result.success && authStore.isAuthenticated) {
-      console.log('✅ 登录页后台认证成功，直接进入主界面')
       await loadMainInterface(resolveTargetUrl())
     }
   } catch (error) {
-    console.log('ℹ️ 登录页后台认证未命中有效会话')
+    console.warn('ℹ️ 登录页后台认证未命中有效会话')
   }
 }
 
 // 流式加载函数
 const loadNextStage = async (stage: typeof currentStage.value) => {
-  console.log(`🔄 切换到阶段: ${stage}`)
   setStage(stage)
 
   switch (stage) {
@@ -188,7 +173,6 @@ const loadNextStage = async (stage: typeof currentStage.value) => {
       await nextTick()
 
       if (window.location.pathname === '/login' && !hasStoredUser()) {
-        console.log('⚡ 未检测到本地登录态，快速进入登录页')
         await preloadLoginPage()
         setStage('login')
         void verifySessionFromLoginStage()
@@ -206,20 +190,16 @@ const loadNextStage = async (stage: typeof currentStage.value) => {
           ? preloadRouteComponents(targetUrl).catch((error) => {
             console.warn('⚠️ 认证阶段并行预加载失败，后续回退到串行预加载:', error)
           })
-          : Promise.resolve()
+          : await Promise.resolve()
 
         await authStore.initAuth()
-        console.log('🔐 认证状态:', authStore.isAuthenticated)
         if (authStore.isAuthenticated) {
-          console.log('✅ 用户已认证，进入主界面')
-          console.log('📍 目标URL:', targetUrl)
           await routePreloadPromise
           // 使用通用函数加载主界面
           await loadMainInterface(targetUrl, {
             skipPreload: hasStoredUser()
           })
         } else {
-          console.log('❌ 用户未认证，进入登录页')
           setLoadingText('正在加载登录界面...')
           await preloadLoginPage()
           await loadNextStage('login')
@@ -240,7 +220,6 @@ const loadNextStage = async (stage: typeof currentStage.value) => {
       setLoadingText('正在加载主界面...')
       await nextTick()
       // 注意：不在这里切换到 main，由调用者控制切换时机
-      console.log('✅ 主界面预加载完成')
       break
 
     case 'main':
@@ -251,19 +230,12 @@ const loadNextStage = async (stage: typeof currentStage.value) => {
 
 // 处理登录成功
 const handleLoginSuccess = async () => {
-  console.log('🎯 App.vue 收到登录成功事件')
-  console.log('🔍 当前阶段:', currentStage.value)
-  console.log('🔍 认证状态:', authStore.isAuthenticated)
-
   setLoadingText('正在跳转至主界面...')
 
   const targetUrl = resolveTargetUrl()
-  console.log('📍 目标URL:', targetUrl)
 
   // 使用通用函数加载主界面
   await loadMainInterface(targetUrl)
-
-  console.log('✅ 登录成功，主界面已加载')
 }
 
 // 将 handleLoginSuccess 挂载到全局，方便 LoginPage 直接调用
@@ -284,18 +256,16 @@ onMounted(async () => {
 })
 
 // 监听路由变化，实现智能预加载
-router.afterEach((to, from) => {
-  console.log(`🔄 路由切换: ${String(from.name || '')} → ${String(to.name || '')}`)
-
+router.afterEach((to) => {
   // 预加载相关页面
   if (to.name === 'dashboard') {
     // 在用户进入主界面后，低优先级预加载高频管理页面
     setTimeout(() => {
       void Promise.allSettled([
-        preloadRouteComponents('/all-emails'),
+        preloadRouteComponents('/inbox'),
+        preloadRouteComponents('/sent'),
         preloadRouteComponents('/system-settings')
       ])
-      console.log('📦 已触发高频管理页面预加载')
     }, 1000)
   }
 })
@@ -321,12 +291,6 @@ body {
 
 /* ===== 阶段容器样式 ===== */
 .stage-container {
-  /* position: fixed; */
-  /* top: 0; */
-  /* left: 0; */
-  /* width: 100%; */
-  /* height: 100%; */
-  /* display: flex; */
   align-items: center;
   justify-content: center;
   background: #ffffff;
