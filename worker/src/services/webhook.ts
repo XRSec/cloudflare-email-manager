@@ -36,6 +36,7 @@ import { bumpChangeSignals } from './changeSignals';
 import { KVCacheService } from './kvCache';
 import type { Email, Env, ForwardLog, D1Database } from '../types';
 import { WEBHOOK_STATUS } from '../shared/constants';
+import { buildFeishuWebhookPayload } from '../utils/feishuWebhook';
 
 type WebhookChannel = {
     id: number;
@@ -155,78 +156,6 @@ function replaceMessageVariables(template: string, email: Email): string {
     return result;
 }
 
-function truncateText(value: string | null | undefined, maxLength = 800): string {
-    const text = (value || '').trim();
-    if (text.length <= maxLength) {
-        return text;
-    }
-    return `${text.slice(0, maxLength)}...`;
-}
-
-function buildFeishuEmailCard(email: Email) {
-    const subject = email.subject || '(无主题)';
-    const fromAddress = email.from_address || '未知发件人';
-    const toAddress = email.to_address || '未知收件人';
-    const receivedAt = email.received_at || '-';
-    const attachmentCount = email.attachment_count || 0;
-    const content = truncateText(email.content || '(无内容)');
-
-    return {
-        msg_type: 'interactive',
-        card: {
-            header: {
-                template: 'blue',
-                title: {
-                    content: `新邮件通知：${subject}`,
-                    tag: 'plain_text'
-                }
-            },
-            elements: [
-                {
-                    tag: 'div',
-                    fields: [
-                        {
-                            is_short: true,
-                            text: { tag: 'lark_md', content: `**发件人：** ${fromAddress}` }
-                        },
-                        {
-                            is_short: true,
-                            text: { tag: 'lark_md', content: `**收件人：** ${toAddress}` }
-                        }
-                    ]
-                },
-                {
-                    tag: 'div',
-                    fields: [
-                        {
-                            is_short: true,
-                            text: { tag: 'lark_md', content: `**接收时间：** ${receivedAt}` }
-                        },
-                        {
-                            is_short: true,
-                            text: { tag: 'lark_md', content: `**附件数：** ${attachmentCount}` }
-                        }
-                    ]
-                },
-                {
-                    tag: 'div',
-                    text: {
-                        tag: 'lark_md',
-                        content: `**主题：** ${subject}`
-                    }
-                },
-                {
-                    tag: 'div',
-                    text: {
-                        tag: 'lark_md',
-                        content: `**内容摘要：**\n${content}`
-                    }
-                }
-            ]
-        }
-    };
-}
-
 function getWebhookBusinessError(type: 'dingtalk' | 'feishu' | 'bark', responseBody: string): string | null {
     if (!responseBody.trim()) {
         return null;
@@ -330,8 +259,8 @@ export async function sendWebhook(
                 }
                 break;
             case 'feishu':
-                // 飞书：使用结构化消息卡片
-                payload = buildFeishuEmailCard(email);
+                // 验证码直接发送正文，普通邮件使用结构化消息卡片
+                payload = buildFeishuWebhookPayload(email);
                 if (secret) {
                     const timestamp = Math.floor(Date.now() / 1000).toString();
                     payload.timestamp = timestamp;

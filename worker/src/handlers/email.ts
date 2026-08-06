@@ -9,6 +9,7 @@ import { getSystemSetting } from '../services/settings';
 import { bumpChangeSignals } from '../services/changeSignals';
 import { KVCacheService } from '../services/kvCache';
 import { retryR2Operation } from '../utils/retry';
+import { buildVerificationCodePreview } from '../utils/verificationCode';
 import type { Env, Email } from '../types';
 import PostalMime from 'postal-mime';
 
@@ -141,7 +142,7 @@ function getNameFromEmailAddress(address: string): string {
  * 从 postal-mime 解析结果或 message 对象中提取邮件文本内容
  *
  * @param parsedEmail postal-mime 解析结果或 message 对象
- * @returns 提取的纯文本内容（已截取前1000字符）
+ * @returns 验证码摘要或已截取的纯文本内容
  */
 async function extractEmailText(parsedEmail: any): Promise<string> {
     let text = '';
@@ -163,6 +164,11 @@ async function extractEmailText(parsedEmail: any): Promise<string> {
     // 如果还是没有内容
     if (!text) {
         return '[无法提取邮件内容预览]';
+    }
+
+    const verificationCodePreview = buildVerificationCodePreview(text);
+    if (verificationCodePreview) {
+        return verificationCodePreview;
     }
 
     // 截取前 100 字符（前端显示优化）
