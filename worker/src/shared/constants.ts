@@ -63,9 +63,8 @@ export const API_ENDPOINTS = {
     SYSTEM_HEALTH: '/api/system/health',
     SYSTEM_CONFIG: '/api/system/config', // GET / PUT
 
-    // 仪表盘（归类到 Tools，但路径在 /api/dashboard）
+    // 仪表盘(归类到 Tools,但路径在 /api/dashboard)
     DASHBOARD_STATS: '/api/dashboard/stats',
-    DASHBOARD_CACHE_CLEAR: '/api/dashboard/cache',
     TOOLS_FORWARD_LOGS: '/api/dashboard/forward-logs',
     TOOLS_FORWARD_LOG_DETAIL: '/api/dashboard/forward-logs/:id',
 
@@ -77,17 +76,7 @@ export const API_ENDPOINTS = {
 
     // R2 工具
     TOOLS_R2_LIST: '/api/tools/r2',
-    TOOLS_R2_DELETE: '/api/tools/r2',
-
-    // KV 工具
-    TOOLS_KV_STATUS: '/api/tools/kv/status',
-    TOOLS_KV_CLEAR: '/api/tools/kv/clear',
-    TOOLS_KV_WARMUP: '/api/tools/kv/warmup',
-    TOOLS_KV_GET: '/api/tools/kv/get/:key',
-    TOOLS_KV_SET: '/api/tools/kv/set',
-    TOOLS_KV_DELETE: '/api/tools/kv/delete/:key',
-    TOOLS_KV_STATS: '/api/tools/kv/stats',
-    TOOLS_KV_LIST: '/api/tools/kv/list'
+    TOOLS_R2_DELETE: '/api/tools/r2'
 } as const;
 
 /**

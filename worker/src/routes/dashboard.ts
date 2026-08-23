@@ -6,7 +6,6 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { debugLog, errorLog } from '../utils/debug';
 import { jwtAuthMiddleware } from '../middleware/auth';
-import { KVCacheService } from '../services/kvCache';
 import { ensureForwardLogDeliveryColumns, sendWebhook } from '../services/webhook';
 import type { Env, ApiResponse, Email } from '../types';
 
@@ -27,22 +26,7 @@ dashboardRoutes.use('*', jwtAuthMiddleware);
  */
 dashboardRoutes.get('/stats', async (c) => {
     try {
-        const kvCache = new KVCacheService(c.env.KV);
-
-        // 1. 尝试从 KV 缓存获取
-        let stats = await kvCache.getDashboardStats();
-
-        if (stats) {
-            debugLog('[仪表板] 从缓存读取统计数据');
-            return c.json<ApiResponse>({
-                success: true,
-                data: { stats, cached: true }
-            });
-        }
-
-        debugLog('[仪表板] 缓存未命中，从数据库查询');
-
-        // 2. 从数据库查询邮件统计
+        // 从数据库查询邮件统计
         const emailTotal = await c.env.DB.prepare('SELECT COUNT(*) as count FROM emails').first() as { count: number } | null;
         const emailToday = await c.env.DB.prepare(`
             SELECT COUNT(*) as count FROM emails 
@@ -50,7 +34,7 @@ dashboardRoutes.get('/stats', async (c) => {
         `).first() as { count: number } | null;
         const emailUnread = await c.env.DB.prepare('SELECT COUNT(*) as count FROM emails WHERE is_read = 0').first() as { count: number } | null;
 
-        // 3. 从 KV 缓存或 R2 获取文件数量（分别统计邮件和附件）
+        // 2. 从 R2 获取文件数量(分别统计邮件和附件)
         let r2EmailCount = 0;
         let r2AttachmentCount = 0;
 
@@ -96,12 +80,12 @@ dashboardRoutes.get('/stats', async (c) => {
             r2AttachmentCount = 0;
         }
 
-        // 4. 查询转发日志统计
+        // 3. 查询转发日志统计
         const forwardSuccess = await c.env.DB.prepare('SELECT COUNT(*) as count FROM forward_logs WHERE status = 0').first() as { count: number } | null;
         const forwardFailed = await c.env.DB.prepare('SELECT COUNT(*) as count FROM forward_logs WHERE status = 1').first() as { count: number } | null;
         const forwardTotal = await c.env.DB.prepare('SELECT COUNT(*) as count FROM forward_logs').first() as { count: number } | null;
 
-        // 5. 获取最近转发日志（最近5条）
+        // 4. 获取最近转发日志(最近5条)
         const recentForwardLogs = await c.env.DB.prepare(`
             SELECT 
                 fl.id,
@@ -119,8 +103,8 @@ dashboardRoutes.get('/stats', async (c) => {
             LIMIT 5
         `).all();
 
-        // 6. 组装统计数据
-        stats = {
+        // 5. 组装统计数据
+        const stats = {
             email: {
                 total: emailTotal?.count || 0,
                 today: emailToday?.count || 0,
@@ -139,12 +123,9 @@ dashboardRoutes.get('/stats', async (c) => {
             timestamp: new Date().toISOString()
         };
 
-        // 7. 写入缓存（5分钟过期）
-        await kvCache.setDashboardStats(stats);
-
         return c.json<ApiResponse>({
             success: true,
-            data: { stats, cached: false }
+            data: { stats }
         });
     } catch (error) {
         errorLog('[仪表板] 获取统计数据失败:', error);
@@ -398,8 +379,6 @@ dashboardRoutes.delete('/forward-logs/:id', async (c) => {
             throw new HTTPException(404, { message: '转发日志不存在' });
         }
 
-        await new KVCacheService(c.env.KV).clearDashboardCache();
-
         return c.json<ApiResponse>({
             success: true,
             message: '转发日志已删除'
@@ -410,25 +389,6 @@ dashboardRoutes.delete('/forward-logs/:id', async (c) => {
         }
         errorLog('[转发日志] 删除失败:', error);
         throw new HTTPException(500, { message: '删除转发日志失败' });
-    }
-});
-
-/**
- * 清理仪表板缓存
- * DELETE /api/dashboard/cache
- */
-dashboardRoutes.delete('/cache', async (c) => {
-    try {
-        const kvCache = new KVCacheService(c.env.KV);
-        await kvCache.clearDashboardCache();
-
-        return c.json<ApiResponse>({
-            success: true,
-            message: '仪表板缓存已清理'
-        });
-    } catch (error) {
-        errorLog('[仪表板] 清理缓存失败:', error);
-        throw new HTTPException(500, { message: '清理缓存失败' });
     }
 });
 

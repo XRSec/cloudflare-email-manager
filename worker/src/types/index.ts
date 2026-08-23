@@ -9,7 +9,6 @@ export type {
     ScheduledEvent,
     D1Database,
     R2Bucket,
-    KVNamespace,
     Fetcher,
     SendEmail
 } from '@cloudflare/workers-types';
@@ -18,8 +17,7 @@ export type {
 export interface Env {
     DB: D1Database;
     R2: R2Bucket;
-    KV: KVNamespace; // Workers KV 存储
-    ASSETS?: Fetcher; // 静态资源绑定（本地 Vite 开发时不绑定）
+    ASSETS?: Fetcher; // 静态资源绑定(本地 Vite 开发时不绑定)
     EMAIL?: SendEmail; // Cloudflare Email Service 发信绑定
 }
 
@@ -161,10 +159,7 @@ export interface SystemConfig {
     // 其他配置字段
     cookie_max_age?: number;
     jwt_secret?: string;
-    // API频率限制配置
-    api_rate_limit?: number; // 1=启用, 0=禁用
-    api_rate_limit_max_requests?: number; // 每分钟最大请求数
-    timezone?: string; // IANA 时区，例如 Asia/Shanghai
+    timezone?: string; // IANA 时区,例如 Asia/Shanghai
     // 默认Webhook配置
     // 已支持的邮箱域名列表
     supported_emails?: string[];

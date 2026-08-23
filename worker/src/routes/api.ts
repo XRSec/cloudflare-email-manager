@@ -8,7 +8,6 @@ import { jwtAuthMiddleware } from '../middleware/auth';
 import { getPaginationParams } from '../config/constants';
 import { debugLog, errorLog } from '../utils/debug';
 import { handleR2ObjectCache, handleTextContentCache } from '../utils/cache';
-import { KVCacheService } from '../services/kvCache';
 import { retryR2Operation } from '../utils/retry';
 
 // 导入各个功能模块
@@ -39,15 +38,12 @@ import {
 } from '../services/email';
 import PostalMime from 'postal-mime';
 import { getSystemConfig } from '../services/settings';
-import { logForwardResult, sendWebhook } from '../services/webhook';
-import { bumpChangeSignals, getChangeSignals } from '../services/changeSignals';
+import { logForwardResult, sendWebhook, ensureRoutingRulesActionColumn } from '../services/webhook';
+import { bumpChangeSignals } from '../services/changeSignals';
 
 import type { Env, ApiResponse, EmailQueryParams, D1Database } from '../types';
 
 const api = new Hono<{ Bindings: Env }>();
-
-const EMAIL_LIST_CACHE_TTL = 300;
-const EMAIL_DETAIL_CACHE_TTL = 1800;
 
 type RouteParamContext = {
   req: {
@@ -61,34 +57,6 @@ function getRequiredParam(c: RouteParamContext, name: string, label: string): st
     throw new HTTPException(400, { message: `${label}不能为空` });
   }
   return value;
-}
-
-async function createStableHash(input: string): Promise<string> {
-  const data = new TextEncoder().encode(input);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
-    .slice(0, 24);
-}
-
-async function getEmailListCacheKey(params: EmailQueryParams, emailsVersion: number): Promise<string> {
-  const normalized = Object.entries(params)
-    .filter(([, value]) => value !== undefined && value !== null && value !== '')
-    .sort(([a], [b]) => a.localeCompare(b));
-
-  const query = new URLSearchParams();
-  for (const [key, value] of normalized) {
-    query.set(key, String(value));
-  }
-
-  const hash = await createStableHash(`display-v3:${query.toString()}`);
-  return `${KVCacheService.KEYS.EMAIL_LIST}:v${emailsVersion}:${hash}`;
-}
-
-async function getEmailDetailCacheKey(emailId: string, updatedAt?: string): Promise<string> {
-  const version = await createStableHash(`detail-v4:${updatedAt || 'unknown'}`);
-  return `${KVCacheService.KEYS.EMAIL_DETAIL}${emailId}:v${version}`;
 }
 
 function parseEmailHeaders(headersJson?: string | null): Record<string, string> {
@@ -311,27 +279,7 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
       order: c.req.query('order')?.trim() as 'asc' | 'desc' | undefined
     };
 
-    let kvCache: KVCacheService | null = null;
-    let cacheKey = '';
-    if (c.env.KV) {
-      try {
-        kvCache = new KVCacheService(c.env.KV);
-        const changes = await getChangeSignals(c.env.DB);
-        cacheKey = await getEmailListCacheKey(queryParams, changes.emails);
-        const cached = await kvCache.get<{ total: number; items: any[] }>(cacheKey);
-        if (cached) {
-          debugLog('[邮件列表] 从 KV 缓存读取:', cacheKey);
-          return c.json<ApiResponse>({
-            success: true,
-            data: cached
-          });
-        }
-      } catch (error) {
-        debugLog('[邮件列表] KV 缓存读取失败，降级到 D1:', error);
-      }
-    }
-
-    // 单用户模式：所有邮件都不绑定用户ID，直接查询所有邮件
+    // 单用户模式:所有邮件都不绑定用户ID,直接查询所有邮件
     const result = await getAllEmails(c.env.DB, queryParams);
 
     // 转换字段名以匹配前端期望的格式
@@ -352,17 +300,6 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
       groups: result.groups || [],
       hierarchyGroups: result.hierarchyGroups || []
     };
-
-    if (kvCache && cacheKey) {
-      c.executionCtx?.waitUntil((async () => {
-        try {
-          await kvCache.set(cacheKey, data, EMAIL_LIST_CACHE_TTL);
-          debugLog('[邮件列表] 写入 KV 缓存:', cacheKey);
-        } catch (error) {
-          errorLog('[邮件列表] 写入 KV 缓存失败:', error);
-        }
-      })());
-    }
 
     return c.json<ApiResponse>({
       success: true,
@@ -402,25 +339,6 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
       } catch (error) {
         debugLog('[邮件详情] 自动标记为已读失败:', error);
         // 不影响继续返回邮件详情
-      }
-    }
-
-    let kvCache: KVCacheService | null = null;
-    let cacheKey = '';
-    if (c.env.KV) {
-      try {
-        kvCache = new KVCacheService(c.env.KV);
-        cacheKey = await getEmailDetailCacheKey(emailId, email.updated_at);
-        const cached = await kvCache.get<any>(cacheKey);
-        if (cached) {
-          debugLog('[邮件详情] 从 KV 缓存读取:', cacheKey);
-          return c.json<ApiResponse>({
-            success: true,
-            data: cached
-          });
-        }
-      } catch (error) {
-        debugLog('[邮件详情] KV 缓存读取失败，降级到 D1/R2:', error);
       }
     }
 
@@ -546,17 +464,6 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
 
     debugLog(`[邮件详情] 最终返回的附件数量: ${emailData.attachments.length}`);
 
-    if (kvCache && cacheKey) {
-      c.executionCtx?.waitUntil((async () => {
-        try {
-          await kvCache.set(cacheKey, emailData, EMAIL_DETAIL_CACHE_TTL);
-          debugLog('[邮件详情] 写入 KV 缓存:', cacheKey);
-        } catch (error) {
-          errorLog('[邮件详情] 写入 KV 缓存失败:', error);
-        }
-      })());
-    }
-
     return c.json<ApiResponse>({
       success: true,
       data: emailData
@@ -575,12 +482,11 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
  * GET /api/emails/{id}/raw
  * 
  * @description
- * 支持三层缓存机制：
- * 1. 浏览器缓存（HTTP 缓存头）- ETag、Cache-Control、304 响应
- * 2. KV 缓存（后端缓存）- TTL 7天
- * 3. R2 存储（源数据）- 最终数据源
+ * 支持两层缓存机制:
+ * 1. 浏览器缓存(HTTP 缓存头)- ETag、Cache-Control、304 响应
+ * 2. R2 存储(源数据)- 最终数据源
  * 
- * 返回剔除附件后的完整邮件（RFC 822 格式，包含邮件头和正文）
+ * 返回剔除附件后的完整邮件(RFC 822 格式,包含邮件头和正文)
  */
 api.get('/emails/:id/raw', jwtAuthMiddleware, async (c) => {
   try {
@@ -594,38 +500,11 @@ api.get('/emails/:id/raw', jwtAuthMiddleware, async (c) => {
 
     let rawEmail: string | null = null;
 
-    // 如果有 KV，尝试从 KV 缓存读取
-    if (c.env.KV) {
-      const kvCache = new KVCacheService(c.env.KV);
-      const cacheKey = KVCacheService.getEmailRawKey(emailId);
-      rawEmail = await kvCache.get<string>(cacheKey);
-
-      if (rawEmail) {
-        debugLog(`[原始邮件] 从 KV 缓存读取: ${emailId}`);
-      } else {
-        debugLog(`[原始邮件] KV 缓存未命中，从 R2 读取: ${emailId}`);
-      }
-    }
-
-    // 如果 KV 中没有，从 R2 读取（带重试机制）
-    if (!rawEmail && c.env.R2) {
+    // 从 R2 读取(带重试机制)
+    if (c.env.R2) {
       rawEmail = await retryR2Operation(`读取原始邮件 ${emailId}`, async () => {
         return await getRawEmailFromR2(c.env.R2, email.id);
       });
-
-      // 如果从 R2 读取成功，写入 KV 缓存（异步，不阻塞响应）
-      if (rawEmail && c.env.KV) {
-        c.executionCtx?.waitUntil((async () => {
-          try {
-            const kvCache = new KVCacheService(c.env.KV);
-            const cacheKey = KVCacheService.getEmailRawKey(emailId);
-            await kvCache.set(cacheKey, rawEmail, KVCacheService.ATTACHMENT_CONFIG.TTL);
-            debugLog(`[原始邮件] 写入 KV 缓存成功: ${emailId}`);
-          } catch (err) {
-            errorLog(`[原始邮件] 写入 KV 缓存失败: ${emailId}`, err);
-          }
-        })());
-      }
     }
 
     // 如果 R2 中也没有
@@ -768,7 +647,7 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
         ? channelType
         : 'dingtalk';
       const result = await sendWebhook(url, email, (channel.channel_secret as string) || undefined, type);
-      await logForwardResult(c.env.DB, email.id, url, result, c.env.KV);
+      await logForwardResult(c.env.DB, email.id, url, result);
 
       return c.json<ApiResponse>({
         success: result.success,
@@ -872,7 +751,7 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
         await logForwardResult(c.env.DB, email.id, `mailto:${targetEmail}`, {
           success: true,
           responseCode: 200
-        }, c.env.KV, { from: fromAddress, to: targetEmail });
+        }, { from: fromAddress, to: targetEmail });
 
         await bumpChangeSignals(c.env.DB, ['emails', 'dashboard']);
 
@@ -896,7 +775,7 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
       await logForwardResult(c.env.DB, email.id, `mailto:${targetEmail}`, {
         success: true,
         responseCode: 200
-      }, c.env.KV, { from: targetFromAddress, to: targetEmail });
+      }, { from: targetFromAddress, to: targetEmail });
 
       const sentEmailId = crypto.randomUUID();
       const now = new Date().toISOString();
@@ -974,7 +853,7 @@ api.post('/emails/:id/forward', jwtAuthMiddleware, async (c) => {
       await logForwardResult(c.env.DB, email.id, `mailto:${targetEmail}`, {
         success: false,
         errorMessage: message
-      }, c.env.KV, { from: targetFromAddress || null, to: targetEmail });
+      }, { from: targetFromAddress || null, to: targetEmail });
       throw new HTTPException(502, { message });
     }
   } catch (error) {
@@ -1055,14 +934,9 @@ api.delete('/emails/:id', jwtAuthMiddleware, async (c) => {
  * GET /api/emails/{id}/attachments/{attachmentId}
  * 
  * @description
- * 支持三层缓存机制：
- * 1. 浏览器缓存（HTTP 缓存头）- ETag、Cache-Control、304 响应
- * 2. KV 缓存（后端缓存）- 只缓存 < 1MB 的附件，TTL 7天
- * 3. R2 存储（源数据）- 最终数据源
- * 
- * 缓存策略：
- * - 小文件（< 1MB）：浏览器缓存 + KV 缓存 + R2
- * - 大文件（≥ 1MB）：浏览器缓存 + R2
+ * 支持两层缓存机制:
+ * 1. 浏览器缓存(HTTP 缓存头)- ETag、Cache-Control、304 响应
+ * 2. R2 存储(源数据)- 最终数据源
  */
 api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
   try {
@@ -1085,10 +959,10 @@ api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) =>
 
     debugLog(`[下载附件] 附件ID: ${attachmentId}, 文件名: ${attachment.filename}, 大小: ${attachment.size_bytes} bytes`);
 
-    // 检查是否有 If-None-Match 头（条件请求）
+    // 检查是否有 If-None-Match 头(条件请求)
     const ifNoneMatch = c.req.header('If-None-Match');
     if (ifNoneMatch) {
-      debugLog(`[下载附件] 收到条件请求，If-None-Match: ${ifNoneMatch}`);
+      debugLog(`[下载附件] 收到条件请求,If-None-Match: ${ifNoneMatch}`);
     }
 
     // 判断 Content-Disposition
@@ -1097,38 +971,8 @@ api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) =>
       contentDisposition = `inline; filename="${encodeURIComponent(attachment.filename)}"`;
     }
 
-    let fileData: ArrayBuffer | ReadableStream;
-    let r2Object: any = null;
-
-    // 如果有 KV，尝试从 KV 缓存读取（只缓存小于 1MB 的附件）
-    if (c.env.KV && attachment.size_bytes < KVCacheService.ATTACHMENT_CONFIG.MAX_SIZE) {
-      const kvCache = new KVCacheService(c.env.KV);
-      const cacheKey = KVCacheService.getAttachmentKey(attachmentId);
-      const cached = await kvCache.getBinary(cacheKey);
-
-      if (cached) {
-        debugLog(`[下载附件] 从 KV 缓存读取: ${attachmentId}`);
-        fileData = cached.data;
-
-        // 使用缓存的元数据创建响应
-        return handleR2ObjectCache(c, {
-          body: fileData,
-          size: parseInt(cached.metadata.size || String(attachment.size_bytes)),
-          uploaded: attachment.updated_at || attachment.created_at,
-          etag: cached.metadata.etag
-        }, {
-          contentType: attachment.content_type,
-          contentDisposition,
-          identifier: attachmentId,
-          immutable: true
-        });
-      }
-
-      debugLog(`[下载附件] KV 缓存未命中，从 R2 读取: ${attachmentId}`);
-    }
-
-    // 从 R2 读取文件（带重试机制）
-    r2Object = await retryR2Operation(`读取附件 ${attachmentId}`, async () => {
+    // 从 R2 读取文件(带重试机制)
+    const r2Object = await retryR2Operation(`读取附件 ${attachmentId}`, async () => {
       return await c.env.R2.get(attachment.r2_key);
     });
     if (!r2Object) {
@@ -1141,38 +985,12 @@ api.get('/emails/:id/attachments/:attachmentId', jwtAuthMiddleware, async (c) =>
       throw new HTTPException(410, { message: '附件不存在或已删除' });
     }
 
-    // 如果有 KV 且文件小于 1MB，写入 KV 缓存（后台异步写入，不阻塞响应）
-    let bodyStream = r2Object.body;
-    if (c.env.KV && attachment.size_bytes < KVCacheService.ATTACHMENT_CONFIG.MAX_SIZE) {
-      // 克隆 stream 用于缓存
-      const [stream1, stream2] = r2Object.body.tee();
-      bodyStream = stream1;
-      fileData = stream1;
-
-      // 异步写入 KV 缓存（不等待完成）
-      c.executionCtx?.waitUntil((async () => {
-        try {
-          const kvCache = new KVCacheService(c.env.KV);
-          const cacheKey = KVCacheService.getAttachmentKey(attachmentId);
-          await kvCache.setBinary(cacheKey, stream2, {
-            contentType: attachment.content_type,
-            filename: attachment.filename,
-            etag: r2Object.etag || ''
-          });
-          debugLog(`[下载附件] 写入 KV 缓存成功: ${attachmentId}`);
-        } catch (err) {
-          errorLog(`[下载附件] 写入 KV 缓存失败: ${attachmentId}`, err);
-        }
-      })());
-    }
-
-    // 使用 HTTP 缓存处理，传入自定义 body
+    // 使用 HTTP 缓存处理
     return handleR2ObjectCache(c, r2Object, {
       contentType: attachment.content_type,
       contentDisposition,
       identifier: attachmentId,
-      immutable: true, // 附件内容不会改变
-      body: bodyStream // 传入 tee 后的 stream
+      immutable: true // 附件内容不会改变
     });
   } catch (error) {
     if (error instanceof HTTPException) {
@@ -1213,10 +1031,10 @@ api.get('/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
 
     debugLog(`[下载附件-简洁路径] 附件ID: ${attachmentId}, 文件名: ${attachment.filename}, 邮件ID: ${attachment.email_id}`);
 
-    // 检查是否有 If-None-Match 头（条件请求）
+    // 检查是否有 If-None-Match 头(条件请求)
     const ifNoneMatch = c.req.header('If-None-Match');
     if (ifNoneMatch) {
-      debugLog(`[下载附件-简洁路径] 收到条件请求，If-None-Match: ${ifNoneMatch}`);
+      debugLog(`[下载附件-简洁路径] 收到条件请求,If-None-Match: ${ifNoneMatch}`);
     }
 
     // 判断 Content-Disposition
@@ -1225,38 +1043,8 @@ api.get('/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
       contentDisposition = `inline; filename="${encodeURIComponent(attachment.filename)}"`;
     }
 
-    let fileData: ArrayBuffer | ReadableStream;
-    let r2Object: any = null;
-
-    // 如果有 KV，尝试从 KV 缓存读取（只缓存小于 1MB 的附件）
-    if (c.env.KV && attachment.size_bytes < KVCacheService.ATTACHMENT_CONFIG.MAX_SIZE) {
-      const kvCache = new KVCacheService(c.env.KV);
-      const cacheKey = KVCacheService.getAttachmentKey(attachmentId);
-      const cached = await kvCache.getBinary(cacheKey);
-
-      if (cached) {
-        debugLog(`[下载附件-简洁路径] 从 KV 缓存读取: ${attachmentId}`);
-        fileData = cached.data;
-
-        // 使用缓存的元数据创建响应
-        return handleR2ObjectCache(c, {
-          body: fileData,
-          size: parseInt(cached.metadata.size || String(attachment.size_bytes)),
-          uploaded: attachment.updated_at || attachment.created_at,
-          etag: cached.metadata.etag
-        }, {
-          contentType: attachment.content_type,
-          contentDisposition,
-          identifier: attachmentId,
-          immutable: true
-        });
-      }
-
-      debugLog(`[下载附件-简洁路径] KV 缓存未命中，从 R2 读取: ${attachmentId}`);
-    }
-
-    // 从 R2 读取文件（带重试机制）
-    r2Object = await retryR2Operation(`读取附件 ${attachmentId}`, async () => {
+    // 从 R2 读取文件(带重试机制)
+    const r2Object = await retryR2Operation(`读取附件 ${attachmentId}`, async () => {
       return await c.env.R2.get(attachment.r2_key);
     });
     if (!r2Object) {
@@ -1269,38 +1057,12 @@ api.get('/attachments/:attachmentId', jwtAuthMiddleware, async (c) => {
       throw new HTTPException(410, { message: '附件不存在或已删除' });
     }
 
-    // 如果有 KV 且文件小于 1MB，写入 KV 缓存（后台异步写入，不阻塞响应）
-    let bodyStream = r2Object.body;
-    if (c.env.KV && attachment.size_bytes < KVCacheService.ATTACHMENT_CONFIG.MAX_SIZE) {
-      // 克隆 stream 用于缓存
-      const [stream1, stream2] = r2Object.body.tee();
-      bodyStream = stream1;
-      fileData = stream1;
-
-      // 异步写入 KV 缓存（不等待完成）
-      c.executionCtx?.waitUntil((async () => {
-        try {
-          const kvCache = new KVCacheService(c.env.KV);
-          const cacheKey = KVCacheService.getAttachmentKey(attachmentId);
-          await kvCache.setBinary(cacheKey, stream2, {
-            contentType: attachment.content_type,
-            filename: attachment.filename,
-            etag: r2Object.etag || ''
-          });
-          debugLog(`[下载附件-简洁路径] 写入 KV 缓存成功: ${attachmentId}`);
-        } catch (err) {
-          errorLog(`[下载附件-简洁路径] 写入 KV 缓存失败: ${attachmentId}`, err);
-        }
-      })());
-    }
-
-    // 使用 HTTP 缓存处理，传入自定义 body
+    // 使用 HTTP 缓存处理
     return handleR2ObjectCache(c, r2Object, {
       contentType: attachment.content_type,
       contentDisposition,
       identifier: attachmentId,
-      immutable: true, // 附件内容不会改变
-      body: bodyStream // 传入 tee 后的 stream
+      immutable: true // 附件内容不会改变
     });
   } catch (error) {
     if (error instanceof HTTPException) {
@@ -1476,6 +1238,7 @@ const selectRoutingRows = async (db: D1Database) => {
       name,
       enabled,
       match_mode,
+      action,
       sender_pattern,
       recipient_pattern,
       subject_pattern,
@@ -1508,6 +1271,7 @@ const buildRoutingPayload = (rows: any[]) => {
     name: row.name || '',
     enabled: row.enabled === 1,
     matchMode: row.match_mode === 'any' ? 'any' : 'all',
+    action: row.action === 'ignore' ? 'ignore' : 'send',
     senderPattern: row.sender_pattern || '',
     recipientPattern: row.recipient_pattern || '',
     subjectPattern: row.subject_pattern || '',
@@ -1586,13 +1350,19 @@ const normalizeRoutingItem = (item: any) => {
   const targetChannelIds = category === 'webhook'
     ? (Array.isArray(item.targetChannelIds) ? item.targetChannelIds.map(Number).filter(Number.isInteger) : [])
     : [];
+  const action = category === 'webhook' && item.action === 'ignore' ? 'ignore' : 'send';
   const targetEmail = category === 'email_forward' && typeof item.targetEmail === 'string' ? item.targetEmail.trim() : '';
   const targetFromAddress = category === 'email_forward' && typeof item.targetFromAddress === 'string' ? item.targetFromAddress.trim() : '';
   const targetForwardType = category === 'email_forward' && ['internal', 'cf', 'resend'].includes(item.targetForwardType)
     ? item.targetForwardType
     : 'internal';
 
-  if (category === 'webhook' && targetChannelIds.length === 0) {
+  if (
+    category === 'webhook' &&
+    action === 'send' &&
+    (!item.isDefault || item.enabled !== false) &&
+    targetChannelIds.length === 0
+  ) {
     throw new HTTPException(400, { message: '至少选择一个 Webhook 通道' });
   }
   if (category === 'email_forward' && !targetEmail) {
@@ -1608,6 +1378,7 @@ const normalizeRoutingItem = (item: any) => {
     name,
     enabled: item.enabled === false ? 0 : 1,
     matchMode: item.matchMode === 'any' ? 'any' : 'all',
+    action,
     senderPattern: typeof item.senderPattern === 'string' ? item.senderPattern.trim() : '',
     recipientPattern: typeof item.recipientPattern === 'string' ? item.recipientPattern.trim() : '',
     subjectPattern: typeof item.subjectPattern === 'string' ? item.subjectPattern.trim() : '',
@@ -1633,6 +1404,7 @@ const routingItemColumns = [
   'name',
   'enabled',
   'match_mode',
+  'action',
   'sender_pattern',
   'recipient_pattern',
   'subject_pattern',
@@ -1653,6 +1425,7 @@ const buildRoutingItemValues = (item: NormalizedRoutingItem, targetChannelIds?: 
   item.name,
   item.enabled,
   item.matchMode,
+  item.action,
   item.senderPattern,
   item.recipientPattern,
   item.subjectPattern,
@@ -1730,6 +1503,7 @@ const saveRoutingItem = async (db: D1Database, item: NormalizedRoutingItem, targ
 
 api.post('/routing', jwtAuthMiddleware, async (c) => {
   try {
+    await ensureRoutingRulesActionColumn(c.env.DB);
     const body = await c.req.json().catch(() => ({}));
     const action = body.action || 'list';
 
@@ -1796,7 +1570,10 @@ api.post('/routing', jwtAuthMiddleware, async (c) => {
         ? normalizeRoutingItem({ ...config.defaultEmailForwardRule, category: 'email_forward', isDefault: true })
         : null;
 
-      if (channels.length === 0) {
+      const requiresWebhookChannel = Boolean(defaultWebhookRule?.enabled) || webhookRules.some(
+        (rule) => rule.enabled === 1 && rule.action === 'send'
+      );
+      if (channels.length === 0 && requiresWebhookChannel) {
         throw new HTTPException(400, { message: '至少保留一个 Webhook 通道' });
       }
 
@@ -1807,8 +1584,10 @@ api.post('/routing', jwtAuthMiddleware, async (c) => {
         }
       };
 
-      webhookRules.forEach((rule) => assertKnownChannelIds(rule.targetChannelIds));
-      if (defaultWebhookRule) {
+      webhookRules
+        .filter((rule) => rule.enabled === 1 && rule.action === 'send')
+        .forEach((rule) => assertKnownChannelIds(rule.targetChannelIds));
+      if (defaultWebhookRule && (defaultWebhookRule.enabled === 1 || defaultWebhookRule.targetChannelIds.length > 0)) {
         assertKnownChannelIds(defaultWebhookRule.targetChannelIds);
       }
 

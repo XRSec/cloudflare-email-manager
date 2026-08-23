@@ -8,7 +8,6 @@
 - Cloudflare Email Routing
 - D1
 - R2
-- KV
 - Vue 3
 - TypeScript
 - Vite
@@ -56,9 +55,9 @@ npm run init
 该命令会执行 `scripts/deploy.js`，主要流程：
 
 - 检查 Wrangler 登录状态
-- 创建或复用 D1、KV、R2
+- 创建或复用 D1、R2
 - 根据 `wrangler.example.toml` 生成或更新 `wrangler.toml`
-- 写入 D1/KV 资源 ID
+- 写入 D1 资源 ID
 - 初始化 `db/schema.sql`
 - 构建前端和后端
 - 部署 Worker
@@ -120,7 +119,7 @@ npm run deploy
 npm run build && npx wrangler deploy
 ```
 
-`npm run deploy` 不会创建 D1/KV/R2，也不会初始化数据库。首次部署或资源变更请使用 `npm run init`。
+`npm run deploy` 不会创建 D1/R2,也不会初始化数据库。首次部署或资源变更请使用 `npm run init`。
 
 ## Wrangler 配置
 
@@ -151,9 +150,6 @@ database_name = "cem-db"
 [[r2_buckets]]
 binding = "R2"
 bucket_name = "cem-r2"
-
-[[kv_namespaces]]
-binding = "KV"
 ```
 
 `[assets]` 放在顶层，确保部署到 `cem` Worker 时同一个 Worker 同时拥有前端静态资源和后端绑定。

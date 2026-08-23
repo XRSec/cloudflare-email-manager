@@ -326,7 +326,7 @@
           @selection-change="handleSelectionChange"
         />
 
-        <Pagination :pagination="pagination || undefined" @change-page="changePage" />
+        <Pagination :pagination="pagination || undefined" @change-page="changePage" @change-page-size="changePageSize" />
       </div>
     </div>
 
@@ -645,6 +645,9 @@ const buildApiParams = (rawFilters: EmailFiltersForm) => {
 
   if (filters.search) params.search = filters.search
   if (filters.status) params.status = filters.status
+  if (filters.recipientDomain) params.recipient_domain = filters.recipientDomain
+  if (filters.recipientMailbox) params.recipient_mailbox = filters.recipientMailbox
+  if (filters.senderMailbox) params.sender_mailbox = filters.senderMailbox
   if (filters.recipient) params.recipient = filters.recipient
   if (filters.sender) params.sender = filters.sender
   if (filters.subject) params.subject = filters.subject
@@ -704,6 +707,7 @@ const {
   pagination,
   refreshData,
   changePage,
+  changePageSize,
   setQueryParams
 } = usePaginatedPageData(1, 20, buildApiParams(initialFilters))
 

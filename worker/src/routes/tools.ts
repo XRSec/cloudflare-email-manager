@@ -12,16 +12,14 @@ import type { Env, ApiResponse } from '../types';
 
 // 导入子路由
 import { d1Routes } from './database';
-import { kvRouter } from './kv';
 
 const toolsRoutes = new Hono<{ Bindings: Env }>();
 
-// 所有路由需要认证（不再要求工具模式）
+// 所有路由需要认证(不再要求工具模式)
 toolsRoutes.use('*', jwtAuthMiddleware);
 
-// 挂载子路由（统一接口路径）
+// 挂载子路由(统一接口路径)
 toolsRoutes.route('/d1', d1Routes);
-toolsRoutes.route('/kv', kvRouter);
 
 const EMAIL_R2_KEY_PATTERN = /^email:([^/]+)\.eml$/;
 

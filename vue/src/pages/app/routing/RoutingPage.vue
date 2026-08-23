@@ -362,7 +362,7 @@
           </div>
 
           <Pagination v-if="logPagination.total > logPagination.limit" :pagination="logPagination"
-                      @change-page="changeLogPage"/>
+                      @change-page="changeLogPage" @change-page-size="changeLogPageSize"/>
         </article>
       </section>
     </div>
@@ -386,6 +386,14 @@
           <FormField v-model="ruleEditor.contentPattern" label="正文包含" type="text" placeholder="error"/>
 
           <div v-if="ruleEditor.category === 'webhook'" class="editor-wide form-group">
+            <label for="editor-action">策略</label>
+            <select id="editor-action" v-model="ruleEditor.action" class="form-control">
+              <option value="send">发送</option>
+              <option value="ignore">忽略</option>
+            </select>
+          </div>
+
+          <div v-if="ruleEditor.category === 'webhook' && ruleEditor.action === 'send'" class="editor-wide form-group">
             <label>引用通道</label>
             <div class="channel-reference-list">
               <button
@@ -401,7 +409,7 @@
             </div>
           </div>
 
-          <template v-else>
+          <template v-else-if="ruleEditor.category !== 'webhook'">
             <div class="form-group">
               <label for="editor-forward-type">转发方式</label>
               <select id="editor-forward-type" v-model="ruleEditor.targetForwardType" class="form-control">
@@ -732,6 +740,7 @@ type MatchMode = 'all' | 'any'
 type DefaultMode = 'always' | 'unmatched'
 type RuleCategory = 'webhook' | 'email_forward'
 type ForwardType = 'internal' | 'cf' | 'resend'
+type WebhookAction = 'send' | 'ignore'
 type MailChannelType = 'resend'
 
 interface WebhookChannel {
@@ -773,6 +782,7 @@ interface WebhookRule {
   name: string
   enabled: boolean
   matchMode: MatchMode
+  action: WebhookAction
   senderPattern: string
   recipientPattern: string
   subjectPattern: string
@@ -809,6 +819,7 @@ interface SavedRoutingRule {
   name: string
   enabled: boolean
   matchMode: MatchMode
+  action?: WebhookAction
   senderPattern: string
   recipientPattern: string
   subjectPattern: string
@@ -845,6 +856,7 @@ interface RuleEditorState {
   name: string
   enabled: boolean
   matchMode: MatchMode
+  action: WebhookAction
   senderPattern: string
   recipientPattern: string
   subjectPattern: string
@@ -1003,6 +1015,7 @@ function createEmptyRuleEditor(category: RuleCategory): RuleEditorState {
     name: '',
     enabled: true,
     matchMode: 'all',
+    action: 'send',
     senderPattern: '',
     recipientPattern: '',
     subjectPattern: '',
@@ -1245,6 +1258,7 @@ const normalizeWebhookRule = (rule: WebhookRule): WebhookRule => ({
   name: rule.name || '',
   enabled: Boolean(rule.enabled),
   matchMode: rule.matchMode === 'any' ? 'any' : 'all',
+  action: rule.action === 'ignore' ? 'ignore' : 'send',
   senderPattern: rule.senderPattern || '',
   recipientPattern: rule.recipientPattern || '',
   subjectPattern: rule.subjectPattern || '',
@@ -1412,7 +1426,10 @@ const buildDefaultEmailForwardPayload = () => ({
 
 const validateRoutingConfig = () => {
   const channels = normalizeWebhookChannels(webhookChannels.value)
-  if (channels.length === 0) {
+  const requiresWebhookChannel = defaultWebhookEnabled.value || webhookRules.value.some(
+    (rule) => rule.enabled && rule.action === 'send'
+  )
+  if (channels.length === 0 && requiresWebhookChannel) {
     throw new Error('至少保留一个 Webhook 通道')
   }
 
@@ -1426,8 +1443,12 @@ const validateRoutingConfig = () => {
     }
   }
 
-  ensureKnownChannels(defaultWebhookChannelIds.value)
-  webhookRules.value.forEach((rule) => ensureKnownChannels(rule.targetChannelIds))
+  if (defaultWebhookEnabled.value || defaultWebhookChannelIds.value.length > 0) {
+    ensureKnownChannels(defaultWebhookChannelIds.value)
+  }
+  webhookRules.value
+    .filter((rule) => rule.enabled && rule.action === 'send')
+    .forEach((rule) => ensureKnownChannels(rule.targetChannelIds))
 
   if (!emailForwardDefault.value.targetEmail.trim()) {
     throw new Error('默认收件人不能为空')
@@ -1667,6 +1688,7 @@ const openEditRule = (rule: WebhookRule | EmailForwardRule) => {
       name: rule.name,
       enabled: rule.enabled,
       matchMode: rule.matchMode,
+      action: rule.action === 'ignore' ? 'ignore' : 'send',
       senderPattern: rule.senderPattern,
       recipientPattern: rule.recipientPattern,
       subjectPattern: rule.subjectPattern,
@@ -1683,6 +1705,7 @@ const openEditRule = (rule: WebhookRule | EmailForwardRule) => {
       name: rule.name,
       enabled: rule.enabled,
       matchMode: rule.matchMode,
+      action: 'send',
       senderPattern: rule.senderPattern,
       recipientPattern: rule.recipientPattern,
       subjectPattern: rule.subjectPattern,
@@ -1717,8 +1740,8 @@ const saveRuleEditor = async () => {
     return
   }
 
-  if (ruleEditor.value.category === 'webhook' && ruleEditor.value.targetChannelIds.length === 0) {
-    toast.error('至少选择一个通道')
+  if (ruleEditor.value.category === 'webhook' && ruleEditor.value.action === 'send' && ruleEditor.value.targetChannelIds.length === 0) {
+    toast.error('发送规则至少需要选择一个通道')
     return
   }
 
@@ -1742,6 +1765,7 @@ const saveRuleEditor = async () => {
       name: ruleEditor.value.name.trim(),
       enabled: ruleEditor.value.enabled,
       matchMode: ruleEditor.value.matchMode,
+      action: ruleEditor.value.action,
       senderPattern: ruleEditor.value.senderPattern.trim(),
       recipientPattern: ruleEditor.value.recipientPattern.trim(),
       subjectPattern: ruleEditor.value.subjectPattern.trim(),
@@ -1909,6 +1933,11 @@ const changeLogPage = async (page: number) => {
   await loadForwardLogs(page)
 }
 
+const changeLogPageSize = async (limit: number) => {
+  logPagination.value.limit = limit
+  await loadForwardLogs(1)
+}
+
 const formatChannelNames = (channelIds: number[]) => {
   const names = channelIds
       .map((id) => webhookChannels.value.find((channel) => channel.id === id)?.name)
@@ -1964,7 +1993,11 @@ const getLogDeliveryTargetLabel = (log: any) => log.webhook_url?.startsWith('mai
 const matchModeLabel = (mode: MatchMode) => mode === 'all' ? '全部条件匹配' : '任一条件匹配'
 
 const getRuleConditionChips = (rule: WebhookRule | EmailForwardRule) => {
-  const chips: string[] = [matchModeLabel(rule.matchMode)]
+  const chips: string[] = []
+  if ('targetChannelIds' in rule && rule.action === 'ignore') {
+    chips.push('策略：忽略')
+  }
+  chips.push(matchModeLabel(rule.matchMode))
   if (rule.senderPattern) chips.push(`发件人含 ${rule.senderPattern}`)
   if (rule.recipientPattern) chips.push(`收件人含 ${rule.recipientPattern}`)
   if (rule.subjectPattern) chips.push(`主题含 ${rule.subjectPattern}`)

@@ -11,8 +11,7 @@ import { HTTPException } from 'hono/http-exception';
 import { initDebugMode } from './utils/debug';
 import { initializeSystemSettings, getSystemConfig } from './services/settings';
 import { jwtAuthMiddleware } from './middleware/auth';
-import { rateLimitMiddleware } from './middleware/rate-limit';
-// 动态配置生成已移除，前端独立处理配置
+// 动态配置生成已移除,前端独立处理配置
 
 // 路由模块
 import { api } from './routes/api';
@@ -74,9 +73,6 @@ app.use('*', async (c, next) => {
 
     await next();
 });
-
-// API频率限制中间件（在缓存头之前应用，以便在限制时也能设置响应头）
-app.use('*', rateLimitMiddleware);
 
 // 全局缓存头中间件
 app.use('*', async (c, next) => {
@@ -344,7 +340,6 @@ export default {
         debugLog('邮件接收', '环境变量检查:');
         debugLog('邮件接收', '- DB 存在:', !!env.DB);
         debugLog('邮件接收', '- R2 存在:', !!env.R2);
-        debugLog('邮件接收', '- KV 存在:', !!env.KV);
         debugLog('邮件接收', '==================================================');
 
         await initDebugMode(env);

@@ -7,7 +7,6 @@ import { createEmail, saveRawEmailToR2, extractHeadersFromRawEmail, extractTextF
 import { handleEmailForwarding } from '../services/webhook';
 import { getSystemSetting } from '../services/settings';
 import { bumpChangeSignals } from '../services/changeSignals';
-import { KVCacheService } from '../services/kvCache';
 import { retryR2Operation } from '../utils/retry';
 import { buildVerificationCodePreview } from '../utils/verificationCode';
 import type { Env, Email } from '../types';
@@ -589,11 +588,6 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
         // 邮件入库成功后立即发布变更信号，避免后续 R2/转发步骤异常导致前端感知不到新邮件。
         try {
             await bumpChangeSignals(env.DB, ['emails', 'dashboard']);
-
-            if (env.KV) {
-                const kvCache = new KVCacheService(env.KV);
-                await kvCache.clearDashboardCache();
-            }
 
             debugLog('[步骤5] 邮件变更信号已更新');
         } catch (error) {

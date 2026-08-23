@@ -149,7 +149,8 @@ CREATE TABLE IF NOT EXISTS routing_rules (
     recipient_pattern TEXT DEFAULT '',
     subject_pattern TEXT DEFAULT '',
     content_pattern TEXT DEFAULT '',
-    target_channel_ids TEXT DEFAULT '[]', -- Webhook通道ID列表（JSON数组）
+    action TEXT DEFAULT 'send' CHECK(action IN ('send','ignore')), -- Webhook规则动作: send=发送, ignore=忽略(命中则该邮件的Webhook不发送)
+    target_channel_ids TEXT DEFAULT '[]', -- Webhook通道ID列表(JSON数组)
     target_email TEXT DEFAULT '', -- 邮件转发目标邮箱
     target_from_address TEXT DEFAULT '', -- CF/Resend 转发发件人
     target_forward_type TEXT DEFAULT 'internal' CHECK(target_forward_type IN ('internal','cf','resend')), -- 邮件转发方式
@@ -230,8 +231,6 @@ INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
 ('max_attachment_size', '52428800', '最大附件大小（50MB）'),
 ('cookie_max_age', '172800', 'Cookie过期时间（秒，48小时）'),
 ('debug_mode', '0', '调试模式开关 (1=开启, 0=关闭)'),
-('api_rate_limit', '0', 'API访问频率限制开关 (1=启用, 0=禁用)'),
-('api_rate_limit_max_requests', '100', '每分钟最大请求数（10-10000）'),
 ('timezone', 'Asia/Shanghai', '系统显示时区（IANA时区）'),
 ('supported_emails', '["example.com", "example.dev"]', '已支持的邮箱域名列表（JSON数组）');
 

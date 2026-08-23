@@ -53,10 +53,6 @@ export interface SystemHealth {
                     status: number
                     provider: number
                 }
-                kv: {
-                    status: number
-                    provider: number
-                }
             }
             config: {
                 allow_registration: number
@@ -89,8 +85,6 @@ export interface SystemConfig {
     attachment_max_size?: number
     cookie_max_age?: number
     jwt_secret?: string
-    api_rate_limit?: number
-    api_rate_limit_max_requests?: number
     timezone?: string
     supported_emails?: string[]
 }

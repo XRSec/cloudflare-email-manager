@@ -155,17 +155,16 @@ export function handleR2ObjectCache(
     options: {
         contentType: string;
         contentDisposition?: string;
-        identifier: string; // 唯一标识符（用于生成 ETag）
+        identifier: string; // 唯一标识符(用于生成 ETag)
         immutable?: boolean;
-        body?: ReadableStream; // 可选的自定义 body（用于 tee 后的 stream）
     }
 ): Response {
-    const { contentType, contentDisposition, identifier, immutable = true, body } = options;
+    const { contentType, contentDisposition, identifier, immutable = true } = options;
 
     // R2 对象的 uploaded 时间作为 lastModified
     const lastModified = r2Object.uploaded ? new Date(r2Object.uploaded) : undefined;
 
-    // 生成 ETag（使用 R2 的 etag 或自己生成）
+    // 生成 ETag(使用 R2 的 etag 或自己生成)
     const etag = r2Object.etag
         ? `"${r2Object.etag}"`
         : generateETag(identifier, lastModified?.toISOString());
@@ -175,8 +174,8 @@ export function handleR2ObjectCache(
         return createNotModifiedResponse(etag, lastModified);
     }
 
-    // 返回带缓存头的完整响应，使用自定义 body 或原始 body
-    return createCachedResponse((body || r2Object.body) as any, {
+    // 返回带缓存头的完整响应
+    return createCachedResponse(r2Object.body, {
         contentType,
         contentDisposition,
         contentLength: r2Object.size,

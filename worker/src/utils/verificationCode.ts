@@ -14,7 +14,8 @@ export function buildVerificationCodePreview(text: string): string | null {
     if (!normalized) return null;
 
     const patterns = [
-        new RegExp(`(?:${VERIFICATION_CODE_LABEL})[\\s]*(?:is|为|是)?[\\s]*[:：=-]?[\\s]*(${CODE_VALUE})\\b`, 'i'),
+        new RegExp(`(?:${VERIFICATION_CODE_LABEL})[^:：\\r\\n]{0,24}[:：=-][\\s]*(${CODE_VALUE})\\b`, 'i'),
+        new RegExp(`(?:${VERIFICATION_CODE_LABEL})[\\s]*(?:is|为|是)?[\\s]*(${CODE_VALUE})\\b`, 'i'),
         new RegExp(`\\b(${CODE_VALUE})[\\s]*(?:is|为|是)[\\s]*(?:your|the|您的|你的)?[\\s]*(?:${VERIFICATION_CODE_LABEL})`, 'i')
     ];
 

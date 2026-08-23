@@ -131,7 +131,7 @@ async function buildBackend() {
 }
 
 // ================== 📝 配置文件更新 ==================
-function updateWranglerToml(dbId, kvId) {
+function updateWranglerToml(dbId) {
     const wranglerPath = join(projectRoot, 'wrangler.toml');
     const examplePath = join(projectRoot, 'wrangler.example.toml');
 
@@ -156,14 +156,7 @@ function updateWranglerToml(dbId, kvId) {
             log("warn", "⚠️ 生产环境 D1 数据库配置不存在，跳过更新");
         }
 
-        // 更新生产环境 KV 命名空间 ID
-        if (config.kv_namespaces?.[0]) {
-            config.kv_namespaces[0].id = kvId;
-        } else {
-            log("warn", "⚠️ 生产环境 KV 命名空间配置不存在，跳过更新");
-        }
-
-        log("info", `🔧 更新生产环境配置: D1=${dbId}, KV=${kvId}`);
+        log("info", `🔧 更新生产环境配置: D1=${dbId}`);
 
         // 将配置写回文件
         const updatedTomlContent = stringify(config);
@@ -172,8 +165,7 @@ function updateWranglerToml(dbId, kvId) {
         // 验证更新是否成功
         const verifyConfig = parse(updatedTomlContent);
         const prodDbId = verifyConfig.d1_databases?.[0]?.database_id;
-        const prodKvId = verifyConfig.kv_namespaces?.[0]?.id;
-        if (prodDbId === dbId && prodKvId === kvId) {
+        if (prodDbId === dbId) {
             log("success", `✅ 已更新 wrangler.toml`);
         } else {
             log("error", `❌ 配置更新验证失败`);
@@ -215,7 +207,6 @@ async function deploy() {
 function deleteAll() {
     log("warn", "🗑️ 删除所有 Cloudflare 资源...");
     run(`for name in $(wrangler d1 list --json | jq -r '.[].name'); do wrangler d1 delete "$name" -y; done`, "inherit");
-    run(`for id in $(wrangler kv namespace list | jq -r '.[].id'); do wrangler kv namespace delete --namespace-id "$id"; done`, "inherit");
     run(`for name in $(wrangler r2 bucket list | awk '/^name:/ {print $2}'); do wrangler r2 bucket delete "$name"; done`, "inherit");
     log("success", "✅ 所有资源已删除");
     process.exit(0);
@@ -247,18 +238,16 @@ async function main() {
         }
 
         const DB_NAME = 'cem-db';
-        const KV_NAME = 'cem-kv';
         const BUCKET_NAME = 'cem-r2';
 
         // 创建资源
         log("info", "📦 创建 / 获取资源...");
         const dbId = createOrGetResource("d1", DB_NAME);
-        const kvId = createOrGetResource("kv namespace", KV_NAME);
         createOrGetResource("r2 bucket", BUCKET_NAME);
 
         // 更新配置文件
         log("info", "📝 更新 wrangler.toml ...");
-        updateWranglerToml(dbId, kvId);
+        updateWranglerToml(dbId);
 
         // 初始化数据库
         log("info", "🗄️ 初始化数据库结构 (schema.sql)...");
@@ -281,7 +270,6 @@ async function main() {
         // 完成信息
         log("info", "📋 部署信息:");
         log("info", `  D1 数据库 ID: ${dbId}`);
-        log("info", `  KV 命名空间 ID: ${kvId}`);
         log("info", `  R2 存储桶: ${BUCKET_NAME}\n`);
         log("warn", "重要提醒:");
         log("info", "1. 请在 Cloudflare 控制台配置邮件路由");

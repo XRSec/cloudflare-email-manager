@@ -24,10 +24,8 @@ export const SYSTEM_DEFAULTS = {
     ADMIN_EMAIL: '',                        // 可选
 
     // 系统
-    // 注意：所有开关配置统一使用数字 1/0（1=启用/开启，0=禁用/关闭）
+    // 注意:所有开关配置统一使用数字 1/0(1=启用/开启,0=禁用/关闭)
     DEBUG_MODE: 0,                          // 调试模式 (1=开启, 0=关闭)
-    API_RATE_LIMIT: 0,                      // API访问频率限制 (1=启用, 0=禁用)
-    API_RATE_LIMIT_MAX_REQUESTS: 100,       // 每分钟最大请求数
     TIMEZONE: 'Asia/Shanghai',              // 默认显示时区
 
     // 分页
@@ -69,11 +67,6 @@ export const CONFIG_VALIDATION = {
         min: 1,
         max: 100,
         error: '每页数量必须在 1-100 之间'
-    },
-    API_RATE_LIMIT_MAX_REQUESTS: {
-        min: 10,
-        max: 10000,
-        error: '每分钟最大请求数必须在 10-10000 之间'
     }
 } as const;
 
@@ -125,18 +118,10 @@ export function validateConfigValue(key: string, value: any): { valid: boolean; 
 
         case 'allow_registration':
         case 'debug_mode':
-        case 'api_rate_limit':
-            // 统一使用数字格式：1=启用/开启，0=禁用/关闭
+            // 统一使用数字格式:1=启用/开启,0=禁用/关闭
             const numValue = parseInt(value);
             if (isNaN(numValue) || (numValue !== 0 && numValue !== 1)) {
                 return { valid: false, error: `${key} 必须是 0 或 1` };
-            }
-            break;
-
-        case 'api_rate_limit_max_requests':
-            const maxRequests = parseInt(value);
-            if (isNaN(maxRequests) || maxRequests < CONFIG_VALIDATION.API_RATE_LIMIT_MAX_REQUESTS.min || maxRequests > CONFIG_VALIDATION.API_RATE_LIMIT_MAX_REQUESTS.max) {
-                return { valid: false, error: CONFIG_VALIDATION.API_RATE_LIMIT_MAX_REQUESTS.error };
             }
             break;
 

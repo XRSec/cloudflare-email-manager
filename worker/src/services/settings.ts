@@ -73,8 +73,6 @@ export async function initializeSystemSettings(db: D1Database): Promise<void> {
             'max_attachment_size': String(SYSTEM_DEFAULTS.MAX_ATTACHMENT_SIZE),
             'cookie_max_age': String(SYSTEM_DEFAULTS.COOKIE_MAX_AGE),
             'debug_mode': String(SYSTEM_DEFAULTS.DEBUG_MODE),
-            'api_rate_limit': String(SYSTEM_DEFAULTS.API_RATE_LIMIT),
-            'api_rate_limit_max_requests': String(SYSTEM_DEFAULTS.API_RATE_LIMIT_MAX_REQUESTS),
             'supported_emails': JSON.stringify(SYSTEM_DEFAULTS.SUPPORTED_EMAILS),
             'timezone': SYSTEM_DEFAULTS.TIMEZONE,
         };
@@ -182,8 +180,6 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
 
         // 可选配置项
         const debugMode = parseInt(getOptionalSetting('debug_mode', String(SYSTEM_DEFAULTS.DEBUG_MODE))) === 1;
-        const apiRateLimit = parseInt(getOptionalSetting('api_rate_limit', String(SYSTEM_DEFAULTS.API_RATE_LIMIT))) === 1;
-        const apiRateLimitMaxRequests = parseInt(getOptionalSetting('api_rate_limit_max_requests', String(SYSTEM_DEFAULTS.API_RATE_LIMIT_MAX_REQUESTS)));
         const timezone = getOptionalSetting('timezone', SYSTEM_DEFAULTS.TIMEZONE);
 
         // 附件保留天数
@@ -203,8 +199,6 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
             debug_mode: debugMode ? 1 : 0,
             cookie_max_age: cookieMaxAge,
             jwt_secret: maskedJWTSecret, // 显示前后各四位
-            api_rate_limit: apiRateLimit ? 1 : 0,
-            api_rate_limit_max_requests: apiRateLimitMaxRequests,
             supported_emails: supportedDomains,
             timezone
         };
@@ -235,14 +229,6 @@ export async function updateSystemConfig(db: D1Database, config: Partial<SystemC
 
     if (config.debug_mode !== undefined) {
         updates.push({ key: 'debug_mode', value: config.debug_mode.toString() });
-    }
-
-    if (config.api_rate_limit !== undefined) {
-        updates.push({ key: 'api_rate_limit', value: config.api_rate_limit.toString() });
-    }
-
-    if (config.api_rate_limit_max_requests !== undefined) {
-        updates.push({ key: 'api_rate_limit_max_requests', value: config.api_rate_limit_max_requests.toString() });
     }
 
     if (config.timezone !== undefined) {

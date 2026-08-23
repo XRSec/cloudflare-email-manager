@@ -70,8 +70,6 @@ const formData = ref({
   allowUserRegistration: false,
   requireEmailVerification: false,
   debugMode: false,
-  apiRateLimit: false,
-  apiRateLimitMaxRequests: 100,
   sessionTimeout: 60,
   timezone: 'Asia/Shanghai',
   supportedDomains: [] as string[]
@@ -135,20 +133,6 @@ const settingsSections = computed(() => [
         key: 'debugMode',
         label: '启用调试模式',
         type: 'checkbox' as const
-      },
-      {
-        key: 'apiRateLimit',
-        label: '启用API访问频率限制',
-        type: 'checkbox' as const
-      },
-      {
-        key: 'apiRateLimitMaxRequests',
-        label: '每分钟最大请求数',
-        type: 'number' as const,
-        min: 10,
-        max: 10000,
-        required: false,
-        help: '范围：10-10000，默认：100。表示每分钟允许的最大请求数'
       },
       {
         key: 'sessionTimeout',
@@ -235,8 +219,6 @@ watch(data, (newData) => {
       allowUserRegistration: parseEnabledFlag(config.allow_registration) || parseEnabledFlag(config.allow_user_registration),
       requireEmailVerification: parseEnabledFlag(config.require_email_verification),
       debugMode: parseEnabledFlag(config.debug_mode),
-      apiRateLimit: parseEnabledFlag(config.api_rate_limit),
-      apiRateLimitMaxRequests: config.api_rate_limit_max_requests || 100,
       sessionTimeout: config.cookie_max_age ? Math.floor(config.cookie_max_age / 60) : (config.session_timeout || 60),
       timezone: config.timezone || 'Asia/Shanghai',
       supportedDomains: parseSupportedDomains(config.supported_emails)
@@ -264,14 +246,6 @@ const saveSettings = async (settingsData: any) => {
 
     if (settingsData.debugMode !== undefined) {
       updateData.debug_mode = settingsData.debugMode ? 1 : 0
-    }
-
-    if (settingsData.apiRateLimit !== undefined) {
-      updateData.api_rate_limit = settingsData.apiRateLimit ? 1 : 0
-    }
-
-    if (settingsData.apiRateLimitMaxRequests !== undefined) {
-      updateData.api_rate_limit_max_requests = settingsData.apiRateLimitMaxRequests
     }
 
     if (settingsData.timezone !== undefined) {

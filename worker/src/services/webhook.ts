@@ -33,7 +33,6 @@ import { retryD1Operation } from '../utils/retry';
 import { buildForwardedEmailBody, copyEmailAttachments, createEmail, saveRawEmailToR2, sendEmail } from './email';
 import { getSystemConfig } from './settings';
 import { bumpChangeSignals } from './changeSignals';
-import { KVCacheService } from './kvCache';
 import type { Email, Env, ForwardLog, D1Database } from '../types';
 import { WEBHOOK_STATUS } from '../shared/constants';
 import { buildFeishuWebhookPayload } from '../utils/feishuWebhook';
@@ -51,6 +50,7 @@ type WebhookRoutingRule = {
     id: number;
     enabled: boolean;
     matchMode: 'all' | 'any';
+    action: 'send' | 'ignore';
     senderPattern: string;
     recipientPattern: string;
     subjectPattern: string;
@@ -203,7 +203,7 @@ function replaceVariablesInObject(obj: any, email: Email): any {
         // 对象：递归处理每个属性
         const result: any = {};
         for (const key in obj) {
-            if (obj.hasOwnProperty(key)) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
                 result[key] = replaceVariablesInObject(obj[key], email);
             }
         }
@@ -354,22 +354,33 @@ export async function handleEmailForwarding(email: Email, userId: number | null,
             const defaultRule = rules.find((rule) => rule.isDefault && rule.enabled);
             const matchedChannelIds = new Set<number>();
 
-            rules
-                .filter((rule) => !rule.isDefault && rule.enabled && matchesRoutingRule(email, rule))
-                .flatMap((rule) => rule.targetChannelIds)
-                .forEach((channelId) => matchedChannelIds.add(channelId));
+            const ignored = rules.some((rule) => (
+                !rule.isDefault && rule.enabled && rule.action === 'ignore' && matchesRoutingRule(email, rule)
+            ));
+            const alwaysSendDefault = defaultRule?.defaultMode === 'always';
 
-            if (defaultRule) {
-                const shouldUseDefault = defaultRule.defaultMode === 'always' || matchedChannelIds.size === 0;
-                if (shouldUseDefault) {
+            if (alwaysSendDefault) {
+                defaultRule.targetChannelIds.forEach((channelId) => matchedChannelIds.add(channelId));
+            }
+
+            if (!ignored) {
+                rules
+                    .filter((rule) => !rule.isDefault && rule.enabled && rule.action === 'send' && matchesRoutingRule(email, rule))
+                    .flatMap((rule) => rule.targetChannelIds)
+                    .forEach((channelId) => matchedChannelIds.add(channelId));
+
+                if (defaultRule && defaultRule.defaultMode === 'unmatched' && matchedChannelIds.size === 0) {
                     defaultRule.targetChannelIds.forEach((channelId) => matchedChannelIds.add(channelId));
                 }
             }
 
             const targetChannels = channels.filter((channel) => matchedChannelIds.has(channel.id));
-            if (targetChannels.length === 0) {
+            if (ignored && !alwaysSendDefault) {
                 const { debugLog } = await import('../utils/debug');
-                debugLog('Webhook', '没有命中的 Webhook 通道，跳过发送');
+                debugLog('Webhook', '命中忽略规则,该邮件不发送 Webhook');
+            } else if (targetChannels.length === 0) {
+                const { debugLog } = await import('../utils/debug');
+                debugLog('Webhook', '没有命中的 Webhook 通道,跳过发送');
             } else {
                 const { debugLog } = await import('../utils/debug');
                 debugLog('Webhook', `发送 ${targetChannels.length} 个 Webhook 通道`);
@@ -381,7 +392,7 @@ export async function handleEmailForwarding(email: Email, userId: number | null,
                         channel.secret || undefined,
                         channel.type
                     );
-                    await logForwardResult(db, email.id, channel.url, result, env?.KV);
+                    await logForwardResult(db, email.id, channel.url, result);
                 }
             }
         }
@@ -396,11 +407,13 @@ export async function handleEmailForwarding(email: Email, userId: number | null,
 }
 
 async function loadWebhookRules(db: D1Database): Promise<WebhookRoutingRule[]> {
+    await ensureRoutingRulesActionColumn(db);
     const result = await db.prepare(`
         SELECT
             id,
             enabled,
             match_mode,
+            action,
             sender_pattern,
             recipient_pattern,
             subject_pattern,
@@ -416,6 +429,7 @@ async function loadWebhookRules(db: D1Database): Promise<WebhookRoutingRule[]> {
         id: Number(row.id),
         enabled: row.enabled === 1,
         matchMode: row.match_mode === 'any' ? 'any' : 'all',
+        action: row.action === 'ignore' ? 'ignore' : 'send',
         senderPattern: row.sender_pattern || '',
         recipientPattern: row.recipient_pattern || '',
         subjectPattern: row.subject_pattern || '',
@@ -632,7 +646,7 @@ async function forwardEmailByRule(email: Email, rule: EmailForwardRoutingRule, d
             await logForwardResult(db, email.id, `mailto:${targetEmail}`, {
                 success: true,
                 responseCode: 200
-            }, env.KV, { from: fromAddress, to: targetEmail });
+            }, { from: fromAddress, to: targetEmail });
             await bumpChangeSignals(db, ['emails', 'dashboard']);
             return;
         }
@@ -712,14 +726,14 @@ async function forwardEmailByRule(email: Email, rule: EmailForwardRoutingRule, d
         await logForwardResult(db, email.id, `mailto:${targetEmail}`, {
             success: true,
             responseCode: 200
-        }, env.KV, { from: targetFromAddress, to: targetEmail });
+        }, { from: targetFromAddress, to: targetEmail });
         await bumpChangeSignals(db, ['emails', 'dashboard']);
     } catch (error) {
         const message = error instanceof Error ? error.message : '邮件转发失败';
         await logForwardResult(db, email.id, `mailto:${targetEmail}`, {
             success: false,
             errorMessage: message
-        }, env.KV, { from: targetFromAddress || null, to: targetEmail });
+        }, { from: targetFromAddress || null, to: targetEmail });
     }
 }
 
@@ -731,7 +745,6 @@ export async function logForwardResult(
     emailId: string,
     webhookUrl: string,
     result: { success: boolean; responseCode?: number; errorMessage?: string },
-    kv?: any,
     delivery?: { from?: string | null; to?: string | null }
 ): Promise<void> {
     try {
@@ -755,9 +768,6 @@ export async function logForwardResult(
             ).run();
         });
         await bumpChangeSignals(db, ['forward_logs', 'dashboard']);
-        if (kv) {
-            await new KVCacheService(kv).clearDashboardCache();
-        }
     } catch (error) {
         const { errorLog } = await import('../utils/debug');
         errorLog('Webhook', '记录转发日志失败:', error);
@@ -786,4 +796,29 @@ export async function ensureForwardLogDeliveryColumns(db: D1Database): Promise<v
     }
 
     forwardLogDeliveryColumnsReady = true;
+}
+
+let routingRulesActionColumnReady = false;
+
+/**
+ * 确保 routing_rules 表存在 action 列(Webhook 规则的动作: send/ignore)
+ * 对已存在的线上数据库执行 ALTER TABLE 迁移;新库由 db/schema.sql 直接创建
+ */
+export async function ensureRoutingRulesActionColumn(db: D1Database): Promise<void> {
+    if (routingRulesActionColumnReady) {
+        return;
+    }
+
+    try {
+        await db.prepare(
+            `ALTER TABLE routing_rules ADD COLUMN action TEXT DEFAULT 'send'`
+        ).run();
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.toLowerCase().includes('duplicate column')) {
+            throw error;
+        }
+    }
+
+    routingRulesActionColumnReady = true;
 }
