@@ -476,14 +476,29 @@ function matchesRoutingRule(
     email: Email,
     rule: Pick<EmailForwardRoutingRule | WebhookRoutingRule, 'matchMode' | 'senderPattern' | 'recipientPattern' | 'subjectPattern' | 'contentPattern'>
 ): boolean {
-    const checks = [
-        !rule.senderPattern || (email.from_address || '').toLowerCase().includes(rule.senderPattern.toLowerCase()),
-        !rule.recipientPattern || (email.to_address || '').toLowerCase().includes(rule.recipientPattern.toLowerCase()),
-        !rule.subjectPattern || (email.subject || '').toLowerCase().includes(rule.subjectPattern.toLowerCase()),
-        !rule.contentPattern || (email.content || '').toLowerCase().includes(rule.contentPattern.toLowerCase())
-    ];
+    const activeChecks: boolean[] = [];
 
-    return rule.matchMode === 'all' ? checks.every(Boolean) : checks.some(Boolean);
+    if (rule.senderPattern) {
+        activeChecks.push((email.from_address || '').toLowerCase().includes(rule.senderPattern.toLowerCase()));
+    }
+    if (rule.recipientPattern) {
+        activeChecks.push((email.to_address || '').toLowerCase().includes(rule.recipientPattern.toLowerCase()));
+    }
+    if (rule.subjectPattern) {
+        activeChecks.push((email.subject || '').toLowerCase().includes(rule.subjectPattern.toLowerCase()));
+    }
+    if (rule.contentPattern) {
+        activeChecks.push((email.content || '').toLowerCase().includes(rule.contentPattern.toLowerCase()));
+    }
+
+    // 如果没有任何配置的模式，这算作匹配所有邮件
+    if (activeChecks.length === 0) {
+        return true;
+    }
+
+    return rule.matchMode === 'all' 
+        ? activeChecks.every(Boolean) 
+        : activeChecks.some(Boolean);
 }
 
 async function loadEmailForwardRules(db: D1Database): Promise<EmailForwardRoutingRule[]> {
