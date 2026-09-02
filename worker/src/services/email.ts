@@ -1293,22 +1293,61 @@ export async function batchDeleteEmails(
     r2: R2Bucket | any,
     emailIds: string[]
 ): Promise<{ deletedEmails: number; deletedFiles: number; deletedAttachments: number }> {
+    if (!emailIds || emailIds.length === 0) {
+        return { deletedEmails: 0, deletedFiles: 0, deletedAttachments: 0 };
+    }
+
     let deletedEmails = 0;
     let deletedFiles = 0;
+    let deletedAttachments = 0;
 
-    for (const emailId of emailIds) {
+    const { errorLog, debugLog } = await import('../utils/debug');
+    const chunkSize = 100;
+
+    for (let i = 0; i < emailIds.length; i += chunkSize) {
+        const chunk = emailIds.slice(i, i + chunkSize);
+        
         try {
-            const result = await deleteEmail(db, r2, emailId);
-            deletedEmails++;
-            deletedFiles += result.deletedFiles;
+            const placeholders = chunk.map(() => '?').join(',');
+
+            // 1. 获取要删除的附件 R2 keys
+            const attachmentsRs = await db.prepare(
+                `SELECT r2_key FROM attachments WHERE email_id IN (${placeholders})`
+            ).bind(...chunk).all<{ r2_key: string }>();
+            
+            const attachmentKeys = (attachmentsRs.results || []).map(r => r.r2_key);
+            
+            // 2. 准备所有要从 R2 删除的 key（.eml 文件 + 附件）
+            const emlKeys = chunk.map(id => emailIdToR2Key(id));
+            const allR2Keys = [...emlKeys, ...attachmentKeys];
+            
+            // 3. 批量删除 R2 文件（分批防止超过 R2 限制）
+            for (let j = 0; j < allR2Keys.length; j += 500) {
+                const r2Chunk = allR2Keys.slice(j, j + 500);
+                await r2.delete(r2Chunk);
+                deletedFiles += r2Chunk.length;
+            }
+            deletedAttachments += attachmentKeys.length;
+
+            // 4. 从数据库中删除附件记录（如果未开启外键级联删除）
+            await db.prepare(
+                `DELETE FROM attachments WHERE email_id IN (${placeholders})`
+            ).bind(...chunk).run();
+
+            // 5. 从数据库中删除邮件记录
+            const dbResult = await db.prepare(
+                `DELETE FROM emails WHERE id IN (${placeholders})`
+            ).bind(...chunk).run();
+            
+            deletedEmails += chunk.length;
+            
+            debugLog('批量邮件删除', `成功删除 ${chunk.length} 封邮件, 包含 ${attachmentKeys.length} 个附件文件`);
         } catch (error) {
-            const { errorLog } = await import('../utils/debug');
-            errorLog('邮件删除', `删除邮件失败: ${emailId}`, error);
+            errorLog('批量邮件删除', `删除批次失败`, error);
         }
     }
 
-    // 返回兼容的格式（附件相关字段始终为 0）
-    return { deletedEmails, deletedFiles, deletedAttachments: 0 };
+    return { deletedEmails, deletedFiles, deletedAttachments };
 }
 
 /**
@@ -1318,9 +1357,6 @@ export async function batchDeleteEmails(
  * @param r2 R2存储桶实例
  * @param emailId 邮件ID
  * @returns 删除结果，包含删除的文件数量
- *
- * @description
- * 注意：不再删除附件，因为不再单独保存附件
  */
 export async function deleteEmail(
     db: D1Database,
@@ -1328,6 +1364,7 @@ export async function deleteEmail(
     emailId: string
 ): Promise<{ deletedFiles: number; deletedAttachments: number }> {
     let deletedFiles = 0;
+    let deletedAttachments = 0;
 
     // 先获取邮件信息
     const email = await getEmailById(db, emailId);
@@ -1335,35 +1372,31 @@ export async function deleteEmail(
         throw new Error('邮件不存在');
     }
 
-    // 删除 R2 中的精简版 .eml 文件
+    // 获取该邮件的所有附件
+    const attachmentsRs = await db.prepare(`
+        SELECT r2_key FROM attachments WHERE email_id = ?
+    `).bind(emailId).all<{ r2_key: string }>();
+    
+    const attachmentKeys = (attachmentsRs.results || []).map(r => r.r2_key);
+    const emlKey = emailIdToR2Key(email.id);
+    const allR2Keys = [emlKey, ...attachmentKeys];
+
+    // 从 R2 批量删除
     try {
-        const emlKey = emailIdToR2Key(email.id);
-        await r2.delete(emlKey);
-        deletedFiles++;
+        await r2.delete(allR2Keys);
+        deletedFiles += allR2Keys.length;
+        deletedAttachments += attachmentKeys.length;
         const { debugLog } = await import('../utils/debug');
-        debugLog('邮件删除', `删除 R2 文件: ${emlKey}`);
+        debugLog('邮件删除', `删除了 ${allR2Keys.length} 个 R2 文件（包含 ${attachmentKeys.length} 个附件）`);
     } catch (error) {
         const { errorLog } = await import('../utils/debug');
-        errorLog('邮件删除', `删除 .eml 文件失败: ${email.id}`, error);
+        errorLog('邮件删除', `删除 R2 文件失败: ${email.id}`, error);
     }
 
-    // 删除 R2 中的所有附件（attachments/{emailId}/）
-    try {
-        const attachmentsPrefix = `attachments/${email.id}/`;
-        const attachmentsList = await r2.list({ prefix: attachmentsPrefix });
-
-        if (attachmentsList.objects && attachmentsList.objects.length > 0) {
-            for (const obj of attachmentsList.objects) {
-                await r2.delete(obj.key);
-                deletedFiles++;
-            }
-            const { debugLog } = await import('../utils/debug');
-            debugLog('附件删除', `删除了 ${attachmentsList.objects.length} 个附件文件（包含内嵌图片）`);
-        }
-    } catch (error) {
-        const { errorLog } = await import('../utils/debug');
-        errorLog('附件删除', `删除附件文件失败: ${email.id}`, error);
-    }
+    // 删除数据库中的附件记录
+    await db.prepare(`
+        DELETE FROM attachments WHERE email_id = ?
+    `).bind(emailId).run();
 
     // 删除数据库中的邮件记录
     const result = await db.prepare(`
@@ -1374,8 +1407,7 @@ export async function deleteEmail(
         throw new Error('Failed to delete email from database');
     }
 
-    // 返回兼容的格式（附件相关字段始终为 0）
-    return { deletedFiles, deletedAttachments: 0 };
+    return { deletedFiles, deletedAttachments };
 }
 
 /**
@@ -1484,8 +1516,7 @@ export async function copyEmailAttachments(
     let copiedCount = 0;
     const usedKeys = new Set<string>();
 
-    for (let i = 0; i < attachments.length; i++) {
-        const attachment = attachments[i];
+    const copyPromises = attachments.map(async (attachment) => {
         const sourcePrefix = `attachments/${sourceEmailId}/`;
         if (!attachment.r2_key.startsWith(sourcePrefix)) {
             throw new Error(`附件存储路径无效：${attachment.r2_key}`);
@@ -1526,7 +1557,7 @@ export async function copyEmailAttachments(
             });
         });
 
-        await createAttachment(db, {
+        return {
             email_id: targetEmailId,
             filename: attachment.filename,
             content_type: attachment.content_type || 'application/octet-stream',
@@ -1534,8 +1565,13 @@ export async function copyEmailAttachments(
             r2_key: targetR2Key,
             content_id: attachment.content_id || null,
             deleted_at: null
-        });
+        };
+    });
 
+    const newAttachmentsData = await Promise.all(copyPromises);
+
+    for (const attachmentData of newAttachmentsData) {
+        await createAttachment(db, attachmentData);
         copiedCount++;
     }
 
@@ -1785,52 +1821,70 @@ export async function cleanupExpiredAttachments(env: Env): Promise<{
           AND created_at < datetime('now', ?)
     `).bind(`-${attachmentRetentionDays} days`).all();
 
-    for (const row of attachmentsToDelete.results) {
-        const attachmentId = row.id as string;
-        const emailId = row.email_id as string;
-        const r2Key = row.r2_key as string;
+    if (!attachmentsToDelete.results || attachmentsToDelete.results.length === 0) {
+        return { deletedEmails: 0, deletedAttachments: 0, deletedEmailFiles: 0, deletedAttachmentFiles: 0 };
+    }
 
+    const { errorLog, infoLog } = await import('../utils/debug');
+    const chunkSize = 100;
+    const records = attachmentsToDelete.results;
+
+    for (let i = 0; i < records.length; i += chunkSize) {
+        const chunk = records.slice(i, i + chunkSize);
+        
         try {
-            try {
-                await env.R2.delete(r2Key);
-                deletedAttachmentFiles++;
-            } catch (error) {
-                const { errorLog } = await import('../utils/debug');
-                errorLog('附件清理', `删除附件文件失败: ${r2Key}`, error);
-                continue;
-            }
-
-            const result = await env.DB.prepare(`
+            // 1. 批量删除 R2 附件文件
+            const r2Keys = chunk.map(r => r.r2_key as string);
+            await env.R2.delete(r2Keys);
+            deletedAttachmentFiles += r2Keys.length;
+            
+            // 2. 批量标记数据库附件为已删除
+            const placeholders = chunk.map(() => '?').join(',');
+            const attachmentIds = chunk.map(r => r.id as string);
+            
+            const updateResult = await env.DB.prepare(`
                 UPDATE attachments
                 SET deleted_at = CURRENT_TIMESTAMP,
                     updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            `).bind(attachmentId).run();
-
-            if (result.success) {
-                deletedAttachments++;
-                affectedEmailIds.add(emailId);
+                WHERE id IN (${placeholders})
+            `).bind(...attachmentIds).run();
+            
+            if (updateResult.success) {
+                deletedAttachments += chunk.length;
+                for (const r of chunk) {
+                    affectedEmailIds.add(r.email_id as string);
+                }
             }
         } catch (error) {
-            const { errorLog } = await import('../utils/debug');
-            errorLog('附件清理', `删除附件记录失败: ${attachmentId}`, error);
+            errorLog('附件清理', `清理附件批次失败`, error);
         }
     }
 
-    for (const emailId of affectedEmailIds) {
-        await env.DB.prepare(`
-            UPDATE emails
-            SET attachment_count = (
-                SELECT COUNT(*)
-                FROM attachments
-                WHERE email_id = ?
-                  AND deleted_at IS NULL
-            )
-            WHERE id = ?
-        `).bind(emailId, emailId).run();
+    // 批量更新受影响的邮件统计信息
+    const emailIds = Array.from(affectedEmailIds);
+    for (let i = 0; i < emailIds.length; i += chunkSize) {
+        const chunk = emailIds.slice(i, i + chunkSize);
+        try {
+            // 因为 SQLite 不支持带 IN 的批量跨行子查询 UPDATE，
+            // 我们可以利用 D1 的 batch 功能来并发更新
+            const statements = chunk.map(emailId => 
+                env.DB.prepare(`
+                    UPDATE emails
+                    SET attachment_count = (
+                        SELECT COUNT(*)
+                        FROM attachments
+                        WHERE email_id = ?
+                          AND deleted_at IS NULL
+                    )
+                    WHERE id = ?
+                `).bind(emailId, emailId)
+            );
+            await env.DB.batch(statements);
+        } catch (error) {
+            errorLog('附件清理', `更新邮件附件统计批次失败`, error);
+        }
     }
 
-    const { infoLog } = await import('../utils/debug');
     infoLog('附件清理', `清理完成: 删除了 ${deletedAttachments} 条附件记录、${deletedAttachmentFiles} 个附件文件`);
 
     return { deletedEmails: 0, deletedAttachments, deletedEmailFiles: 0, deletedAttachmentFiles };

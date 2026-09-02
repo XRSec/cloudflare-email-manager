@@ -467,6 +467,8 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
 
                 // 提取并保存所有附件（内嵌图片 + 普通附件）统一存储在 attachments/ 目录
                 if (parsedEmail.attachments && parsedEmail.attachments.length > 0) {
+                    const uploadPromises = [];
+                    
                     for (const att of parsedEmail.attachments) {
                         if (!att.content) continue;
 
@@ -505,24 +507,26 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                         // R2 存储路径
                         const r2Key = `attachments/${emailId}/${r2Filename}`;
 
-                        // 保存附件到 R2（带重试机制）
-                        await retryR2Operation(`保存附件 ${filename}`, async () => {
-                            return await env.R2.put(r2Key, att.content, {
-                                httpMetadata: {
-                                    contentType: att.mimeType || 'application/octet-stream',
-                                    contentDisposition: contentId
-                                        ? 'inline'
-                                        : `attachment; filename="${encodeURIComponent(filename)}"`,
-                                    cacheControl: 'public, max-age=31536000'
-                                },
-                                customMetadata: {
-                                    emailId: emailId,
-                                    filename: filename,
-                                    contentId: contentId || '',
-                                    savedAt: new Date().toISOString()
-                                }
-                            });
-                        });
+                        // 保存附件到 R2（带重试机制，加入并发池）
+                        uploadPromises.push(
+                            retryR2Operation(`保存附件 ${filename}`, async () => {
+                                return await env.R2.put(r2Key, att.content, {
+                                    httpMetadata: {
+                                        contentType: att.mimeType || 'application/octet-stream',
+                                        contentDisposition: contentId
+                                            ? 'inline'
+                                            : `attachment; filename="${encodeURIComponent(filename)}"`,
+                                        cacheControl: 'public, max-age=31536000'
+                                    },
+                                    customMetadata: {
+                                        emailId: emailId,
+                                        filename: filename,
+                                        contentId: contentId || '',
+                                        savedAt: new Date().toISOString()
+                                    }
+                                });
+                            })
+                        );
 
                         // 记录附件信息（保存到数据库）
                         attachmentRecords.push({
@@ -537,7 +541,13 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
                         attachmentCount++;
 
                         const typeLabel = contentId ? '内嵌图片' : '普通附件';
-                        debugLog(`步骤2.5 保存${typeLabel}`, r2Filename, `(${(contentSize / 1024).toFixed(2)} KB)`);
+                        debugLog(`步骤2.5 准备上传${typeLabel}`, r2Filename, `(${(contentSize / 1024).toFixed(2)} KB)`);
+                    }
+
+                    // 并发执行所有附件的 R2 上传
+                    if (uploadPromises.length > 0) {
+                        await Promise.all(uploadPromises);
+                        debugLog('步骤2.5 所有附件上传 R2 完成', `共 ${uploadPromises.length} 个`);
                     }
                 }
                 debugLog('[步骤2.5] 附件处理完成');

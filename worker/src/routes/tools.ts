@@ -339,52 +339,66 @@ toolsRoutes.delete('/r2', async (c) => {
     let deletedDbRecords = 0
     const errors: string[] = []
 
-    // 批量删除文件
-    for (const key of keys) {
+    // 批量处理，防止过多导致超时或超过限制
+    const chunkSize = 100;
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunkKeys = keys.slice(i, i + chunkSize);
+      
       try {
-        // 删除主文件
-        await c.env.R2.delete(key)
-        deletedCount++
-
-        // 如果是邮件文件，检查是否有对应的数据库记录，如果有则删除
-        if (key.startsWith('email:') && key.endsWith('.eml')) {
+        // 收集所有需要从 R2 删除的 Key
+        const allR2KeysToDel = new Set<string>(chunkKeys);
+        
+        // 筛选出疑似邮件主文件的 emailId
+        const emailIds = chunkKeys
+          .filter(k => k.startsWith('email:') && k.endsWith('.eml'))
+          .map(k => k.replace('email:', '').replace('.eml', ''));
+          
+        if (emailIds.length > 0) {
           try {
-            // 从 key 中提取 emailId: email:{id}.eml -> {id}
-            const emailId = key.replace('email:', '').replace('.eml', '')
-
-            // 检查数据库中是否存在该邮件
-            const email = await c.env.DB.prepare(`
-              SELECT id FROM emails WHERE id = ?
-            `).bind(emailId).first()
-
-            if (email) {
-              // 如果存在，删除数据库记录和附件
-              const attachments = await c.env.DB.prepare(`
-                SELECT r2_key FROM attachments WHERE email_id = ?
-              `).bind(email.id).all()
-
-              // 删除附件文件
-              for (const att of attachments.results) {
-                try {
-                  await c.env.R2.delete(att.r2_key as string)
-                } catch (attError) {
-                  console.warn(`删除附件失败: ${att.r2_key}`, attError)
-                }
+            const placeholders = emailIds.map(() => '?').join(',');
+            
+            // 查询关联的附件
+            const attachments = await c.env.DB.prepare(`
+              SELECT r2_key FROM attachments WHERE email_id IN (${placeholders})
+            `).bind(...emailIds).all<{ r2_key: string }>();
+            
+            for (const att of attachments.results || []) {
+              if (att.r2_key) {
+                allR2KeysToDel.add(att.r2_key);
               }
-
-              // 删除数据库记录
-              await c.env.DB.prepare(`DELETE FROM emails WHERE id = ?`).bind(email.id).run()
-              deletedDbRecords++
+            }
+            
+            // 批量删除附件记录
+            await c.env.DB.prepare(`
+              DELETE FROM attachments WHERE email_id IN (${placeholders})
+            `).bind(...emailIds).run();
+            
+            // 批量删除邮件记录
+            const deleteResult = await c.env.DB.prepare(`
+              DELETE FROM emails WHERE id IN (${placeholders})
+            `).bind(...emailIds).run();
+            
+            if (deleteResult.meta && deleteResult.meta.changes) {
+              deletedDbRecords += deleteResult.meta.changes;
             }
           } catch (dbError) {
-            console.warn(`删除数据库记录失败: ${key}`, dbError)
-            // 不抛出错误，文件已删除
+            console.warn(`批量删除数据库记录失败`, dbError);
           }
         }
+        
+        // 分批删除收集到的所有 R2 对象（防止单次提交超过 500 个）
+        const r2KeysArray = Array.from(allR2KeysToDel);
+        for (let j = 0; j < r2KeysArray.length; j += 500) {
+          const r2Chunk = r2KeysArray.slice(j, j + 500);
+          await c.env.R2.delete(r2Chunk);
+          // 为了统计主 keys 的数量，这里不全部加，仅算我们要求删的（原始请求包含的）
+        }
+        
+        deletedCount += chunkKeys.length;
       } catch (error) {
-        const errorMsg = `删除文件失败: ${key} - ${(error as Error).message}`
-        console.error(errorMsg, error)
-        errors.push(errorMsg)
+        const errorMsg = `批量删除文件失败: 批次 ${i} - ${(error as Error).message}`;
+        console.error(errorMsg, error);
+        errors.push(errorMsg);
       }
     }
 
