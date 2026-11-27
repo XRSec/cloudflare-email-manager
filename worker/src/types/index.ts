@@ -60,6 +60,7 @@ export interface Email {
     content_type: string | null; // 邮件内容类型（从 headers 提取）
     folder?: 'inbox' | 'sent'; // 邮件归档：收件箱或已发送
     resend_email_id?: string | null; // Resend 投递 ID
+    verification_json?: string | null; // 结构化验证信息 JSON
     received_at: string;
     created_at?: string;
     updated_at?: string;
@@ -159,6 +160,7 @@ export interface SystemConfig {
     // 其他配置字段
     cookie_max_age?: number;
     jwt_secret?: string;
+    api_token?: string;
     timezone?: string; // IANA 时区,例如 Asia/Shanghai
     // 默认Webhook配置
     // 已支持的邮箱域名列表

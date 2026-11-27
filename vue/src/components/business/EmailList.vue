@@ -27,6 +27,26 @@
       <div v-if="email.content" class="email-content">
         <strong>内容:</strong> {{ truncateText(email.content, 200) }}
       </div>
+      <div v-if="getVerification(email)" class="email-verification-strip" @click.stop>
+        <div v-if="getVerification(email)?.code" class="email-verification-chip">
+          <span class="email-verification-label">验证码</span>
+          <code class="email-verification-code">{{ getVerification(email)?.code }}</code>
+          <Button variant="primary" size="sm" @click="copyCode(email.id, getVerification(email)!.code!)">
+            {{ copiedCodeId === email.id ? '已复制' : '复制验证码' }}
+          </Button>
+        </div>
+        <div v-if="getVerification(email)?.primaryLink" class="email-verification-chip">
+          <span class="email-verification-domain" :title="getVerification(email)!.primaryLink!.targetUrl">
+            目标域名: {{ getVerification(email)!.primaryLink!.domain }}
+          </span>
+          <Button variant="secondary" size="sm" @click="copyLink(email.id, getVerification(email)!.primaryLink!.targetUrl)">
+            {{ copiedLinkId === email.id ? '已复制链接' : '复制链接' }}
+          </Button>
+          <Button variant="primary" size="sm" @click="openLink(getVerification(email)!.primaryLink!.targetUrl)">
+            打开链接
+          </Button>
+        </div>
+      </div>
       <div v-if="showActions" class="email-actions">
         <slot name="actions" :email="email">
           <Button variant="primary" size="sm" @click="handleViewClick(email.id)">
@@ -46,8 +66,9 @@
 
 <script setup lang="ts">
 import { StatusBadge, Button } from '@/components/common'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { formatDateTime } from '@/utils/time'
+import { extractVerificationInfo, type EmailVerificationInfo } from '@/utils/verification'
 
 interface Email {
   id: string
@@ -58,6 +79,8 @@ interface Email {
   status: 'read' | 'unread' | string
   received_at: string
   is_read?: number
+  attachment_count?: number
+  verification?: EmailVerificationInfo | null
 }
 
 interface Props {
@@ -111,6 +134,35 @@ const formatTime = (dateString: string) => {
 const truncateText = (text: string, maxLength: number) => {
   if (text.length <= maxLength) return text
   return text.substring(0, maxLength) + '...'
+}
+
+const copiedCodeId = ref<string | null>(null)
+const copiedLinkId = ref<string | null>(null)
+
+const getVerification = (email: Email): EmailVerificationInfo | null => {
+  if (email.verification) return email.verification
+  if (!email.content && !email.subject) return null
+  return extractVerificationInfo({ text: email.content || null, subject: email.subject || null })
+}
+
+const copyCode = async (emailId: string, code: string) => {
+  await navigator.clipboard.writeText(code)
+  copiedCodeId.value = emailId
+  setTimeout(() => {
+    if (copiedCodeId.value === emailId) copiedCodeId.value = null
+  }, 2000)
+}
+
+const copyLink = async (emailId: string, url: string) => {
+  await navigator.clipboard.writeText(url)
+  copiedLinkId.value = emailId
+  setTimeout(() => {
+    if (copiedLinkId.value === emailId) copiedLinkId.value = null
+  }, 2000)
+}
+
+const openLink = (url: string) => {
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 </script>
 
@@ -250,6 +302,53 @@ const truncateText = (text: string, maxLength: number) => {
   border-radius: 16px;
   background: rgba(250, 252, 255, 0.92);
   border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.email-verification-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f0f7ff;
+  border: 1px solid #bfdbfe;
+}
+
+.email-verification-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.email-verification-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e3a8a;
+}
+
+.email-verification-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+}
+
+.email-verification-domain {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
 }
 
 .email-actions {

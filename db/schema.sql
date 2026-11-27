@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS emails (
     content_type TEXT, -- 邮件内容类型（从 headers 提取）
     folder TEXT DEFAULT 'inbox' CHECK(folder IN ('inbox','sent')), -- 邮件归档：inbox=收件箱，sent=已发送
     resend_email_id TEXT, -- Resend 投递 ID
+    verification_json TEXT, -- 结构化验证信息 JSON（验证码与验证链接）
     received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP

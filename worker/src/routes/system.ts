@@ -192,5 +192,27 @@ systemRoutes.put('/config', jwtAuthMiddleware, async (c) => {
     }
 });
 
+/**
+ * 重新生成系统 API Token
+ * POST /api/system/token/rotate
+ */
+systemRoutes.post('/token/rotate', jwtAuthMiddleware, async (c) => {
+    try {
+        const { rotateApiToken } = await import('../services/settings');
+        const newApiToken = await rotateApiToken(c.env.DB);
+        await bumpChangeSignals(c.env.DB, ['system_config']);
+
+        return c.json<ApiResponse<{ api_token: string }>>({
+            success: true,
+            message: 'API Token 已更新',
+            data: {
+                api_token: newApiToken
+            }
+        });
+    } catch (error) {
+        errorLog('[API Token] 重新生成失败:', error);
+        throw new HTTPException(500, { message: '重新生成 API Token 失败' });
+    }
+});
 
 export { systemRoutes };

@@ -16,17 +16,19 @@
     "declarationMap": false,
     "sourceMap": false,
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": "..",
+    "noEmit": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": false
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "../shared/**/*"
   ],
   "exclude": [
     "node_modules",

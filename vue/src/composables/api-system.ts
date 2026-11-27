@@ -34,5 +34,11 @@ export const systemApiService = {
     const response = await api.put('/system/config', config)
     invalidateApiCache([API_CACHE_KEYS.SYSTEM_CONFIG])
     return response.data
+  },
+
+  async rotateApiToken(): Promise<ApiResponse<{ api_token: string }>> {
+    const response = await api.post('/system/token/rotate')
+    invalidateApiCache([API_CACHE_KEYS.SYSTEM_CONFIG])
+    return response.data
   }
 }

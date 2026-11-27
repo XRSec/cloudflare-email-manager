@@ -40,6 +40,7 @@ import PostalMime from 'postal-mime';
 import { getSystemConfig } from '../services/settings';
 import { logForwardResult, sendWebhook, ensureRoutingRulesActionColumn } from '../services/webhook';
 import { bumpChangeSignals } from '../services/changeSignals';
+import { extractVerificationInfo, type EmailVerificationInfo } from '../utils/verificationCode';
 
 import type { Env, ApiResponse, EmailQueryParams, D1Database } from '../types';
 
@@ -205,8 +206,20 @@ function getEmailFromDisplay(email: { from_address?: string | null; headers_json
   return headers.from?.includes('<') ? headers.from : (email.from_address || '');
 }
 
+function parseVerificationJson(raw?: string | null): EmailVerificationInfo | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as EmailVerificationInfo) : null;
+  } catch {
+    return null;
+  }
+}
+
 function toPublicEmail(email: any) {
-  const { headers_json, ...publicEmail } = email;
+  const { headers_json, verification_json, ...publicEmail } = email;
   return publicEmail;
 }
 
@@ -289,6 +302,10 @@ api.get('/emails', jwtAuthMiddleware, async (c) => {
       to: email.to_address || '',
       status: email.is_read ? 'read' : 'unread',
       owner_username: (email as any).owner_username || null,
+      verification: parseVerificationJson(email.verification_json) ?? extractVerificationInfo({
+        text: email.content,
+        subject: email.subject
+      }),
       // 保留原始字段以便向后兼容
       from_address: email.from_address,
       to_address: email.to_address
@@ -365,6 +382,8 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
     // 从 R2 读取精简版 .eml 并动态解析
     let fullContent = email.content || ''; // 默认使用数据库中的预览内容
     let fullContentType = 'text';
+    let parsedText: string | null = null;
+    let parsedHtml: string | null = null;
 
     try {
       // 从 R2 读取精简版 .eml 文件。解析时保留原始字节，避免非 UTF-8 内容被提前损坏。
@@ -374,6 +393,8 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
         // 使用 postal-mime 解析邮件
         const parser = new PostalMime();
         const parsedEmail = await parser.parse(rawEmailBytes);
+        parsedText = parsedEmail.text || null;
+        parsedHtml = parsedEmail.html || null;
 
         // 提取内容
         if (parsedEmail.html && parsedEmail.html.trim()) {
@@ -435,11 +456,20 @@ api.get('/emails/:id', jwtAuthMiddleware, async (c) => {
 
     debugLog(`[邮件详情] 过滤后的有效附件数量: ${validAttachments.length}`);
 
+    const verification = (parsedText || parsedHtml)
+      ? extractVerificationInfo({ text: parsedText, html: parsedHtml, subject: email.subject })
+      : (parseVerificationJson(email.verification_json) ?? extractVerificationInfo({
+          text: fullContentType === 'text' ? fullContent : null,
+          html: fullContentType === 'html' ? fullContent : null,
+          subject: email.subject
+        }));
+
     const emailData = {
       ...toPublicEmail(email),
       from: getEmailFromDisplay(email),
       to: email.to_address || '',
       status: email.is_read ? 'read' : 'unread',
+      verification,
       attachments: validAttachments.map(att => {
         const attachmentData = {
           ...att,

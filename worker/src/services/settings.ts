@@ -5,6 +5,7 @@
 import type { D1Database } from '@cloudflare/workers-types';
 import type { SystemSetting, SystemConfig } from '../types';
 import { generateJWTSecret, isValidJWTSecret } from '../utils/jwt-secret';
+import { generateApiToken } from '../utils/crypto';
 import { SYSTEM_DEFAULTS, validateConfigValue } from '../config/constants';
 
 // 系统设置缓存
@@ -89,6 +90,19 @@ export async function initializeSystemSettings(db: D1Database): Promise<void> {
             `).bind(newJwtSecret).run();
             const { debugLog } = await import('../utils/debug');
             debugLog('系统设置', '🔑 已生成新的安全 JWT Secret');
+        }
+
+        // 特殊处理 API Token
+        const existingApiToken = systemSettingsCache.get('api_token');
+        if (!existingApiToken) {
+            const newApiToken = generateApiToken();
+            systemSettingsCache.set('api_token', newApiToken);
+            await db.prepare(`
+                INSERT OR REPLACE INTO system_settings (key, value, description, updated_at)
+                VALUES ('api_token', ?, '系统 API Token（访问令牌）', CURRENT_TIMESTAMP)
+            `).bind(newApiToken).run();
+            const { debugLog } = await import('../utils/debug');
+            debugLog('系统设置', '🔑 已生成新的安全 API Token');
         }
 
         // 处理其他设置
@@ -192,6 +206,9 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
         // 获取默认Webhook配置
         const supportedDomains = normalizeDomainList(parseStringListSetting(getOptionalSetting('supported_emails', '[]')));
 
+        // 获取系统 API Token
+        const apiToken = await getOrInitApiToken(db);
+
         return {
             allow_registration: allowRegistration ? 1 : 0,
             attachment_retention_days: attachmentRetentionDays,
@@ -199,6 +216,7 @@ export async function getSystemConfig(db: D1Database): Promise<SystemConfig> {
             debug_mode: debugMode ? 1 : 0,
             cookie_max_age: cookieMaxAge,
             jwt_secret: maskedJWTSecret, // 显示前后各四位
+            api_token: apiToken,
             supported_emails: supportedDomains,
             timezone
         };
@@ -329,6 +347,39 @@ export async function getJWTSecret(db: D1Database): Promise<string> {
     }
 
     return jwtSecret;
+}
+
+export { generateApiToken };
+
+/**
+ * 获取或初始化 API Token
+ */
+export async function getOrInitApiToken(db: D1Database): Promise<string> {
+    await initializeSystemSettings(db);
+    let token = systemSettingsCache.get('api_token');
+    if (!token) {
+        token = generateApiToken();
+        await db.prepare(`
+            INSERT OR REPLACE INTO system_settings (key, value, description, updated_at)
+            VALUES ('api_token', ?, '系统 API Token（访问令牌）', CURRENT_TIMESTAMP)
+        `).bind(token).run();
+        systemSettingsCache.set('api_token', token);
+    }
+    return token;
+}
+
+/**
+ * 重新生成并轮换 API Token
+ */
+export async function rotateApiToken(db: D1Database): Promise<string> {
+    await initializeSystemSettings(db);
+    const token = generateApiToken();
+    await db.prepare(`
+        INSERT OR REPLACE INTO system_settings (key, value, description, updated_at)
+        VALUES ('api_token', ?, '系统 API Token（访问令牌）', CURRENT_TIMESTAMP)
+    `).bind(token).run();
+    systemSettingsCache.set('api_token', token);
+    return token;
 }
 
 /**

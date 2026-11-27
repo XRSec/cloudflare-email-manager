@@ -896,9 +896,9 @@ export async function createEmail(
             id, subject, from_address, to_address, content,
             is_read, attachment_count, message_id, headers_json, size_bytes,
             date, reply_to, cc, bcc, content_type,
-            folder, resend_email_id, received_at, created_at, updated_at
+            folder, resend_email_id, verification_json, received_at, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `;
 
     const bound = [
@@ -919,6 +919,7 @@ export async function createEmail(
         emailData.content_type || null,
         emailData.folder === 'sent' ? 'sent' : 'inbox',
         emailData.resend_email_id || null,
+        emailData.verification_json || null,
         emailData.received_at || new Date().toISOString()
     ];
 
@@ -956,7 +957,7 @@ export async function getEmailById(db: D1Database, id: string): Promise<Email | 
             SELECT id, subject, from_address, to_address, content,
                    is_read, attachment_count, message_id, headers_json, size_bytes,
                    date, reply_to, cc, bcc, content_type,
-                   folder, resend_email_id, received_at, created_at, updated_at
+                   folder, resend_email_id, verification_json, received_at, created_at, updated_at
             FROM emails
             WHERE id = ?
         `).bind(id).first();
@@ -984,6 +985,7 @@ export async function getEmailById(db: D1Database, id: string): Promise<Email | 
         content_type: result.content_type as string | null,
         folder: result.folder === 'sent' ? 'sent' : 'inbox',
         resend_email_id: result.resend_email_id as string | null,
+        verification_json: result.verification_json as string | null,
         received_at: result.received_at as string,
         created_at: result.created_at as string | undefined,
         updated_at: result.updated_at as string | undefined,
@@ -1134,7 +1136,7 @@ export async function getAllEmails(
                 e.content, e.is_read, e.attachment_count,
                 e.message_id, e.headers_json, e.size_bytes,
                 e.date, e.reply_to, e.cc, e.bcc, e.content_type,
-                e.folder, e.resend_email_id, e.received_at, e.created_at, e.updated_at
+                e.folder, e.resend_email_id, e.verification_json, e.received_at, e.created_at, e.updated_at
             FROM emails e
             ${whereClause}
             ${orderClause}
@@ -1191,6 +1193,7 @@ export async function getAllEmails(
             content_type: result.content_type as string | null,
             folder: (result.folder === 'sent' ? 'sent' : 'inbox') as 'inbox' | 'sent',
             resend_email_id: result.resend_email_id as string | null,
+            verification_json: result.verification_json as string | null,
             received_at: result.received_at as string,
             created_at: result.created_at as string | undefined,
             updated_at: result.updated_at as string | undefined,

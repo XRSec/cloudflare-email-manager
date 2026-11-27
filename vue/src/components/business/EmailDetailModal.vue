@@ -11,6 +11,31 @@
     </div>
 
     <div v-else-if="emailDetail" class="email-detail">
+      <!-- 快捷验证操作条 -->
+      <div v-if="verificationInfo" class="verification-bar">
+        <div v-if="verificationInfo.code" class="verification-code-group">
+          <span class="verification-label">验证码</span>
+          <code class="verification-code-value">{{ verificationInfo.code }}</code>
+          <Button variant="primary" size="sm" @click="copyVerificationCode(verificationInfo.code)">
+            {{ copiedCode ? '已复制' : '一键复制' }}
+          </Button>
+        </div>
+        <div v-if="verificationInfo.primaryLink" class="verification-link-group">
+          <span class="verification-domain-badge" :title="verificationInfo.primaryLink.targetUrl">
+            目标域名: {{ verificationInfo.primaryLink.domain }}
+          </span>
+          <span v-if="verificationInfo.primaryLink.isTracking" class="verification-tracking-tag">
+            已解包追踪链接
+          </span>
+          <Button variant="secondary" size="sm" @click="copyVerificationLink(verificationInfo.primaryLink.targetUrl)">
+            {{ copiedLink ? '已复制链接' : '复制链接' }}
+          </Button>
+          <Button variant="primary" size="sm" @click="openVerificationLink(verificationInfo.primaryLink.targetUrl)">
+            打开验证链接
+          </Button>
+        </div>
+      </div>
+
       <!-- 基本信息 -->
       <div class="detail-section">
         <div class="section-header">
@@ -47,8 +72,16 @@
       <div class="detail-section">
         <h3 class="section-title">邮件内容</h3>
         <div class="email-content-wrapper">
-          <div v-if="emailDetail.full_content_type === 'html'" ref="htmlContentRef" class="email-content-html"
-            v-html="emailDetail.full_content || emailDetail.content"></div>
+          <iframe
+            v-if="emailDetail.full_content_type === 'html'"
+            ref="htmlIframeRef"
+            class="email-content-iframe"
+            :srcdoc="sandboxedHtmlDocument"
+            sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+            referrerpolicy="no-referrer"
+            title="邮件正文"
+            @load="resizeHtmlIframe"
+          ></iframe>
           <div v-else class="email-content-text" v-text="emailDetail.full_content || emailDetail.content || '无内容'">
           </div>
         </div>
@@ -110,11 +143,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, nextTick, onBeforeUnmount } from 'vue'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
+import DOMPurify from 'dompurify'
 import { Modal, Button, StatusBadge } from '@/components/common'
 import { emailApiService } from '@/composables/api-email'
 import { cacheService } from '@/composables/cache'
 import { formatDateTime } from '@/utils/time'
+import { extractVerificationInfo, type EmailVerificationInfo } from '@/utils/verification'
 
 interface Attachment {
   id: string
@@ -140,6 +175,7 @@ interface EmailDetail {
   status?: string
   is_read?: number
   received_at: string
+  verification?: EmailVerificationInfo | null
   attachments?: Attachment[]
 }
 
@@ -158,7 +194,9 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const emailDetail = ref<EmailDetail | null>(null)
 const lastLoadedEmailId = ref<string | null>(null) // 记录上次加载的 emailId，避免重复请求
-const htmlContentRef = ref<HTMLElement | null>(null) // 邮件 HTML 内容容器的引用
+const htmlIframeRef = ref<HTMLIFrameElement | null>(null)
+const copiedCode = ref(false)
+const copiedLink = ref(false)
 const previewImageUrl = ref('')
 const previewImageName = ref('')
 
@@ -166,7 +204,7 @@ const loadEmailDetail = async () => {
   if (!props.emailId) return
 
   // 1. 尝试从 localStorage 缓存读取
-  const cacheKey = `email_detail_v3_${props.emailId}`
+  const cacheKey = `email_detail_v4_${props.emailId}`
   const cached = cacheService.get<EmailDetail>(cacheKey)
 
   if (cached) {
@@ -174,12 +212,6 @@ const loadEmailDetail = async () => {
     // 邮件列表 API 返回的数据没有 attachments 字段，只有详情 API 返回的数据才有
     if (cached.attachments !== undefined) {
       emailDetail.value = cached
-
-      // 如果是 HTML 内容，为图片添加错误处理
-      if (cached.full_content_type === 'html') {
-        attachImageErrorHandlers()
-      }
-
       return // 使用缓存，无需继续请求 API
     } else {
       // 缓存数据不完整（可能是列表数据），强制请求 API
@@ -199,12 +231,6 @@ const loadEmailDetail = async () => {
 
       // 3. 写入 localStorage 缓存（24 小时）
       cacheService.set(cacheKey, response.data, 24 * 60 * 60 * 1000)
-      const detail = emailDetail.value
-
-      // 如果是 HTML 内容，为图片添加错误处理
-      if (detail && detail.full_content_type === 'html') {
-        attachImageErrorHandlers()
-      }
     } else {
       error.value = response.message || '加载邮件详情失败'
     }
@@ -365,20 +391,71 @@ const handleImageError = (event: Event) => {
   }
 }
 
-// 为 HTML 内容中的所有图片添加错误处理
-const attachImageErrorHandlers = () => {
-  nextTick(() => {
-    if (htmlContentRef.value) {
-      const images = htmlContentRef.value.querySelectorAll('img')
-      images.forEach((img) => {
-        // 如果图片还没有绑定错误处理，则绑定
-        if (!img.hasAttribute('data-error-handled')) {
-          img.setAttribute('data-error-handled', 'true')
-          img.addEventListener('error', handleImageError)
-        }
-      })
-    }
+const verificationInfo = computed<EmailVerificationInfo | null>(() => {
+  if (!emailDetail.value) return null
+  if (emailDetail.value.verification) return emailDetail.value.verification
+  const rawContent = emailDetail.value.full_content || emailDetail.value.content || ''
+  return extractVerificationInfo({
+    text: emailDetail.value.full_content_type === 'text' ? rawContent : null,
+    html: emailDetail.value.full_content_type === 'html' ? rawContent : null,
+    subject: emailDetail.value.subject
   })
+})
+
+const sanitizedHtmlContent = computed(() => {
+  if (!emailDetail.value || emailDetail.value.full_content_type !== 'html') return ''
+  const raw = emailDetail.value.full_content || emailDetail.value.content || ''
+  return DOMPurify.sanitize(raw, {
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'base', 'meta'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus'],
+    ADD_ATTR: ['target']
+  })
+})
+
+const sandboxedHtmlDocument = computed(() => {
+  const body = sanitizedHtmlContent.value
+  return `<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>html,body{margin:0;padding:16px;background:#fff;color:#1e293b;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.6;word-break:break-word;overflow-wrap:anywhere;}img{max-width:100%;height:auto;}table{max-width:100%;}a{color:#2563eb;}</style></head><body>${body}</body></html>`
+})
+
+const resizeHtmlIframe = () => {
+  const iframe = htmlIframeRef.value
+  if (!iframe) return
+  try {
+    const doc = iframe.contentDocument
+    if (!doc) return
+    const anchors = doc.querySelectorAll('a[href]')
+    anchors.forEach((anchor) => {
+      anchor.setAttribute('target', '_blank')
+      anchor.setAttribute('rel', 'noopener noreferrer')
+    })
+    const imgs = doc.querySelectorAll('img')
+    imgs.forEach((img) => {
+      if (!img.hasAttribute('data-error-handled')) {
+        img.setAttribute('data-error-handled', 'true')
+        img.addEventListener('error', handleImageError)
+      }
+    })
+    const height = Math.max(doc.documentElement?.scrollHeight || 0, doc.body?.scrollHeight || 0, 220)
+    iframe.style.height = `${Math.min(height + 16, 1200)}px`
+  } catch {
+    iframe.style.height = '480px'
+  }
+}
+
+const copyVerificationCode = async (code: string) => {
+  await navigator.clipboard.writeText(code)
+  copiedCode.value = true
+  setTimeout(() => { copiedCode.value = false }, 2000)
+}
+
+const copyVerificationLink = async (url: string) => {
+  await navigator.clipboard.writeText(url)
+  copiedLink.value = true
+  setTimeout(() => { copiedLink.value = false }, 2000)
+}
+
+const openVerificationLink = (url: string) => {
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 const downloadAttachment = (attachment: Attachment) => {
@@ -735,6 +812,71 @@ watch([() => props.show, () => props.emailId], ([newShow, newId]) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.verification-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: #f0f7ff;
+  border: 1px solid #bfdbfe;
+  margin-bottom: 16px;
+}
+
+.verification-code-group,
+.verification-link-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.verification-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e3a8a;
+}
+
+.verification-code-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+}
+
+.verification-domain-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.verification-tracking-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.email-content-iframe {
+  width: 100%;
+  min-height: 220px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 @media (max-width: 640px) {

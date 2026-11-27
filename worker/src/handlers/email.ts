@@ -8,7 +8,7 @@ import { handleEmailForwarding } from '../services/webhook';
 import { getSystemSetting } from '../services/settings';
 import { bumpChangeSignals } from '../services/changeSignals';
 import { retryR2Operation } from '../utils/retry';
-import { buildVerificationCodePreview } from '../utils/verificationCode';
+import { buildVerificationCodePreview, extractVerificationInfo, type EmailVerificationInfo } from '../utils/verificationCode';
 import type { Env, Email } from '../types';
 import PostalMime from 'postal-mime';
 
@@ -196,6 +196,7 @@ async function parseEmailContent(
     senderName: string;
     senderAddress: string;
     images: Array<{ contentId?: string | null; filename?: string | null; mimeType?: string; disposition?: string | null; size?: number }>;
+    verification: EmailVerificationInfo | null;
 }> {
     let subject = '';
     let messageId = '';
@@ -203,6 +204,7 @@ async function parseEmailContent(
     let senderName = '';
     let senderAddress = '';
     let images: Array<any> = [];
+    let verification: EmailVerificationInfo | null = null;
 
     // 尝试使用 postal-mime 解析
     if (rawEmailBytes) {
@@ -213,6 +215,11 @@ async function parseEmailContent(
             subject = parsed.subject || '';
             messageId = parsed.messageId || '';
             content = await extractEmailText(parsed);
+            verification = extractVerificationInfo({
+                text: parsed.text || null,
+                html: parsed.html || null,
+                subject
+            });
             senderName = parsed.from?.name || '';
             senderAddress = parsed.from?.address || '';
             const rawFromHeader = Array.isArray(parsed.headers)
@@ -237,7 +244,7 @@ async function parseEmailContent(
                     }));
             }
 
-            return { subject, messageId, content, senderName, senderAddress, images };
+            return { subject, messageId, content, senderName, senderAddress, images, verification };
         } catch (error) {
             errorLog('[邮件解析] postal-mime 失败，使用备用方案:', error);
         }
@@ -250,11 +257,16 @@ async function parseEmailContent(
             text: message.text ? await message.text() : null
         };
         content = await extractEmailText(fallbackParsed);
+        verification = extractVerificationInfo({
+            text: fallbackParsed.text,
+            html: fallbackParsed.html,
+            subject: message.headers?.get?.('subject') || null
+        });
     } catch (error) {
         errorLog('[邮件解析] 备用方案失败:', error);
     }
 
-    return { subject, messageId, content, senderName, senderAddress, images };
+    return { subject, messageId, content, senderName, senderAddress, images, verification };
 }
 
 /**
@@ -588,6 +600,7 @@ export async function handleIncomingEmail(message: any, env: Env, ctx?: any): Pr
             cc: extractedCc,
             bcc: extractedBcc,
             content_type: extractedContentType,
+            verification_json: parsed.verification ? JSON.stringify(parsed.verification) : null,
             received_at: new Date().toISOString()
         };
 

@@ -26,6 +26,52 @@
           </div>
         </div>
 
+        <!-- API Token 管理 -->
+        <div class="settings-section">
+          <h3>🔑 API Token (访问令牌)</h3>
+          <div class="field-wide token-card">
+            <div class="token-input-row">
+              <div class="token-input-wrap">
+                <input
+                  :value="tokenVisible ? apiToken : maskedApiToken"
+                  type="text"
+                  readonly
+                  class="form-control token-input"
+                  placeholder="未生成 Token"
+                />
+                <button
+                  type="button"
+                  class="token-toggle-btn"
+                  @click="tokenVisible = !tokenVisible"
+                  :disabled="!apiToken"
+                >
+                  {{ tokenVisible ? '隐藏' : '显示' }}
+                </button>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                @click="copyToken"
+                :disabled="!apiToken"
+              >
+                📋 复制 Token
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                @click="handleRotateToken"
+                :disabled="rotatingToken"
+              >
+                🔄 {{ rotatingToken ? '更新中...' : '重新生成 Token' }}
+              </Button>
+            </div>
+            <p class="token-help">
+              用于外部自动化脚本、第三方客户端或 API 调用的访问令牌。支持在 HTTP 请求头中传入 <code>Authorization: Bearer &lt;token&gt;</code>，或在 URL 查询参数中直接传入 <code>?token=&lt;token&gt;</code> 进行免 Cookie 鉴权。<br>
+              <strong>注意：</strong>重新生成后，旧 Token 将立即失效。
+            </p>
+          </div>
+        </div>
+
         <div class="form-actions">
           <Button variant="secondary" @click="resetForm">重置</Button>
           <Button type="submit" variant="primary" :disabled="saving">
@@ -77,6 +123,58 @@ const formData = ref({
 
 // 原始数据备份
 const originalData = ref<any>({})
+
+// API Token 状态
+const apiToken = ref('')
+const tokenVisible = ref(false)
+const rotatingToken = ref(false)
+
+const maskedApiToken = computed(() => {
+  if (!apiToken.value) return ''
+  if (apiToken.value.length <= 14) return '******'
+  return `${apiToken.value.slice(0, 8)}************************${apiToken.value.slice(-6)}`
+})
+
+const copyToken = async () => {
+  if (!apiToken.value) return
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(apiToken.value)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = apiToken.value
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+    toast.success('Token 已成功复制到剪贴板')
+  } catch {
+    toast.error('复制失败，请手动选择复制')
+  }
+}
+
+const handleRotateToken = async () => {
+  if (!confirm('重新生成后，旧 Token 将立即失效，所有使用旧 Token 的外部脚本和链接都需要更新。确认重新生成吗？')) {
+    return
+  }
+  rotatingToken.value = true
+  try {
+    const res = await systemApiService.rotateApiToken()
+    if (res.success && res.data?.api_token) {
+      apiToken.value = res.data.api_token
+      toast.success('API Token 已成功重新生成')
+    } else {
+      toast.error(res.message || '更新 Token 失败')
+    }
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || err.message || '更新 Token 失败')
+  } finally {
+    rotatingToken.value = false
+  }
+}
 
 // 设置表单配置
 const settingsSections = computed(() => [
@@ -210,6 +308,10 @@ watch(data, (newData) => {
     // 后端返回的数据结构: { success: true, data: { config: {...} } }
     // 或者直接是 API 响应: { data: { config: {...} } }
     const config = newData.data?.config || newData.data || {}
+
+    if (config.api_token) {
+      apiToken.value = config.api_token
+    }
 
     formData.value = {
       systemName: config.system_name || '',
@@ -372,6 +474,71 @@ onMounted(() => {
 
 .field-wide {
   grid-column: 1 / -1;
+}
+
+.token-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.token-input-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.token-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 260px;
+}
+
+.token-input {
+  padding-right: 64px !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px !important;
+  color: #17324a;
+}
+
+.token-toggle-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: #3b82f6;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.token-toggle-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.token-toggle-btn:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.token-help {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.token-help code {
+  background: rgba(15, 23, 42, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
 }
 
 .form-actions {

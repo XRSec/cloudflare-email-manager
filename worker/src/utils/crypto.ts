@@ -15,6 +15,16 @@ export function generateRandomString(length: number = 8): string {
 }
 
 /**
+ * 生成安全的系统 API Token
+ */
+export function generateApiToken(): string {
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `cem_${hex}`;
+}
+
+/**
  * 哈希密码
  */
 export async function hashPassword(password: string): Promise<string> {

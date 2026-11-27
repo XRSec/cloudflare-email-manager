@@ -1,0 +1,17 @@
+{
+  "name": "@cem/cli",
+  "version": "1.0.0",
+  "description": "CLI tool for Cloudflare Email Manager (cem)",
+  "type": "module",
+  "bin": {
+    "cem": "./dist/cli/src/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "compile": "bun build src/index.ts --compile --outfile dist/cem",
+    "test": "node --test specs/*.test.ts"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
