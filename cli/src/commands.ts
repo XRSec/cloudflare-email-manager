@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { extractVerificationInfo, stripHtmlToText } from '../../shared/verification.ts';
 import { CemClient, type EmailDetailItem, type EmailListItem } from './client.ts';
 import { getConfigPath, maskToken, readStoredConfig, resolveConfig, writeStoredConfig } from './config.ts';
+import { CLI_VERSION } from './version.ts';
 
 export interface ParsedArgs {
   positionals: string[];
@@ -109,6 +110,7 @@ export function printHelp() {
   process.stdout.write(`cem - Cloudflare Email Manager CLI
 
 Usage:
+  cem --version | -v
   cem config set [--base-url <url>] [--token <token>] [--from <email>]
   cem config show
   cem health
@@ -126,6 +128,11 @@ Usage:
 }
 
 export async function runCli(argv: string[]): Promise<void> {
+  if (argv.includes('--version') || argv.includes('-v')) {
+    process.stdout.write(`cem v${CLI_VERSION}\n`);
+    return;
+  }
+
   const { positionals, flags } = parseArgv(argv);
   const cmd = positionals[0];
 

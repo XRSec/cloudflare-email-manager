@@ -28,15 +28,18 @@ npm run build && npm link   # 编译为 Node ESM 并软链到全局 cem
 bun run compile             # 生成 cli/dist/cem
 ```
 
-## 配置
+## 配置与版本检查
 
 配置保存在 `~/.config/cem/config.json`（`0600` 权限），支持环境变量 `CEM_BASE_URL`、`CEM_TOKEN`、`CEM_FROM` 覆盖：
 
 ```bash
+cem --version     # 查看当前 CLI 版本（或 -v）
 cem config set --base-url https://your-domain.com --token <your-api-token> [--from default@your-domain.com]
 cem config show   # 脱敏展示配置，不输出 Token 明文
 cem health
 ```
+
+启动时会节流检查 GitHub Releases 最新 `cli-v*` 版本（缓存于 `~/.config/cem/update-check.json`，TTL 24 小时，超时 `1500ms` 不阻塞主命令）；发现新版本时仅向 `stderr` 输出提示，不会污染 `--json` 等 `stdout` 输出。如需禁用检查可设置 `CEM_NO_UPDATE_CHECK=1`。
 
 ## 常用命令
 
