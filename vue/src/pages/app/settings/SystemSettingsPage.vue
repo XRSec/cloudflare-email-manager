@@ -72,6 +72,43 @@
           </div>
         </div>
 
+        <!-- MCP 接入配置 -->
+        <div class="settings-section">
+          <h3>🔌 MCP 接入配置 (Model Context Protocol)</h3>
+          <div class="field-wide mcp-card">
+            <div class="mcp-meta-row">
+              <span><strong>远程端点：</strong><code>{{ mcpEndpointUrl }}</code></span>
+              <span><strong>发现地址：</strong><code>{{ mcpDiscoveryUrl }}</code></span>
+              <Button type="button" variant="secondary" @click="copyMcpConfig">
+                📋 复制 mcpServers 配置
+              </Button>
+            </div>
+            <pre class="mcp-config-pre">{{ mcpConfigJson }}</pre>
+            <p class="token-help">
+              将上方 <code>&lt;YOUR_API_TOKEN&gt;</code> 替换为上方 API Token 即可在 Cursor / Claude / Windsurf / Cindy 等支持 Streamable HTTP 的客户端中直接接入使用。
+            </p>
+            <div class="mcp-tools-list">
+              <div v-for="tool in mcpTools" :key="tool.name" class="mcp-tool-item">
+                <div class="mcp-tool-header">
+                  <code class="mcp-tool-name">{{ tool.name }}</code>
+                  <span class="mcp-tool-desc">{{ tool.description }}</span>
+                </div>
+                <div class="mcp-tool-params">
+                  <span
+                    v-for="(schema, paramName) in tool.inputSchema.properties"
+                    :key="paramName"
+                    class="mcp-param-tag"
+                    :class="{ required: tool.inputSchema.required?.includes(String(paramName)) }"
+                    :title="schema.description"
+                  >
+                    {{ paramName }}{{ tool.inputSchema.required?.includes(String(paramName)) ? '*' : '' }}: {{ schema.type }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="form-actions">
           <Button variant="secondary" @click="resetForm">重置</Button>
           <Button type="submit" variant="primary" :disabled="saving">
@@ -91,6 +128,7 @@ import { systemApiService } from '@/composables/api-system'
 import { useRouteApiManager } from '@/composables/routeApiManager'
 import { PageHeader, PageStates, FormField, CheckboxField, TagListInput, Button } from '@/components'
 import { toast } from '@/utils/toast'
+import { MCP_TOOLS } from '../../../../../shared/mcp.ts'
 
 const systemStore = useSystemStore()
 const { clearCurrentRouteCache } = useRouteApiManager()
@@ -173,6 +211,32 @@ const handleRotateToken = async () => {
     toast.error(err.response?.data?.message || err.message || '更新 Token 失败')
   } finally {
     rotatingToken.value = false
+  }
+}
+
+const siteOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://your-domain.com'
+const mcpEndpointUrl = `${siteOrigin}/mcp`
+const mcpDiscoveryUrl = `${siteOrigin}/.well-known/mcp.json`
+const mcpTools = MCP_TOOLS
+
+const mcpConfigJson = computed(() => JSON.stringify({
+  mcpServers: {
+    'cloudflare-email-manager': {
+      type: 'streamable-http',
+      url: mcpEndpointUrl,
+      headers: {
+        Authorization: 'Bearer <YOUR_API_TOKEN>'
+      }
+    }
+  }
+}, null, 2))
+
+const copyMcpConfig = async () => {
+  try {
+    await navigator.clipboard.writeText(mcpConfigJson.value)
+    toast.success('MCP 配置已复制到剪贴板')
+  } catch {
+    toast.error('复制失败，请手动选择复制')
   }
 }
 
@@ -588,6 +652,86 @@ onMounted(() => {
   color: #6c757d;
   font-size: 12px;
   margin-top: 5px;
+}
+
+.mcp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mcp-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.mcp-config-pre {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.mcp-tools-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.mcp-tool-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(247, 250, 252, 0.92);
+  border: 1px solid rgba(52, 84, 117, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcp-tool-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mcp-tool-name {
+  font-weight: 700;
+  font-size: 13px;
+  color: #1d4ed8;
+}
+
+.mcp-tool-desc {
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.4;
+}
+
+.mcp-tool-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mcp-param-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #e2e8f0;
+  color: #334155;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.mcp-param-tag.required {
+  background: #dbeafe;
+  color: #1e40af;
 }
 
 @media (max-width: 840px) {

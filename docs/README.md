@@ -148,6 +148,14 @@ cp cli/SKILL.md ~/.gemini/config/skills/cem-mail/SKILL.md
 - **凭据脱敏**：严禁读取、打印或泄露 `~/.config/cem/config.json` 与 `CEM_TOKEN` 明文，检查配置统一使用 `cem config show`。
 - **写操作门禁**：`cem send`、`cem forward`、`cem delete` 属于对外发送或破坏性操作，执行前须经用户明确确认。
 
+### 4. 远程 MCP 端点（Streamable HTTP）
+
+Worker 直接暴露标准远程 MCP 端点与站点发现元数据，可在系统设置页的「MCP 接入配置」卡片中一键复制配置：
+
+- **MCP 端点**：`POST /mcp`（使用 `Authorization: Bearer <api_token>` 鉴权，支持 `initialize`、`tools/list`、`tools/call`）
+- **发现配置**：`GET /.well-known/mcp.json`
+- **内置工具**：`list_emails`、`get_latest_verification`、`read_email`、`send_email`、`forward_email`、`mark_email_read`、`delete_email`
+
 ## 更多文档
 
 - [DEVELOPERS.md](./DEVELOPERS.md)：开发、部署脚本、数据库、消息路由和调试细节

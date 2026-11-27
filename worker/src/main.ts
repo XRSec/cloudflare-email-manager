@@ -15,6 +15,7 @@ import { jwtAuthMiddleware } from './middleware/auth';
 
 // 路由模块
 import { api } from './routes/api';
+import { createMcpRouter } from './routes/mcp';
 
 // 处理器模块
 import emailHandler from './handlers/email';
@@ -44,14 +45,19 @@ function applyStaticAssetCacheHeaders(response: Response): Response {
 // 全局 CORS 配置
 app.use('*', cors({
     origin: '*',
-    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization'],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization', 'Accept', 'Mcp-Session-Id'],
 }));
 
 // 静态资源处理中间件 - 通过 ASSETS 绑定处理
 app.use('*', async (c, next) => {
     // 检查是否为静态文件请求
-    if (c.env.ASSETS && !c.req.path.startsWith('/api/')) {
+    if (
+        c.env.ASSETS &&
+        !c.req.path.startsWith('/api/') &&
+        c.req.path !== '/mcp' &&
+        c.req.path !== '/.well-known/mcp.json'
+    ) {
         const url = new URL(c.req.raw.url);
         const pathname = url.pathname;
 
@@ -127,6 +133,9 @@ app.notFound((c: any) => {
 
 // 注册统一API路由
 app.route('/api', api);
+
+// 注册远程 MCP 端点与站点发现配置
+app.route('/', createMcpRouter((req, env, ctx) => app.fetch(req, env, ctx), jwtAuthMiddleware));
 
 /**
  * 生成符合 RFC 822 标准的原始邮件格式
